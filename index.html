@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Table Workspace</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="toolbar">
+        <div class="left">
+          <div class="file-menu-wrap">
+            <button id="fileMenuBtn" type="button" class="shape-label file-label">Файл ▾</button>
+            <div id="fileMenuDropdown" class="file-dropdown hidden" role="menu" aria-label="Файл">
+              <button id="fileCreateBtn" type="button" role="menuitem">Создать</button>
+              <button id="fileOpenBtn" type="button" role="menuitem">Открыть</button>
+              <button id="fileDeleteBtn" type="button" role="menuitem">Удалить</button>
+              <button id="fileCopyBtn" type="button" role="menuitem">Копировать</button>
+              <label class="file-toggle-item" role="menuitem">
+                <input id="fileAutosaveToggle" type="checkbox" checked />
+                <span>Сохранение автоматическое</span>
+              </label>
+            </div>
+          </div>
+          <button id="addWindowBtn">+ Добавить окно</button>
+          <div class="shape-menu-wrap">
+            <button id="shapeButton" type="button" class="shape-label">+ Добавить фигуру ▾</button>
+            <div id="shapeDropdown" class="shape-dropdown hidden">
+              <button type="button" data-shape="rectangle">Прямоугольник</button>
+              <button type="button" data-shape="line">Линия</button>
+              <button type="button" data-shape="note">Заметка</button>
+              <button type="button" data-shape="table">Таблица</button>
+            </div>
+          </div>
+          <button id="undoBtn" type="button" title="Отменить (Cmd/Ctrl+Z)">↶</button>
+          <button id="redoBtn" type="button" title="Повторить (Cmd/Ctrl+Shift+Z / Ctrl+Y)">↷</button>
+          <button id="zoomOutBtn">-</button>
+          <span id="zoomLabel">100%</span>
+          <button id="zoomInBtn">+</button>
+          <button id="resetZoomBtn">Сброс</button>
+        </div>
+        <div class="right">
+          <div id="themeToggle" class="theme-toggle" role="group" aria-label="Тема">
+            <button id="themeLightBtn" class="theme-btn active" type="button" title="Светлая">☼</button>
+            <button id="themeDarkBtn" class="theme-btn" type="button" title="Темная">☾</button>
+          </div>
+          <label class="format-toggle"><input id="formatToggle" type="checkbox" /> Форматирование</label>
+          <button id="authBtn">Войти через Google</button>
+          <span id="userLabel">Гость</span>
+        </div>
+      </header>
+
+      <div class="hint hidden" id="freeModeHint"></div>
+
+      <main id="viewport" class="viewport">
+        <div id="desktop" class="desktop"></div>
+        <aside id="formatPanel" class="format-panel hidden" aria-label="Формат">
+          <div class="fp-header">
+            <div class="fp-title">Формат</div>
+            <div class="fp-header-actions">
+              <button id="fpCollapseBtn" class="fp-header-icon" type="button" aria-label="Свернуть">⌃</button>
+              <button id="fpClose" class="fp-header-icon" type="button" aria-label="Закрыть">×</button>
+            </div>
+          </div>
+
+          <div class="fp-tabs">
+            <button id="tabStyle" class="fp-tab active" type="button">Стиль</button>
+            <button id="tabText" class="fp-tab" type="button">Текст</button>
+            <button id="tabOrder" class="fp-tab" type="button">Положение</button>
+          </div>
+
+          <section id="panelStyle" class="fp-panel">
+            <div class="fp-strip fp-shape-only">
+              <button type="button" class="fp-nav" aria-label="Назад">‹</button>
+              <div class="fp-swatches">
+                <button class="swatch swatch-none active" data-fill="#ffffff" data-border="#000000" style="background:#ffffff;border-color:#000000"></button>
+                <button class="swatch" data-fill="#f8f8f8" data-border="#808080" style="background:#f8f8f8;border-color:#808080"></button>
+                <button class="swatch" data-fill="#d8e8ff" data-border="#7da6e8" style="background:#d8e8ff;border-color:#7da6e8"></button>
+                <button class="swatch" data-fill="#d9ead3" data-border="#7fb26a" style="background:#d9ead3;border-color:#7fb26a"></button>
+                <button class="swatch" data-fill="#ffe7c2" data-border="#e6a12b" style="background:#ffe7c2;border-color:#e6a12b"></button>
+                <button class="swatch" data-fill="#fff2c4" data-border="#d8b74c" style="background:#fff2c4;border-color:#d8b74c"></button>
+                <button class="swatch" data-fill="#f7c9c9" data-border="#d66b6b" style="background:#f7c9c9;border-color:#d66b6b"></button>
+                <button class="swatch" data-fill="#e4d8f3" data-border="#b59ad8" style="background:#e4d8f3;border-color:#b59ad8"></button>
+              </div>
+              <button type="button" class="fp-nav" aria-label="Вперёд">›</button>
+            </div>
+            <div class="fp-dots fp-shape-only" aria-hidden="true">
+              <span class="dot active"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            </div>
+
+            <div class="fp-style-group fp-shape-only">
+              <div class="fp-row">
+                <label class="fp-check fp-fill-toggle">
+                  <input id="fpFillEnabled" type="checkbox" checked />
+                  <span>Заливка</span>
+                </label>
+                <label class="fp-color-button" aria-label="Цвет заливки">
+                  <input id="fpFill" type="color" />
+                  <span class="fp-color-preview"></span>
+                  <span class="fp-color-pencil">✎</span>
+                </label>
+              </div>
+
+              <div id="fpGradientWrap" class="fp-row hidden">
+                <label class="fp-check fp-fill-toggle">
+                  <input id="fpGradientEnabled" type="checkbox" />
+                  <span>Градиент</span>
+                </label>
+                <select id="fpFillType" class="fp-select-inline">
+                  <option value="" hidden></option>
+                  <option value="horizontal">Горизонталь</option>
+                  <option value="vertical">Вертикаль</option>
+                  <option value="diagonal">По диагонали</option>
+                </select>
+                <label class="fp-color-button" aria-label="Второй цвет заливки">
+                  <input id="fpFill2" type="color" />
+                  <span class="fp-color-preview"></span>
+                  <span class="fp-color-pencil">✎</span>
+                </label>
+              </div>
+
+              <div class="fp-row fp-line-row">
+                <label class="fp-check">
+                  <input id="fpBorderEnabled" type="checkbox" checked />
+                  <span>Линия</span>
+                </label>
+                <label class="fp-color-button" aria-label="Цвет линии">
+                  <input id="fpBorder" type="color" />
+                  <span class="fp-color-preview fp-line-preview"></span>
+                  <span class="fp-color-pencil">✎</span>
+                </label>
+              </div>
+
+              <div class="fp-border-summary">
+                <span class="fp-border-dot"></span>
+                <span id="fpBorderHex">#000000</span>
+              </div>
+
+              <div class="fp-row fp-compact">
+                <select id="fpLineStyle" class="fp-select-inline">
+                  <option value="solid">━━</option>
+                  <option value="dashed">- -</option>
+                  <option value="dotted">···</option>
+                </select>
+                <div class="fp-spinner-wrap">
+                  <input id="fpBorderWidth" type="number" min="0" max="20" step="1" />
+                  <span class="fp-unit">pt</span>
+                  <input id="fpBorderWidthNum" type="range" min="0" max="20" step="1" />
+                </div>
+              </div>
+
+              <div class="fp-row fp-compact">
+                <label class="fp-label-inline">По периметру</label>
+                <div class="fp-spinner-wrap">
+                  <input id="fpAngle" type="number" min="0" max="100" step="1" />
+                  <span class="fp-unit">pt</span>
+                  <input id="fpRadius" type="range" min="0" max="100" step="1" />
+                </div>
+              </div>
+
+              <div class="fp-row fp-compact">
+                <label class="fp-label-inline">Непрозрачность</label>
+                <div class="fp-spinner-wrap">
+                  <input id="fpOpacity" type="number" min="0" max="100" step="1" />
+                  <span class="fp-unit">%</span>
+                  <input id="fpOpacityNum" type="range" min="0" max="100" step="1" />
+                </div>
+              </div>
+
+              <div class="fp-row fp-compact">
+                <label class="fp-label-inline">Тень</label>
+                <div class="fp-spinner-wrap">
+                  <input id="fpShadow" type="number" min="0" max="48" step="1" />
+                  <span class="fp-unit">px</span>
+                  <input id="fpShadowNum" type="range" min="0" max="48" step="1" />
+                </div>
+              </div>
+
+              <div class="fp-footer-select">
+                <button type="button" id="fpApplyBtn">Правка...</button>
+              </div>
+              <button type="button" id="fpCopyStyle" class="fp-wide-button">Копировать стиль</button>
+              <button type="button" id="fpDefaultStyle" class="fp-wide-button">Установить как стиль по умолч...</button>
+            </div>
+
+            <div class="fp-arrow-block fp-connector-only">
+              <div class="fp-arrow-row fp-arrow-wrap">
+                <span class="fp-arrow-label">Форма начала</span>
+                <label class="fp-arrow-gap">px <input id="fpConnGapStart" type="number" min="0" max="200" step="1" /></label>
+              </div>
+              <div id="fpArrowStartShape" class="fp-arrow-pick">
+                <button type="button" class="fp-arrow-option" data-shape="classic" title="Классическая"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M22 3 L36 9 L22 15 Z"/></svg></button>
+                <button type="button" class="fp-arrow-option" data-shape="triangle" title="Треугольник"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M26 4 L36 9 L26 14 Z"/></svg></button>
+                <button type="button" class="fp-arrow-option" data-shape="open" title="Открытая"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M27 3 L36 9 L27 15" fill="none"/></svg></button>
+                <button type="button" class="fp-arrow-option" data-shape="line" title="Линия"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/></svg></button>
+              </div>
+              <div class="fp-arrow-row fp-arrow-wrap">
+                <span class="fp-arrow-label">Форма конца</span>
+                <label class="fp-arrow-gap">px <input id="fpConnGapEnd" type="number" min="0" max="200" step="1" /></label>
+              </div>
+              <div id="fpArrowEndShape" class="fp-arrow-pick">
+                <button type="button" class="fp-arrow-option" data-shape="classic" title="Классическая"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M22 3 L36 9 L22 15 Z"/></svg></button>
+                <button type="button" class="fp-arrow-option" data-shape="triangle" title="Треугольник"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M26 4 L36 9 L26 14 Z"/></svg></button>
+                <button type="button" class="fp-arrow-option" data-shape="open" title="Открытая"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M27 3 L36 9 L27 15" fill="none"/></svg></button>
+                <button type="button" class="fp-arrow-option" data-shape="line" title="Линия"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/></svg></button>
+              </div>
+            </div>
+          </section>
+
+          <section id="panelText" class="fp-panel hidden">
+            <div class="fp-font-head">Шрифт</div>
+            <select id="fpFontFamily" class="fp-font-select">
+              <option value="" hidden></option>
+              <option value="Arial" selected>Arial</option>
+              <option value="Segoe UI">Segoe UI</option>
+              <option value="Helvetica">Helvetica</option>
+              <option value="Trebuchet MS">Trebuchet MS</option>
+              <option value="Times New Roman">Times New Roman</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Courier New">Courier New</option>
+              <option value="Lucida Console">Lucida Console</option>
+            </select>
+
+            <div class="fp-text-quickbar">
+              <label class="fp-check fp-quick"><input id="fpBold" type="checkbox" /><span>B</span></label>
+              <label class="fp-check fp-quick"><input id="fpItalic" type="checkbox" /><span>I</span></label>
+              <label class="fp-check fp-quick"><input id="fpUnderline" type="checkbox" /><span>U</span></label>
+              <label class="fp-check fp-quick"><input id="fpStrike" type="checkbox" /><span>A↕</span></label>
+              <div class="fp-spinner-wrap fp-font-size">
+                <input id="fpFontSize" type="number" min="8" max="72" value="12" />
+                <span class="fp-unit">px</span>
+                <input id="fpTextColor" type="color" />
+              </div>
+            </div>
+
+            <div class="fp-icon-grid">
+              <button id="fpAlignLeft" class="fp-icon-btn active" type="button" title="Слева">☰</button>
+              <button id="fpAlignCenter" class="fp-icon-btn" type="button" title="По центру">≣</button>
+              <button id="fpAlignRight" class="fp-icon-btn" type="button" title="Справа">☷</button>
+              <button id="fpVTop" class="fp-icon-btn active" type="button" title="Сверху">↑</button>
+              <button id="fpVMiddle" class="fp-icon-btn" type="button" title="По центру">↕</button>
+              <button id="fpVBottom" class="fp-icon-btn" type="button" title="Снизу">↓</button>
+            </div>
+
+            <div class="fp-options fp-text-options">
+              <label class="fp-check"><input id="fpWrap" type="checkbox" checked /><span>Перенос по словам</span></label>
+              <label class="fp-check fp-table-only"><input id="fpAutoSize" type="checkbox" checked /><span>Подгонять размер</span></label>
+              <label class="fp-check"><input id="fpNumberGrouping" type="checkbox" checked /><span>Разряды чисел</span></label>
+              <label class="fp-check fp-table-only fp-text-scale"><input id="fpTextScale" type="checkbox" /><span>Менять пропорции текста при растягивании таблицы</span></label>
+            </div>
+
+            <div class="fp-row fp-compact fp-muted-row">
+              <span class="fp-label-inline">Непрозрачность</span>
+              <span class="fp-muted-value">100%</span>
+            </div>
+
+            <div class="fp-margins">
+              <div class="fp-label-inline">Поля</div>
+              <div class="fp-margins-grid">
+                <label><input id="fpX" type="number" value="0" /> <span>Сверху</span></label>
+                <label><input id="fpY" type="number" value="2" /> <span>Общие</span></label>
+                <label><input id="fpW" type="number" value="0" /> <span>Слева</span></label>
+                <label><input id="fpH" type="number" value="0" /> <span>Внизу</span></label>
+                <label><input type="number" value="0" /> <span>Справа</span></label>
+              </div>
+            </div>
+
+            <button id="fpResetBtn" class="fp-wide-button fp-wide-button-ghost" type="button">Очистить форматирование</button>
+          </section>
+
+          <section id="panelOrder" class="fp-panel hidden">
+            <div class="fp-dual-actions">
+              <button id="fpFront" type="button">На передний ...</button>
+              <button id="fpBack" type="button">На задний план</button>
+            </div>
+
+            <button id="fpRotateRight" class="fp-wide-button" type="button">Повернуть на 90° градусов / О...</button>
+
+            <div class="fp-subtitle-line">Отразить</div>
+            <div class="fp-dual-actions">
+              <button id="fpFlipH" type="button">Горизонтально</button>
+              <button id="fpFlipV" type="button">Вертикально</button>
+            </div>
+
+            <div class="fp-align-toolbar">
+              <button class="fp-mini-align active" type="button" title="По левому краю">⟂</button>
+              <button class="fp-mini-align" type="button" title="По центру">⊕</button>
+              <button class="fp-mini-align" type="button" title="По правому краю">⊣</button>
+              <button class="fp-mini-align active" type="button" title="Сверху">⊤</button>
+              <button class="fp-mini-align" type="button" title="По центру">⊕</button>
+              <button class="fp-mini-align" type="button" title="Снизу">⊥</button>
+            </div>
+            <button id="fpSnapGrid" type="button" class="fp-wide-button">Привязка к сетке</button>
+
+            <div class="fp-subtitle-line">Распределить</div>
+            <div class="fp-dual-actions">
+              <button id="fpDistributeH" type="button">Горизонтально</button>
+              <button id="fpDistributeV" type="button">Вертикально</button>
+            </div>
+            <label class="fp-check fp-center-check"><input type="checkbox" /><span>Поля</span></label>
+
+            <button id="fpGroup" type="button" class="fp-wide-button">Группировать</button>
+            <button id="fpLock" type="button" class="fp-wide-button">Блокировать/Разблокировать</button>
+
+            <div class="fp-table-only hidden" id="fpTableOps">
+              <div class="fp-subtitle-line">Таблица</div>
+              <div class="fp-dual-actions">
+                <button id="fpAddCol" type="button">+ Столбец</button>
+                <button id="fpDelCol" type="button">- Столбец</button>
+                <button id="fpAddRow" type="button">+ Строка</button>
+                <button id="fpDelRow" type="button">- Строка</button>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <div id="addWindowModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-card">
+        <h3 id="modalTitle">Добавить таблицу</h3>
+        <label for="modalSheetUrl">URL таблицы:</label>
+        <input id="modalSheetUrl" type="url" placeholder="https://..." />
+        <div class="modal-actions">
+          <button id="modalCancelBtn">Отмена</button>
+          <button id="modalCreateBtn">Добавить</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="fileModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="fileModalTitle">
+      <div class="modal-card file-modal-card">
+        <h3 id="fileModalTitle">Открыть документ</h3>
+        <div id="fileModalList" class="file-doc-list"></div>
+        <div class="modal-actions">
+          <button id="fileModalCloseBtn" type="button">Закрыть</button>
+        </div>
+      </div>
+    </div>
+
+    <template id="windowTemplate">
+      <section class="sheet-window" role="dialog" aria-label="Окно таблицы">
+        <div class="window-header">
+          <span class="window-title">Таблица</span>
+          <div class="window-actions">
+            <button class="action-btn open" title="Открыть в новой вкладке">↗</button>
+            <button class="action-btn refresh" title="Обновить">↻</button>
+            <button class="action-btn close" title="Закрыть">✕</button>
+          </div>
+        </div>
+        <iframe class="sheet-frame" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+        <div class="resize-handle" aria-hidden="true"></div>
+      </section>
+    </template>
+
+    <script src="app.js?v=20260508-file-create-fix-2"></script>
+  </body>
+</html>

@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Format Panel</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app-bg">
+    <div class="format-panel">
+      <div class="format-header">
+        <div class="format-title">Формат</div>
+        <button class="icon-close" aria-label="Закрыть">×</button>
+      </div>
+
+      <div class="format-tabs">
+        <button class="tab active" data-tab="style">
+          <span class="tab-icon">⌁</span>
+          <span>Стиль</span>
+        </button>
+        <button class="tab" data-tab="text">
+          <span class="tab-icon">T</span>
+          <span>Текст</span>
+        </button>
+        <button class="tab" data-tab="arrange">
+          <span class="tab-icon">≡</span>
+          <span>Упорядочить</span>
+        </button>
+      </div>
+
+      <div class="tab-content active" id="style">
+        <section class="preset-card">
+          <div class="section-title">Пресеты заливки</div>
+          <div class="preset-row">
+            <button class="preset fill none active"><span></span></button>
+            <button class="preset fill gray"></button>
+            <button class="preset fill blue"></button>
+            <button class="preset fill green"></button>
+            <button class="preset fill yellow"></button>
+            <button class="preset fill red"></button>
+            <button class="preset fill purple"></button>
+            <button class="preset more">⌄</button>
+          </div>
+
+          <div class="section-title border-title">Пресеты границы</div>
+          <div class="preset-row">
+            <button class="preset border active"><span class="line solid green-line"></span></button>
+            <button class="preset border"><span class="line solid black-line"></span></button>
+            <button class="preset border"><span class="line dashed black-line"></span></button>
+            <button class="preset border"><span class="line dotted black-line"></span></button>
+            <button class="preset border yellow-border"></button>
+            <button class="preset border red-border"></button>
+            <button class="preset border purple-border"></button>
+            <button class="preset more">⌄</button>
+          </div>
+
+          <div class="color-buttons">
+            <button class="soft-button">🖌️ Выбрать цвет...</button>
+            <button class="soft-button">🎨 Другие цвета...</button>
+          </div>
+        </section>
+
+        <div class="settings-grid">
+          <section class="settings-col">
+            <h3>Заливка</h3>
+
+            <button class="small-preview">
+              <span class="fill-preview"></span>
+            </button>
+
+            <label class="field-label">Непрозрачность</label>
+            <div class="slider-row">
+              <input type="range" min="0" max="100" value="100" />
+              <input class="number-input" value="100%" />
+            </div>
+
+            <label class="field-label">Тип</label>
+            <select class="select-input">
+              <option>Сплошная</option>
+              <option>Градиент</option>
+            </select>
+
+            <label class="field-label">Угол</label>
+            <div class="slider-row">
+              <input type="range" min="0" max="360" value="0" />
+              <input class="number-input" value="0°" />
+            </div>
+          </section>
+
+          <section class="settings-col">
+            <h3>Граница</h3>
+
+            <button class="small-preview">
+              <span class="border-preview"></span>
+            </button>
+
+            <label class="field-label">Толщина</label>
+            <div class="slider-row">
+              <input type="range" min="0" max="20" value="1" />
+              <input class="number-input" value="1" />
+            </div>
+
+            <label class="field-label">Радиус</label>
+            <div class="slider-row">
+              <input type="range" min="0" max="50" value="0" />
+              <input class="number-input" value="0" />
+            </div>
+
+            <label class="field-label">Цвет границы</label>
+            <button class="color-value">
+              <span class="color-chip"></span>
+              <span>#16A34A</span>
+            </button>
+
+            <label class="field-label">Стиль</label>
+            <select class="select-input">
+              <option>Сплошная</option>
+              <option>Пунктир</option>
+              <option>Точки</option>
+            </select>
+          </section>
+        </div>
+      </div>
+
+      <div class="tab-content" id="text">
+        <div class="settings-grid">
+          <section class="settings-col">
+            <h3>Выравнивание</h3>
+            <div class="icon-row">
+              <button class="icon-btn active">≡</button>
+              <button class="icon-btn">≡</button>
+              <button class="icon-btn">≡</button>
+            </div>
+
+            <label class="field-label">Шрифт</label>
+            <select class="select-input">
+              <option>Inter</option>
+              <option>Arial</option>
+              <option>Roboto</option>
+            </select>
+
+            <label class="field-label">Размер</label>
+            <select class="select-input">
+              <option>14</option>
+              <option>16</option>
+              <option>18</option>
+            </select>
+
+            <label class="check">
+              <input type="checkbox" />
+              <span>Курсив</span>
+            </label>
+
+            <label class="check">
+              <input type="checkbox" />
+              <span>Подчеркнутый</span>
+            </label>
+          </section>
+
+          <section class="settings-col">
+            <h3>Направление текста</h3>
+            <div class="icon-row">
+              <button class="icon-btn active">↑</button>
+              <button class="icon-btn">↕</button>
+              <button class="icon-btn">↓</button>
+            </div>
+
+            <label class="field-label">Цвет шрифта</label>
+            <button class="color-value">
+              <span class="color-chip dark"></span>
+              <span>#202124</span>
+            </button>
+
+            <label class="check">
+              <input type="checkbox" />
+              <span>Жирный</span>
+            </label>
+
+            <label class="check">
+              <input type="checkbox" checked />
+              <span>Зачеркнутый</span>
+            </label>
+
+            <label class="check">
+              <input type="checkbox" checked />
+              <span>Границы ячеек</span>
+            </label>
+          </section>
+        </div>
+      </div>
+
+      <div class="tab-content" id="arrange">
+        <div class="arrange-actions">
+          <button class="wide-button">↑ На передний план</button>
+          <button class="wide-button">↓ На задний план</button>
+        </div>
+
+        <div class="settings-grid">
+          <section class="settings-col">
+            <label class="field-label">X</label>
+            <input class="text-input" value="0" />
+
+            <label class="field-label">W</label>
+            <input class="text-input" value="100" />
+          </section>
+
+          <section class="settings-col">
+            <label class="field-label">Y</label>
+            <input class="text-input" value="0" />
+
+            <label class="field-label">H</label>
+            <input class="text-input" value="50" />
+          </section>
+        </div>
+
+        <section class="table-section">
+          <h3>Таблица</h3>
+          <div class="table-buttons">
+            <button class="wide-button">+ Столбец</button>
+            <button class="wide-button">- Столбец</button>
+            <button class="wide-button">+ Строка</button>
+            <button class="wide-button">- Строка</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=20260508-table-style-3"></script>
+</body>
+</html>
