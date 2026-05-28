@@ -167,6 +167,15 @@ const SHAPE_VARIANTS = {
   "arrow-right": { kind: "svg", tag: "polygon", points: "0,28 62,28 62,0 100,50 62,100 62,72 0,72" },
   hexagon: { kind: "svg", tag: "polygon", points: "18,0 82,0 100,50 82,100 18,100 0,50" }
 };
+const DEFAULT_CHEVRON_INSET_DEPTH = 18;
+const MIN_CHEVRON_INSET_DEPTH = 6;
+const MAX_CHEVRON_INSET_DEPTH = 40;
+const DEFAULT_PARALLELOGRAM_SKEW = 18;
+const MIN_PARALLELOGRAM_SKEW = 6;
+const MAX_PARALLELOGRAM_SKEW = 40;
+const DEFAULT_HEXAGON_CHAMFER = 18;
+const MIN_HEXAGON_CHAMFER = 6;
+const MAX_HEXAGON_CHAMFER = 32;
 const SHAPE_REF_PATTERN = "@([A-Za-z][A-Za-z0-9_-]*)";
 const SHAPE_REF_RE = new RegExp(SHAPE_REF_PATTERN, "g");
 const TABLE_CELL_REF_RE = /([\p{L}\p{N}][\p{L}\p{N} ._-]*?)_([A-Z]+[1-9]\d*)/gu;
@@ -281,6 +290,11 @@ function updateDesktopExtent() {
   const keepScrollTop = viewportEl ? viewportEl.scrollTop : 0;
   let maxX = BASE_DESKTOP_WIDTH;
   let maxY = BASE_DESKTOP_HEIGHT;
+  const localZoom = Math.max(0.001, Number(zoom) || 1);
+  if (viewportEl) {
+    maxX = Math.max(maxX, (viewportEl.clientWidth / localZoom) + 240);
+    maxY = Math.max(maxY, (viewportEl.clientHeight / localZoom) + 240);
+  }
   desktop.querySelectorAll(".sheet-window, .shape").forEach((el) => {
     maxX = Math.max(maxX, el.offsetLeft + el.offsetWidth + 280);
     maxY = Math.max(maxY, el.offsetTop + el.offsetHeight + 280);
@@ -292,7 +306,12 @@ function updateDesktopExtent() {
     viewportEl.scrollTop = keepScrollTop;
   }
 }
-function applyZoom() { desktop.style.transform = `scale(${zoom})`; zoomLabel.textContent = `${Math.round(zoom * 100)}%`; }
+function applyZoom() {
+  updateDesktopExtent();
+  desktop.style.transform = `scale(${zoom})`;
+  zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+  syncViewportDesktopBackground();
+}
 function normalizeSheetUrl(raw) { return (raw || "").trim() || DEFAULT_SHEET_URL; }
 function repairPossiblyBrokenSheetUrl(raw) {
   const url = normalizeSheetUrl(raw);
@@ -343,19 +362,27 @@ function normalizeDesktopStyle(style = {}) {
     opacity: clamp(Number(style.opacity) || DEFAULT_DESKTOP_STYLE.opacity, 0, 100)
   };
 }
-function applyDesktopStyle(style = desktopStyleState) {
-  desktopStyleState = normalizeDesktopStyle(style);
+function syncViewportDesktopBackground() {
+  if (!viewportEl) return;
   const opacity = desktopStyleState.opacity / 100;
   const layers = [];
   const sizes = [];
   const repeats = [];
+  const positions = [];
+  const scaledGrid = Math.max(1, desktopStyleState.gridSize * Math.max(0.001, Number(zoom) || 1));
+  let baseFill = "transparent";
+  let bodyFill = "";
   if (desktopStyleState.fillEnabled && desktopStyleState.gradientEnabled) {
-    layers.push(`linear-gradient(${gradientDirectionCss(desktopStyleState.fillDirection)}, ${hexToRgba(desktopStyleState.fill, opacity)}, ${hexToRgba(desktopStyleState.fill2, opacity)})`);
+    bodyFill = `linear-gradient(${gradientDirectionCss(desktopStyleState.fillDirection)}, ${hexToRgba(desktopStyleState.fill, opacity)}, ${hexToRgba(desktopStyleState.fill2, opacity)})`;
+    layers.push(bodyFill);
     sizes.push("100% 100%");
     repeats.push("no-repeat");
-    desktop.style.backgroundColor = "transparent";
+    positions.push("0px 0px");
+    viewportEl.style.backgroundColor = "transparent";
   } else {
-    desktop.style.backgroundColor = desktopStyleState.fillEnabled ? hexToRgba(desktopStyleState.fill, opacity) : "transparent";
+    baseFill = desktopStyleState.fillEnabled ? hexToRgba(desktopStyleState.fill, opacity) : "transparent";
+    viewportEl.style.backgroundColor = baseFill;
+    bodyFill = baseFill;
   }
   if (desktopStyleState.borderEnabled) {
     const lineColor = hexToRgba(desktopStyleState.border, opacity);
@@ -364,14 +391,29 @@ function applyDesktopStyle(style = desktopStyleState) {
       `linear-gradient(to bottom, ${lineColor} 1px, transparent 1px)`
     );
     sizes.push(
-      `${desktopStyleState.gridSize}px ${desktopStyleState.gridSize}px`,
-      `${desktopStyleState.gridSize}px ${desktopStyleState.gridSize}px`
+      `${scaledGrid}px ${scaledGrid}px`,
+      `${scaledGrid}px ${scaledGrid}px`
     );
     repeats.push("repeat", "repeat");
+    positions.push(
+      `${-(viewportEl.scrollLeft || 0)}px ${-(viewportEl.scrollTop || 0)}px`,
+      `${-(viewportEl.scrollLeft || 0)}px ${-(viewportEl.scrollTop || 0)}px`
+    );
   }
-  desktop.style.backgroundImage = layers.length ? layers.join(", ") : "none";
-  desktop.style.backgroundSize = sizes.length ? sizes.join(", ") : "";
-  desktop.style.backgroundRepeat = repeats.length ? repeats.join(", ") : "";
+  viewportEl.style.backgroundImage = layers.length ? layers.join(", ") : "none";
+  viewportEl.style.backgroundSize = sizes.length ? sizes.join(", ") : "";
+  viewportEl.style.backgroundRepeat = repeats.length ? repeats.join(", ") : "";
+  viewportEl.style.backgroundPosition = positions.length ? positions.join(", ") : "";
+  document.body.style.background = bodyFill || baseFill || "transparent";
+}
+function applyDesktopStyle(style = desktopStyleState) {
+  desktopStyleState = normalizeDesktopStyle(style);
+  desktop.style.backgroundColor = "transparent";
+  desktop.style.backgroundImage = "none";
+  desktop.style.backgroundSize = "";
+  desktop.style.backgroundRepeat = "";
+  desktop.style.backgroundPosition = "";
+  syncViewportDesktopBackground();
 }
 function fontCssFromKey(key) { return FONT_STACKS[key] || FONT_STACKS.Arial; }
 function fontKeyFromCss(css) {
@@ -576,6 +618,100 @@ function getShapeCornerRadiusUnits(node) {
   const height = Math.max(1, node.offsetHeight || Number.parseFloat(node.style.height || "") || 1);
   return (pxRadius / Math.min(width, height)) * 100;
 }
+function getVariantDepthConfig(variant) {
+  if (variant === "chevron") {
+    return { key: "shapeInsetDepth", min: MIN_CHEVRON_INSET_DEPTH, max: MAX_CHEVRON_INSET_DEPTH, fallback: DEFAULT_CHEVRON_INSET_DEPTH };
+  }
+  if (variant === "parallelogram") {
+    return { key: "shapeSkewDepth", min: MIN_PARALLELOGRAM_SKEW, max: MAX_PARALLELOGRAM_SKEW, fallback: DEFAULT_PARALLELOGRAM_SKEW };
+  }
+  if (variant === "hexagon") {
+    return { key: "shapeChamferDepth", min: MIN_HEXAGON_CHAMFER, max: MAX_HEXAGON_CHAMFER, fallback: DEFAULT_HEXAGON_CHAMFER };
+  }
+  return null;
+}
+function getShapeVariantDepth(node, variant = null) {
+  const currentVariant = variant || normalizeShapeVariant(node?.dataset?.shapeVariant);
+  const cfg = getVariantDepthConfig(currentVariant);
+  if (!cfg) return 0;
+  return Math.max(
+    cfg.min,
+    Math.min(cfg.max, Number(node?.dataset?.[cfg.key] || cfg.fallback) || cfg.fallback)
+  );
+}
+function setShapeVariantDepth(node, variant, value) {
+  const cfg = getVariantDepthConfig(variant);
+  if (!node || !cfg) return 0;
+  const next = Math.max(cfg.min, Math.min(cfg.max, Number(value) || cfg.fallback));
+  node.dataset[cfg.key] = String(next);
+  return next;
+}
+function getVariantPoints(node, variant, spec) {
+  if (variant === "chevron") {
+    const depth = getShapeVariantDepth(node, variant);
+    return `0,0 ${100 - depth},0 100,50 ${100 - depth},100 0,100 ${depth},50`;
+  }
+  if (variant === "parallelogram") {
+    const depth = getShapeVariantDepth(node, variant);
+    return `${depth},0 100,0 ${100 - depth},100 0,100`;
+  }
+  if (variant === "hexagon") {
+    const depth = getShapeVariantDepth(node, variant);
+    return `${depth},0 ${100 - depth},0 100,50 ${100 - depth},100 ${depth},100 0,50`;
+  }
+  return spec?.points || "";
+}
+function syncShapeParamHandle(node) {
+  if (!node || node.dataset.shapeType !== "shape-rect") return;
+  const variant = normalizeShapeVariant(node.dataset.shapeVariant);
+  let handle = node.querySelector(":scope > .shape-param-handle");
+  const cfg = getVariantDepthConfig(variant);
+  if (!cfg) {
+    if (handle) handle.remove();
+    return;
+  }
+  if (!handle) {
+    handle = document.createElement("div");
+    handle.className = "shape-param-handle";
+    handle.title = "Глубина врезки";
+    let drag = null;
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      drag = true;
+      handle.setPointerCapture(event.pointerId);
+    });
+    handle.addEventListener("pointermove", (event) => {
+      if (!drag || (event.buttons & 1) !== 1) return;
+      const rect = node.getBoundingClientRect();
+      const localX = ((event.clientX - rect.left) / Math.max(1, rect.width)) * 100;
+      setShapeVariantDepth(node, variant, localX);
+      renderShapeVisual(node);
+      syncShapeVisualStyle(node);
+      layoutConnectorPoints(node);
+      renderConnectors();
+      syncFormatPanel();
+    });
+    const stop = (event) => {
+      if (!drag) return;
+      drag = null;
+      if (event.pointerId != null) handle.releasePointerCapture(event.pointerId);
+      saveLayout();
+    };
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+    node.appendChild(handle);
+  }
+  const depth = getShapeVariantDepth(node, variant);
+  if (variant === "chevron") {
+    handle.style.left = `${depth}%`;
+    handle.style.top = "50%";
+  } else if (variant === "parallelogram" || variant === "hexagon") {
+    handle.style.left = `${depth}%`;
+    handle.style.top = "0%";
+  }
+}
 function renderShapeVisual(node) {
   if (!node || node.dataset.shapeType !== "shape-rect") return;
   const variant = normalizeShapeVariant(node.dataset.shapeVariant);
@@ -585,6 +721,7 @@ function renderShapeVisual(node) {
     node.dataset.shapeVisual = "0";
     const oldSvg = node.querySelector(":scope > .shape-visual");
     if (oldSvg) oldSvg.remove();
+    syncShapeParamHandle(node);
     node.style.borderRadius = variant === "rounded" ? `${spec?.radius || 28}px` : `${Number(node.dataset.cornerRadius || 0) || 0}px`;
     return;
   }
@@ -596,12 +733,13 @@ function renderShapeVisual(node) {
   el.setAttribute("class", "shape-fill");
   el.setAttribute("vector-effect", "non-scaling-stroke");
   if (spec.points) {
-    const points = parseShapePoints(spec.points);
+    const points = parseShapePoints(getVariantPoints(node, variant, spec));
     el.setAttribute("d", buildRoundedPolygonPath(points, getShapeCornerRadiusUnits(node)));
   } else {
     Object.entries(spec.attrs || {}).forEach(([key, value]) => el.setAttribute(key, String(value)));
   }
   svg.appendChild(el);
+  syncShapeParamHandle(node);
   syncShapeVisualStyle(node);
 }
 function syncShapeVisualStyle(node) {
@@ -613,6 +751,7 @@ function syncShapeVisualStyle(node) {
   const lineStyle = getShapeBorderLineStyle(node);
   const shadow = Math.max(0, Number(node.dataset.shadow || 0) || 0);
   if (!spec || spec.kind !== "svg") {
+    syncShapeParamHandle(node);
     node.style.boxShadow = shadowStyleFromValue(shadow);
     node.style.borderWidth = borderEnabled ? `${Math.max(0, borderWidth)}px` : "0px";
     node.style.borderStyle = lineStyle;
@@ -631,9 +770,10 @@ function syncShapeVisualStyle(node) {
   const fillState = getFillStyleFromNode(node, "#ffffff");
   const borderColor = node.style.borderColor || "#111827";
   if (spec.points) {
-    const points = parseShapePoints(spec.points);
+    const points = parseShapePoints(getVariantPoints(node, variant, spec));
     shape.setAttribute("d", buildRoundedPolygonPath(points, getShapeCornerRadiusUnits(node)));
   }
+  syncShapeParamHandle(node);
   node.style.background = "transparent";
   node.style.border = "0px solid transparent";
   node.style.borderWidth = "0px";
@@ -2553,7 +2693,7 @@ function canStartMarqueeSelectionFromTarget(target, touchMode = false) {
   if (target.closest(".shape-table-grid td")) return false;
   if (target.closest(".sheet-window")) return false;
   if (target.closest(".conn-line, .conn-hit-line")) return false;
-  if (target.closest(".resize-handle, .shape-resize-handle, .shape-line-handle, .conn-point, .conn-arrow")) return false;
+  if (target.closest(".resize-handle, .shape-resize-handle, .shape-line-handle, .shape-param-handle, .conn-point, .conn-arrow")) return false;
   if (target.closest("input, textarea, select, button")) return false;
   if (target.isContentEditable || target.closest('[contenteditable="true"]')) return false;
   if (target.closest(".shape")) return !!touchMode;
@@ -2667,7 +2807,7 @@ function attachDrag(node, handle, opts = {}) {
     if (event.target.closest(".shape-text[contenteditable='true']") || event.target.isContentEditable) return;
     if (event.target.closest(".table-add-col") || event.target.closest(".table-add-row")) return;
     if (event.target.closest(".table-cell-toolbar")) return;
-    if (event.target.closest(".h") || event.target.closest(".shape-line-handle") || event.target.closest(".resize-handle")) return;
+    if (event.target.closest(".h") || event.target.closest(".shape-line-handle") || event.target.closest(".shape-param-handle") || event.target.closest(".resize-handle")) return;
     const groupId = getShapeGroupId(node);
     if (groupId && selectedGroupId === groupId && !selectedShape) {
       drag = {
@@ -3657,6 +3797,13 @@ function createShapeRectangle(opts = {}, doSave = true) {
   opts.height = opts.height || variantSpec.height;
   const node = createShapeBase("shape-rect", opts);
   node.dataset.shapeVariant = opts.shapeVariant;
+  if (getVariantDepthConfig(opts.shapeVariant)) {
+    setShapeVariantDepth(
+      node,
+      opts.shapeVariant,
+      opts.shapeInsetDepth ?? opts.shapeSkewDepth ?? opts.shapeChamferDepth
+    );
+  }
   node.dataset.scrollEnabled = opts.scrollEnabled ? "1" : "0";
   if (opts.radius != null) node.dataset.cornerRadius = String(opts.radius);
   renderShapeVisual(node);
@@ -5261,6 +5408,7 @@ function readShapeData(node) {
     groupId: node.dataset.groupId || undefined,
     type: node.dataset.shapeType,
     shapeVariant: node.dataset.shapeType === "shape-rect" ? normalizeShapeVariant(node.dataset.shapeVariant) : undefined,
+    shapeInsetDepth: node.dataset.shapeType === "shape-rect" && getVariantDepthConfig(normalizeShapeVariant(node.dataset.shapeVariant)) ? getShapeVariantDepth(node) : undefined,
     left: `${Math.max(0, actualLeft)}px`,
     top: `${Math.max(0, actualTop)}px`,
     width: `${Math.max(20, (node.dataset.shapeType === "shape-table" ? (Number(node.dataset.tablePixelWidth) || 0) : 0) || actualWidth || parseFloat(node.style.width || "20") || 20)}px`,
@@ -6636,6 +6784,7 @@ const stopViewportPan = () => {
 viewportEl.addEventListener("pointerup", stopViewportPan);
 viewportEl.addEventListener("pointercancel", stopViewportPan);
 viewportEl.addEventListener("scroll", () => {
+  syncViewportDesktopBackground();
   saveViewportState();
 }, { passive: true });
 viewportEl.addEventListener("pointerdown", () => {

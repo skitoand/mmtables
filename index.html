@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Table Workspace</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=20260527-desktop-format-mode-1" />
   </head>
   <body>
     <div class="app">
@@ -27,10 +27,23 @@
           <div class="shape-menu-wrap">
             <button id="shapeButton" type="button" class="shape-label">+ Добавить фигуру ▾</button>
             <div id="shapeDropdown" class="shape-dropdown hidden">
-              <button type="button" data-shape="rectangle">Прямоугольник</button>
+              <div class="shape-submenu">
+                <button type="button" class="shape-submenu-trigger">Фигуры <span>▸</span></button>
+                <div class="shape-palette">
+                  <button type="button" data-shape="rectangle" data-shape-variant="rectangle" title="Прямоугольник" aria-label="Прямоугольник"><svg viewBox="0 0 64 44" aria-hidden="true"><rect x="10" y="8" width="44" height="28"/></svg></button>
+                  <button type="button" data-shape="rectangle" data-shape-variant="rounded" title="Скругленный прямоугольник" aria-label="Скругленный прямоугольник"><svg viewBox="0 0 64 44" aria-hidden="true"><rect x="10" y="8" width="44" height="28" rx="8" ry="8"/></svg></button>
+                  <button type="button" data-shape="rectangle" data-shape-variant="circle" title="Круг" aria-label="Круг"><svg viewBox="0 0 64 44" aria-hidden="true"><ellipse cx="32" cy="22" rx="18" ry="18"/></svg></button>
+                  <button type="button" data-shape="rectangle" data-shape-variant="parallelogram" title="Параллелограмм" aria-label="Параллелограмм"><svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="18,8 52,8 46,36 12,36"/></svg></button>
+                  <button type="button" data-shape="rectangle" data-shape-variant="diamond" title="Ромб" aria-label="Ромб"><svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="32,6 50,22 32,38 14,22"/></svg></button>
+                  <button type="button" data-shape="rectangle" data-shape-variant="chevron" title="Шеврон" aria-label="Шеврон"><svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="12,8 46,8 56,22 46,36 12,36 20,22"/></svg></button>
+                  <button type="button" data-shape="rectangle" data-shape-variant="arrow-right" title="Стрелка вправо" aria-label="Стрелка вправо"><svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="10,16 34,16 34,8 54,22 34,36 34,28 10,28"/></svg></button>
+                  <button type="button" data-shape="rectangle" data-shape-variant="hexagon" title="Шестиугольник" aria-label="Шестиугольник"><svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="18,8 46,8 56,22 46,36 18,36 8,22"/></svg></button>
+                </div>
+              </div>
               <button type="button" data-shape="line">Линия</button>
               <button type="button" data-shape="note">Заметка</button>
               <button type="button" data-shape="table">Таблица</button>
+              <button type="button" data-action="import-csv">Импорт CSV</button>
             </div>
           </div>
           <button id="undoBtn" type="button" title="Отменить (Cmd/Ctrl+Z)">↶</button>
@@ -40,6 +53,7 @@
           <button id="zoomInBtn">+</button>
           <button id="resetZoomBtn">Сброс</button>
         </div>
+        <div id="currentDocumentTitle" class="toolbar-title">Рабочий стол</div>
         <div class="right">
           <div id="themeToggle" class="theme-toggle" role="group" aria-label="Тема">
             <button id="themeLightBtn" class="theme-btn active" type="button" title="Светлая">☼</button>
@@ -89,8 +103,8 @@
               <span class="dot active"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
             </div>
 
-            <div class="fp-style-group fp-shape-only">
-              <div class="fp-row">
+            <div class="fp-style-group fp-shared-style">
+              <div class="fp-row fp-shape-only">
                 <label class="fp-check fp-fill-toggle">
                   <input id="fpFillEnabled" type="checkbox" checked />
                   <span>Заливка</span>
@@ -102,7 +116,7 @@
                 </label>
               </div>
 
-              <div id="fpGradientWrap" class="fp-row hidden">
+              <div id="fpGradientWrap" class="fp-row fp-three-col-row fp-shape-only hidden">
                 <label class="fp-check fp-fill-toggle">
                   <input id="fpGradientEnabled" type="checkbox" />
                   <span>Градиент</span>
@@ -120,11 +134,16 @@
                 </label>
               </div>
 
-              <div class="fp-row fp-line-row">
+              <div class="fp-row fp-line-row fp-three-col-row">
                 <label class="fp-check">
                   <input id="fpBorderEnabled" type="checkbox" checked />
                   <span>Линия</span>
                 </label>
+                <select id="fpLineStyle" class="fp-select-inline">
+                  <option value="solid">━━</option>
+                  <option value="dashed">- -</option>
+                  <option value="dotted">···</option>
+                </select>
                 <label class="fp-color-button" aria-label="Цвет линии">
                   <input id="fpBorder" type="color" />
                   <span class="fp-color-preview fp-line-preview"></span>
@@ -132,17 +151,8 @@
                 </label>
               </div>
 
-              <div class="fp-border-summary">
-                <span class="fp-border-dot"></span>
-                <span id="fpBorderHex">#000000</span>
-              </div>
-
-              <div class="fp-row fp-compact">
-                <select id="fpLineStyle" class="fp-select-inline">
-                  <option value="solid">━━</option>
-                  <option value="dashed">- -</option>
-                  <option value="dotted">···</option>
-                </select>
+              <div class="fp-row fp-slider-row">
+                <label class="fp-label-inline">Линия</label>
                 <div class="fp-spinner-wrap">
                   <input id="fpBorderWidth" type="number" min="0" max="20" step="1" />
                   <span class="fp-unit">pt</span>
@@ -150,16 +160,16 @@
                 </div>
               </div>
 
-              <div class="fp-row fp-compact">
-                <label class="fp-label-inline">По периметру</label>
+              <div class="fp-row fp-slider-row fp-shape-only">
+                <label class="fp-label-inline">Скругление</label>
                 <div class="fp-spinner-wrap">
-                  <input id="fpAngle" type="number" min="0" max="100" step="1" />
-                  <span class="fp-unit">pt</span>
+                  <input id="fpRadiusNum" type="number" min="0" max="100" step="1" />
+                  <span class="fp-unit">px</span>
                   <input id="fpRadius" type="range" min="0" max="100" step="1" />
                 </div>
               </div>
 
-              <div class="fp-row fp-compact">
+              <div class="fp-row fp-slider-row">
                 <label class="fp-label-inline">Непрозрачность</label>
                 <div class="fp-spinner-wrap">
                   <input id="fpOpacity" type="number" min="0" max="100" step="1" />
@@ -168,7 +178,7 @@
                 </div>
               </div>
 
-              <div class="fp-row fp-compact">
+              <div class="fp-row fp-slider-row">
                 <label class="fp-label-inline">Тень</label>
                 <div class="fp-spinner-wrap">
                   <input id="fpShadow" type="number" min="0" max="48" step="1" />
@@ -177,34 +187,54 @@
                 </div>
               </div>
 
-              <div class="fp-footer-select">
-                <button type="button" id="fpApplyBtn">Правка...</button>
-              </div>
-              <button type="button" id="fpCopyStyle" class="fp-wide-button">Копировать стиль</button>
-              <button type="button" id="fpDefaultStyle" class="fp-wide-button">Установить как стиль по умолч...</button>
             </div>
 
             <div class="fp-arrow-block fp-connector-only">
-              <div class="fp-arrow-row fp-arrow-wrap">
-                <span class="fp-arrow-label">Форма начала</span>
-                <label class="fp-arrow-gap">px <input id="fpConnGapStart" type="number" min="0" max="200" step="1" /></label>
+              <div class="fp-arrow-form-row">
+                <label class="fp-label-inline" for="fpArrowStartShape">Форма начала</label>
+                <div id="fpArrowStartShape" class="fp-arrow-select">
+                  <button class="fp-arrow-select-trigger" type="button" aria-label="Форма начала стрелки"><span class="fp-arrow-select-preview"></span><span class="fp-arrow-caret">⌄</span></button>
+                  <div class="fp-arrow-select-menu">
+                    <button type="button" class="fp-arrow-option" data-shape="classic" title="Классическая"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M22 3 L36 9 L22 15 Z"/></svg></button>
+                    <button type="button" class="fp-arrow-option" data-shape="triangle" title="Треугольник"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M26 4 L36 9 L26 14 Z"/></svg></button>
+                    <button type="button" class="fp-arrow-option" data-shape="open" title="Открытая"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M27 3 L36 9 L27 15" fill="none"/></svg></button>
+                    <button type="button" class="fp-arrow-option" data-shape="line" title="Линия"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/></svg></button>
+                  </div>
+                </div>
               </div>
-              <div id="fpArrowStartShape" class="fp-arrow-pick">
-                <button type="button" class="fp-arrow-option" data-shape="classic" title="Классическая"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M22 3 L36 9 L22 15 Z"/></svg></button>
-                <button type="button" class="fp-arrow-option" data-shape="triangle" title="Треугольник"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M26 4 L36 9 L26 14 Z"/></svg></button>
-                <button type="button" class="fp-arrow-option" data-shape="open" title="Открытая"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M27 3 L36 9 L27 15" fill="none"/></svg></button>
-                <button type="button" class="fp-arrow-option" data-shape="line" title="Линия"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/></svg></button>
+              <div class="fp-row fp-slider-row">
+                <label class="fp-label-inline" for="fpConnGapStart">Отступ начала</label>
+                <div class="fp-spinner-wrap">
+                  <input id="fpConnGapStart" type="number" min="0" max="200" step="1" />
+                  <span class="fp-unit">px</span>
+                  <input id="fpConnGapStartNum" type="range" min="0" max="200" step="1" />
+                </div>
               </div>
-              <div class="fp-arrow-row fp-arrow-wrap">
-                <span class="fp-arrow-label">Форма конца</span>
-                <label class="fp-arrow-gap">px <input id="fpConnGapEnd" type="number" min="0" max="200" step="1" /></label>
+              <div class="fp-arrow-form-row">
+                <label class="fp-label-inline" for="fpArrowEndShape">Форма окончания</label>
+                <div id="fpArrowEndShape" class="fp-arrow-select">
+                  <button class="fp-arrow-select-trigger" type="button" aria-label="Форма окончания стрелки"><span class="fp-arrow-select-preview"></span><span class="fp-arrow-caret">⌄</span></button>
+                  <div class="fp-arrow-select-menu">
+                    <button type="button" class="fp-arrow-option" data-shape="classic" title="Классическая"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M22 3 L36 9 L22 15 Z"/></svg></button>
+                    <button type="button" class="fp-arrow-option" data-shape="triangle" title="Треугольник"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M26 4 L36 9 L26 14 Z"/></svg></button>
+                    <button type="button" class="fp-arrow-option" data-shape="open" title="Открытая"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M27 3 L36 9 L27 15" fill="none"/></svg></button>
+                    <button type="button" class="fp-arrow-option" data-shape="line" title="Линия"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/></svg></button>
+                  </div>
+                </div>
               </div>
-              <div id="fpArrowEndShape" class="fp-arrow-pick">
-                <button type="button" class="fp-arrow-option" data-shape="classic" title="Классическая"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M22 3 L36 9 L22 15 Z"/></svg></button>
-                <button type="button" class="fp-arrow-option" data-shape="triangle" title="Треугольник"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M26 4 L36 9 L26 14 Z"/></svg></button>
-                <button type="button" class="fp-arrow-option" data-shape="open" title="Открытая"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/><path d="M27 3 L36 9 L27 15" fill="none"/></svg></button>
-                <button type="button" class="fp-arrow-option" data-shape="line" title="Линия"><svg viewBox="0 0 40 18" aria-hidden="true"><line x1="2" y1="9" x2="36" y2="9"/></svg></button>
+              <div class="fp-row fp-slider-row">
+                <label class="fp-label-inline" for="fpConnGapEnd">Отступ окончания</label>
+                <div class="fp-spinner-wrap">
+                  <input id="fpConnGapEnd" type="number" min="0" max="200" step="1" />
+                  <span class="fp-unit">px</span>
+                  <input id="fpConnGapEndNum" type="range" min="0" max="200" step="1" />
+                </div>
               </div>
+            </div>
+            <div class="fp-style-actions fp-shared-style">
+              <button type="button" id="fpCopyStyle" class="fp-wide-button">Копировать стиль</button>
+              <button type="button" id="fpPasteStyle" class="fp-wide-button">Вставить стиль</button>
+              <button type="button" id="fpDefaultStyle" class="fp-wide-button">Установить как стиль по умолч...</button>
             </div>
           </section>
 
@@ -245,9 +275,10 @@
 
             <div class="fp-options fp-text-options">
               <label class="fp-check"><input id="fpWrap" type="checkbox" checked /><span>Перенос по словам</span></label>
+              <label class="fp-check fp-scroll-only"><input id="fpScroll" type="checkbox" /><span>Скрол</span></label>
               <label class="fp-check fp-table-only"><input id="fpAutoSize" type="checkbox" checked /><span>Подгонять размер</span></label>
               <label class="fp-check"><input id="fpNumberGrouping" type="checkbox" checked /><span>Разряды чисел</span></label>
-              <label class="fp-check fp-table-only fp-text-scale"><input id="fpTextScale" type="checkbox" /><span>Менять пропорции текста при растягивании таблицы</span></label>
+              <label class="fp-check fp-table-only fp-text-scale"><input id="fpTextScale" type="checkbox" /><span>Масштабировать ячейки при растягивании</span></label>
             </div>
 
             <div class="fp-row fp-compact fp-muted-row">
@@ -270,6 +301,7 @@
           </section>
 
           <section id="panelOrder" class="fp-panel hidden">
+            <input id="fpAngle" type="hidden" value="0" />
             <div class="fp-dual-actions">
               <button id="fpFront" type="button">На передний ...</button>
               <button id="fpBack" type="button">На задний план</button>
@@ -354,6 +386,8 @@
       </section>
     </template>
 
-    <script src="app.js?v=20260508-file-create-fix-2"></script>
+    <input id="csvImportInput" type="file" accept=".csv,text/csv" hidden />
+
+    <script src="app.js?v=20260528-table-handle-modes-1"></script>
   </body>
 </html>
