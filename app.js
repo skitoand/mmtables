@@ -520,6 +520,62 @@ function ensureShapeVisual(node) {
   node.insertBefore(svg, node.firstChild);
   return svg;
 }
+function parseShapePoints(points) {
+  return String(points || "")
+    .trim()
+    .split(/\s+/)
+    .map((pair) => pair.split(",").map(Number))
+    .filter((pair) => pair.length === 2 && Number.isFinite(pair[0]) && Number.isFinite(pair[1]))
+    .map(([x, y]) => ({ x, y }));
+}
+function buildRoundedPolygonPath(points, radius = 0) {
+  const pts = Array.isArray(points) ? points : [];
+  if (pts.length < 3) return "";
+  const safeRadius = Math.max(0, Number(radius) || 0);
+  if (safeRadius <= 0) {
+    return `M ${pts.map((pt) => `${pt.x} ${pt.y}`).join(" L ")} Z`;
+  }
+  const getLen = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+  const getPointTowards = (from, to, dist) => {
+    const len = getLen(from, to) || 1;
+    const t = Math.max(0, Math.min(0.5, dist / len));
+    return {
+      x: from.x + (to.x - from.x) * t,
+      y: from.y + (to.y - from.y) * t
+    };
+  };
+  const corners = pts.map((curr, index) => {
+    const prev = pts[(index - 1 + pts.length) % pts.length];
+    const next = pts[(index + 1) % pts.length];
+    const maxOffset = Math.min(getLen(curr, prev), getLen(curr, next)) / 2;
+    const offset = Math.min(safeRadius, maxOffset);
+    return {
+      entry: getPointTowards(curr, prev, offset),
+      corner: curr,
+      exit: getPointTowards(curr, next, offset)
+    };
+  });
+  let path = `M ${corners[0].exit.x} ${corners[0].exit.y}`;
+  for (let i = 1; i <= corners.length; i += 1) {
+    const prevCorner = corners[i - 1];
+    const currentCorner = corners[i % corners.length];
+    path += ` L ${currentCorner.entry.x} ${currentCorner.entry.y}`;
+    path += ` Q ${currentCorner.corner.x} ${currentCorner.corner.y} ${currentCorner.exit.x} ${currentCorner.exit.y}`;
+    if (i === corners.length) {
+      path += ` L ${corners[0].entry.x} ${corners[0].entry.y}`;
+      path += ` Q ${corners[0].corner.x} ${corners[0].corner.y} ${corners[0].exit.x} ${corners[0].exit.y}`;
+    }
+  }
+  return `${path} Z`;
+}
+function getShapeCornerRadiusUnits(node) {
+  if (!node) return 0;
+  const pxRadius = Math.max(0, Number(node.dataset.cornerRadius || 0) || 0);
+  if (!pxRadius) return 0;
+  const width = Math.max(1, node.offsetWidth || Number.parseFloat(node.style.width || "") || 1);
+  const height = Math.max(1, node.offsetHeight || Number.parseFloat(node.style.height || "") || 1);
+  return (pxRadius / Math.min(width, height)) * 100;
+}
 function renderShapeVisual(node) {
   if (!node || node.dataset.shapeType !== "shape-rect") return;
   const variant = normalizeShapeVariant(node.dataset.shapeVariant);
@@ -536,10 +592,15 @@ function renderShapeVisual(node) {
   const svg = ensureShapeVisual(node);
   if (!svg) return;
   svg.innerHTML = "";
-  const el = document.createElementNS("http://www.w3.org/2000/svg", spec.tag);
+  const el = document.createElementNS("http://www.w3.org/2000/svg", spec.points ? "path" : spec.tag);
   el.setAttribute("class", "shape-fill");
-  if (spec.points) el.setAttribute("points", spec.points);
-  Object.entries(spec.attrs || {}).forEach(([key, value]) => el.setAttribute(key, String(value)));
+  el.setAttribute("vector-effect", "non-scaling-stroke");
+  if (spec.points) {
+    const points = parseShapePoints(spec.points);
+    el.setAttribute("d", buildRoundedPolygonPath(points, getShapeCornerRadiusUnits(node)));
+  } else {
+    Object.entries(spec.attrs || {}).forEach(([key, value]) => el.setAttribute(key, String(value)));
+  }
   svg.appendChild(el);
   syncShapeVisualStyle(node);
 }
@@ -547,15 +608,40 @@ function syncShapeVisualStyle(node) {
   if (!node || node.dataset.shapeType !== "shape-rect") return;
   const variant = normalizeShapeVariant(node.dataset.shapeVariant);
   const spec = SHAPE_VARIANTS[variant];
-  if (!spec || spec.kind !== "svg") return;
+  const borderEnabled = node.dataset.borderEnabled !== "0";
+  const borderWidth = borderEnabled ? Math.max(0, Number(node.dataset.borderWidth || parseInt(node.style.borderWidth || "1", 10) || 0)) : 0;
+  const lineStyle = getShapeBorderLineStyle(node);
+  const shadow = Math.max(0, Number(node.dataset.shadow || 0) || 0);
+  if (!spec || spec.kind !== "svg") {
+    node.style.boxShadow = shadowStyleFromValue(shadow);
+    node.style.borderWidth = borderEnabled ? `${Math.max(0, borderWidth)}px` : "0px";
+    node.style.borderStyle = lineStyle;
+    if (variant === "rounded") {
+      node.style.borderRadius = `${spec?.radius || 28}px`;
+    } else {
+      node.style.borderRadius = `${Number(node.dataset.cornerRadius || 0) || 0}px`;
+    }
+    const svg = node.querySelector(":scope > .shape-visual");
+    if (svg) svg.style.filter = "";
+    return;
+  }
   const svg = node.querySelector(":scope > .shape-visual");
   const shape = svg ? svg.querySelector(".shape-fill") : null;
   if (!svg || !shape) return;
   const fillState = getFillStyleFromNode(node, "#ffffff");
-  const borderEnabled = node.dataset.borderEnabled !== "0";
-  const borderWidth = borderEnabled ? Math.max(0, Number(node.dataset.borderWidth || parseInt(node.style.borderWidth || "1", 10) || 0)) : 0;
   const borderColor = node.style.borderColor || "#111827";
-  const lineStyle = getShapeBorderLineStyle(node);
+  if (spec.points) {
+    const points = parseShapePoints(spec.points);
+    shape.setAttribute("d", buildRoundedPolygonPath(points, getShapeCornerRadiusUnits(node)));
+  }
+  node.style.background = "transparent";
+  node.style.border = "0px solid transparent";
+  node.style.borderWidth = "0px";
+  node.style.borderColor = "transparent";
+  node.style.borderStyle = "solid";
+  node.style.borderRadius = "0px";
+  node.style.boxShadow = "none";
+  svg.style.filter = shadowFilterFromValue(shadow);
   shape.setAttribute("stroke", borderEnabled ? borderColor : "transparent");
   shape.setAttribute("stroke-width", String(borderWidth));
   shape.setAttribute("stroke-dasharray", borderEnabled ? getShapeStrokeDasharray(lineStyle, borderWidth) : "0");
@@ -937,11 +1023,43 @@ function shadowStyleFromValue(value) {
   const px = clampShadowValue(value);
   return px > 0 ? `0 4px ${px}px rgba(0, 0, 0, 0.22)` : "none";
 }
+function shadowFilterFromValue(value) {
+  const px = clampShadowValue(value);
+  return px > 0 ? `drop-shadow(0 4px ${px}px rgba(0, 0, 0, 0.22))` : "";
+}
 function applyNodeShadow(node, value) {
   if (!node) return;
   const px = clampShadowValue(value);
   node.dataset.shadow = String(px);
   node.style.boxShadow = shadowStyleFromValue(px);
+}
+function applyTableShapeVisualState(node, tableState = null) {
+  if (!node || node.dataset.shapeType !== "shape-table") return;
+  const state = tableState || node.__tableState;
+  const chrome = node.querySelector(".shape-table-chrome");
+  if (!state || !chrome) return;
+  const borderWidth = state.style.borderEnabled ? Math.max(0, Number(state.style.borderWidth) || 0) : 0;
+  const borderStyle = normalizeBorderLineStyle(state.style.borderStyle || node.dataset.borderStyle || "solid");
+  node.dataset.borderColor = state.style.border;
+  node.dataset.borderEnabled = state.style.borderEnabled ? "1" : "0";
+  node.dataset.borderWidth = String(state.style.borderWidth);
+  node.dataset.borderStyle = borderStyle;
+  node.dataset.radius = String(state.style.radius);
+  node.dataset.opacity = String(state.style.opacity);
+  node.dataset.shadow = String(state.style.shadow);
+  node.style.background = "transparent";
+  node.style.border = "0px solid transparent";
+  node.style.borderWidth = "0px";
+  node.style.borderColor = "transparent";
+  node.style.borderStyle = "solid";
+  node.style.borderRadius = "0px";
+  node.style.boxShadow = "none";
+  node.style.opacity = String(state.style.opacity);
+  chrome.style.borderColor = state.style.border;
+  chrome.style.borderWidth = state.style.borderEnabled ? `${borderWidth}px` : "0px";
+  chrome.style.borderStyle = borderStyle;
+  chrome.style.borderRadius = `${state.style.radius}px`;
+  chrome.style.boxShadow = shadowStyleFromValue(state.style.shadow);
 }
 function setViewportScrollLock(locked) {
   if (!viewportEl) return;
@@ -1493,6 +1611,7 @@ function snapshotStyleForSelection() {
     const text = selectedShape.querySelector(".shape-text");
     const header = selectedShape.querySelector(".table-titlebar");
     const headerText = selectedShape.querySelector(".table-title-text");
+    const tableState = selectedShape.dataset.shapeType === "shape-table" ? selectedShape.__tableState : null;
     const fillNode = selectedShape.dataset.shapeType === "shape-table" ? (header || selectedShape) : selectedShape;
     const fillState = getFillStyleFromNode(fillNode, selectedShape.dataset.shapeType === "shape-table" ? "#f8fafc" : "#ffffff");
     if (selectedShape.dataset.shapeType === "shape-table" && selectedShape.__tableSelectionScope === "cells" && selectedShape.__tableApi && selectedShape.__tableApi.getSelection) {
@@ -1542,16 +1661,16 @@ function snapshotStyleForSelection() {
         fillDirection: fillState.fillDirection,
         fill: fillState.fill1,
         fill2: fillState.fill2,
-        border: selectedShape.style.borderColor || "",
-        borderEnabled: selectedShape.dataset.borderEnabled != null ? selectedShape.dataset.borderEnabled === "1" : parseInt(selectedShape.style.borderWidth || "1", 10) > 0,
-        borderWidth: Math.max(0, Number(selectedShape.dataset.borderWidth || parseInt(selectedShape.style.borderWidth || "1", 10) || 0)),
-        borderStyle: getShapeBorderLineStyle(selectedShape),
+        border: tableState ? tableState.style.border : (selectedShape.style.borderColor || ""),
+        borderEnabled: tableState ? tableState.style.borderEnabled : (selectedShape.dataset.borderEnabled != null ? selectedShape.dataset.borderEnabled === "1" : parseInt(selectedShape.style.borderWidth || "1", 10) > 0),
+        borderWidth: tableState ? Math.max(0, Number(tableState.style.borderWidth) || 0) : Math.max(0, Number(selectedShape.dataset.borderWidth || parseInt(selectedShape.style.borderWidth || "1", 10) || 0)),
+        borderStyle: tableState ? normalizeBorderLineStyle(tableState.style.borderStyle || "solid") : getShapeBorderLineStyle(selectedShape),
         tableWrap: selectedShape.dataset.shapeType === "shape-table" ? (selectedShape.dataset.tableWrap !== "0") : undefined,
         tableAutoSize: selectedShape.dataset.shapeType === "shape-table" ? (selectedShape.dataset.tableAutoSize !== "0") : undefined,
         scrollEnabled: selectedShape.dataset.scrollEnabled === "1",
-        radius: Math.max(0, Number(selectedShape.dataset.cornerRadius || parseInt(selectedShape.style.borderRadius || "0", 10) || 0)),
+        radius: tableState ? Math.max(0, Number(tableState.style.radius) || 0) : Math.max(0, Number(selectedShape.dataset.cornerRadius || parseInt(selectedShape.style.borderRadius || "0", 10) || 0)),
         opacity: selectedShape.style.opacity || "1",
-        shadow: Number(selectedShape.dataset.shadow ?? parseShadowValue(selectedShape.style.boxShadow || getComputedStyle(selectedShape).boxShadow)) || 0,
+        shadow: tableState ? (Number(tableState.style.shadow) || 0) : (Number(selectedShape.dataset.shadow ?? parseShadowValue(selectedShape.style.boxShadow || getComputedStyle(selectedShape).boxShadow)) || 0),
         fontFamily: text ? (text.style.fontFamily || "") : (headerText ? (headerText.style.fontFamily || "") : ""),
         fontSize: text ? parseInt(text.style.fontSize || "16", 10) : (headerText ? parseInt(headerText.style.fontSize || "18", 10) : 16),
         textColor: text ? (text.style.color || "") : (headerText ? (headerText.style.color || "") : ""),
@@ -3979,14 +4098,11 @@ function createShapeTable(opts = {}, doSave = true) {
   node.dataset.shadow = String(state.style.shadow);
   node.dataset.tablePixelWidth = String(Math.round(Number.parseFloat(node.style.width) || 620));
   node.dataset.tablePixelHeight = String(Math.round(Number.parseFloat(node.style.height) || 360));
-  node.style.background = "#ffffff";
-  node.style.borderStyle = node.dataset.borderStyle;
-  node.style.borderColor = state.style.border;
-  node.style.borderWidth = state.style.borderEnabled ? `${state.style.borderWidth}px` : "0px";
-  node.style.borderRadius = `${state.style.radius}px`;
+  node.style.background = "transparent";
   node.style.opacity = String(state.style.opacity);
-  applyNodeShadow(node, state.style.shadow);
 
+  const chrome = document.createElement("div");
+  chrome.className = "shape-table-chrome";
   const titleBar = document.createElement("div");
   titleBar.className = "table-titlebar";
   const titleText = document.createElement("div");
@@ -4637,13 +4753,9 @@ function createShapeTable(opts = {}, doSave = true) {
     node.dataset.radius = String(state.style.radius);
     node.dataset.opacity = String(state.style.opacity);
     node.dataset.shadow = String(state.style.shadow);
-    node.style.borderColor = state.style.border;
-    node.style.borderWidth = state.style.borderEnabled ? `${state.style.borderWidth}px` : "0px";
-    node.style.borderStyle = node.dataset.borderStyle;
-    node.style.borderRadius = `${state.style.radius}px`;
     node.style.opacity = String(state.style.opacity);
     node.style.outline = "none";
-    applyNodeShadow(node, state.style.shadow);
+    applyTableShapeVisualState(node, state);
   };
   const syncShapeToFormatPanel = () => {
     if (fpFillEnabled) fpFillEnabled.checked = state.style.headerFillEnabled;
@@ -5019,8 +5131,9 @@ function createShapeTable(opts = {}, doSave = true) {
   titleBar.appendChild(titleText);
   tableWrap.appendChild(tableEl);
   tableRoot.appendChild(tableWrap);
-  node.appendChild(titleBar);
-  node.appendChild(tableRoot);
+  chrome.appendChild(titleBar);
+  chrome.appendChild(tableRoot);
+  node.appendChild(chrome);
   node.appendChild(addColBtn);
   node.appendChild(addRowBtn);
   node.appendChild(resizeHandle);
@@ -5081,6 +5194,7 @@ function createShapeTable(opts = {}, doSave = true) {
   };
 
   applyTitle();
+  applyTableShapeVisualState(node, state);
   renderTable();
   attachDrag(node, titleBar, { raiseOnDrag: false });
   addShapeHandles(node, false);
@@ -5596,6 +5710,7 @@ function applyFormat() {
     if (!shapes.length) return;
     shapes.forEach((node) => {
       const text = node.querySelector(".shape-text");
+      const tableState = node.dataset.shapeType === "shape-table" ? node.__tableState : null;
       if (fpFillEnabled && !isControlMixed(fpFillEnabled)) {
         const fillEnabled = fpFillEnabled.checked;
         const gradientEnabled = fillEnabled && fpGradientEnabled && !isControlMixed(fpGradientEnabled) ? fpGradientEnabled.checked : (node.dataset.gradientEnabled === "1");
@@ -5615,23 +5730,38 @@ function applyFormat() {
           fillDirection: fpFillType && !isControlMixed(fpFillType) ? fpFillType.value : (node.dataset.fillDirection || "horizontal")
         });
       }
-      if (fpBorderEnabled && !isControlMixed(fpBorderEnabled)) node.dataset.borderEnabled = fpBorderEnabled.checked ? "1" : "0";
-      if (fpBorder && !isControlMixed(fpBorder)) node.style.borderColor = fpBorder.value;
+      if (fpBorderEnabled && !isControlMixed(fpBorderEnabled)) {
+        node.dataset.borderEnabled = fpBorderEnabled.checked ? "1" : "0";
+        if (tableState) tableState.style.borderEnabled = fpBorderEnabled.checked;
+      }
+      if (fpBorder && !isControlMixed(fpBorder)) {
+        node.style.borderColor = fpBorder.value;
+        if (tableState) tableState.style.border = fpBorder.value;
+      }
       if (fpLineStyle && !isControlMixed(fpLineStyle)) {
         node.dataset.borderStyle = normalizeBorderLineStyle(fpLineStyle.value);
         node.style.borderStyle = node.dataset.borderStyle;
+        if (tableState) tableState.style.borderStyle = node.dataset.borderStyle;
       }
       if (fpBorderWidth && !isControlMixed(fpBorderWidth)) {
         const borderWidth = Math.max(0, Number(fpBorderWidth.value) || 0);
         node.dataset.borderWidth = String(borderWidth);
         node.style.borderWidth = node.dataset.borderEnabled === "1" ? `${Math.max(1, borderWidth)}px` : "0px";
+        if (tableState) tableState.style.borderWidth = node.dataset.borderEnabled === "1" ? Math.max(1, borderWidth) : 0;
       }
       if (fpRadius && !isControlMixed(fpRadius)) {
         if (node.dataset.shapeType === "shape-rect") node.dataset.cornerRadius = String(Number(fpRadius.value) || 0);
         node.style.borderRadius = `${fpRadius.value}px`;
+        if (tableState) tableState.style.radius = Math.max(0, Number(fpRadius.value) || 0);
       }
-      if (fpOpacity && !isControlMixed(fpOpacity)) node.style.opacity = `${Number(fpOpacity.value) / 100}`;
-      if (fpShadow && !isControlMixed(fpShadow)) applyNodeShadow(node, fpShadow.value);
+      if (fpOpacity && !isControlMixed(fpOpacity)) {
+        node.style.opacity = `${Number(fpOpacity.value) / 100}`;
+        if (tableState) tableState.style.opacity = Number(fpOpacity.value) / 100;
+      }
+      if (fpShadow && !isControlMixed(fpShadow)) {
+        applyNodeShadow(node, fpShadow.value);
+        if (tableState) tableState.style.shadow = Math.max(0, Number(fpShadow.value) || 0);
+      }
       if (text) {
         if (fpTextColor && !isControlMixed(fpTextColor)) text.style.color = fpTextColor.value;
         if (fpFontSize && !isControlMixed(fpFontSize)) text.style.fontSize = `${Math.max(8, Number(fpFontSize.value) || 8)}px`;
@@ -5647,6 +5777,7 @@ function applyFormat() {
         node.dataset.scrollEnabled = fpScroll.checked ? "1" : "0";
         applyTableScrollState(node.__tableWrapEl, fpScroll.checked);
       }
+      if (tableState) applyTableShapeVisualState(node, tableState);
       syncShapeVisualStyle(node);
       layoutConnectorPoints(node);
     });
