@@ -10,6 +10,33 @@
 
 ---
 
+## 2026-07-13 — фикс: Bitrix webhook на проде (bitrix-chart.js не деплоился)
+
+**Commit:** `a5d1cc1` — Fix deploy backup when bitrix-chart.js is not yet on the server. (включает `c2da5ee` — добавление файла в deploy)  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-123143-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29250191217](https://github.com/skitoand/mmtables/actions/runs/29250191217) — success  
+**Статус:** OK
+
+### Причина
+
+`index.html` подключал `bitrix-chart.js`, но скрипт деплоя его не выкладывал → 404 на проде → кнопка «Подключить» в профиле не работала (логика в `bitrix-chart.js`).
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `scripts/deploy_prod.sh` | деплой `bitrix-chart.js`; бэкап не падает, если файла ещё нет на сервере |
+| `DEPLOY.md` | `bitrix-chart.js` в списке runtime-файлов |
+| прод | `bitrix-chart.js` → HTTP 200 |
+
+### Проверка на проде
+
+- [x] GitHub Actions завершился успешно
+- [x] `curl -I http://127.0.0.1:4173/bitrix-chart.js` → 200
+- [ ] подключение webhook в профиле — проверить вручную после hard refresh
+
+---
+
 ## 2026-07-13 — график Bitrix24: количество или сумма по полю
 
 **Commit:** `cd5ed33` — Add count or sum-by-field metric selection to Bitrix24 chart settings.  
