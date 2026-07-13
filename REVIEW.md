@@ -4,7 +4,76 @@
 Сервер: `95.163.226.145` (`/opt/apps/mmtable`)  
 Бэкапы: `/opt/apps/backups/`
 
-Формат записи: дата → бэкап → что выкатили → проверка.
+Формат записи: дата → commit → бэкап → что выкатили → проверка → GitHub Actions (если через CI).
+
+После каждого деплоя на прод сюда добавляется новая запись (вручную или агентом Cursor).
+
+---
+
+## 2026-07-13 — иконка MMTABLE в репозиторий
+
+**Commit:** `4d0b1cb` — Add MMTABLE source icon asset.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-092530-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29239037370](https://github.com/skitoand/mmtables/actions/runs/29239037370) — success  
+**Статус:** OK (runtime на проде без изменений)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `Иконка MMTABLE.png` | исходник иконки в git; **не** входит в `deploy_prod.sh`, на сервер не копируется |
+
+### Проверка на проде
+
+- [x] GitHub Actions завершился успешно
+- [x] `curl -I https://mmtable.crystalsystems.ru/` → 200
+
+---
+
+## 2026-07-13 — фикс healthcheck в deploy_prod.sh
+
+**Commit:** `967c0cc` — Fix deploy healthcheck so GitHub Actions does not fail on gunicorn grep race.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-085027-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29236840923](https://github.com/skitoand/mmtables/actions/runs/29236840923) — success  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `scripts/deploy_prod.sh` | healthcheck через `curl` вместо обязательного `grep gunicorn`; CI больше не падает на гонке процессов |
+
+### Проверка на проде
+
+- [x] GitHub Actions завершился успешно
+- [x] gunicorn и публичный URL отвечают 200
+
+---
+
+## 2026-07-13 — переход на деплой через GitHub Actions + синхронизация main с продом
+
+**Commits:** `b594098` (workflow) + `7a556dc` (sync prod state); также в push: `ef49886`, `ec70d16`, `289bc52`  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-084837-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29236733442](https://github.com/skitoand/mmtables/actions/runs/29236733442) — failure в CI, **прод обновлён** (известная гонка `grep gunicorn`)  
+**Статус:** OK на проде; CI исправлен в `967c0cc`
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `.github/workflows/deploy.yml` | автодеплой при `push` в `main` |
+| `scripts/deploy_prod.sh` | деплой по SSH; поддержка `DEPLOY_SSH_KEY_CONTENT` для CI |
+| `scripts/setup_github_deploy.sh` | настройка secrets в GitHub |
+| `DEPLOY.md`, `AGENTS.md` | документация нового процесса |
+| `app.js`, `index.html`, `styles.css`, `server.py` | синхронизация git с текущим продом |
+| `assets/*` | favicon, apple-touch-icon, иконки БП |
+| `docs/`, `scripts/`, `REVIEW.md`, прочие | вспомогательные файлы в репозитории |
+
+### Проверка на проде
+
+- [x] `app.js` на сервере 687689 байт — совпадает с продом до выкладки
+- [x] gunicorn и `https://mmtable.crystalsystems.ru/` → 200
+- [x] Secrets `DEPLOY_SSH_KEY`, `DEPLOY_HOST`, `DEPLOY_USER` настроены
 
 ---
 
