@@ -10,7 +10,26 @@
 
 ---
 
-## 2026-07-13 — иконка MMTABLE в репозиторий
+## 2026-07-13 — журнал выкладок за сегодня + правило обновления REVIEW.md
+
+**Commit:** `27c0a78` — Document today's deploys in REVIEW.md and formalize post-deploy journal updates.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-093041-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29239378993](https://github.com/skitoand/mmtables/actions/runs/29239378993) — success  
+**Статус:** OK (runtime на проде без изменений)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `REVIEW.md` | записи о выкладках 2026-07-13 (GitHub Actions, sync, healthcheck, иконка) |
+| `DEPLOY.md`, `AGENTS.md` | формат REVIEW: commit SHA + ссылка на Actions run |
+
+### Проверка на проде
+
+- [x] GitHub Actions завершился успешно
+- [x] `curl -I https://mmtable.crystalsystems.ru/` → 200
+
+---
 
 **Commit:** `4d0b1cb` — Add MMTABLE source icon asset.  
 **Бэкап:** `mmtable-PROD-BACKUP-20260713-092530-before-deploy.tar.gz`  
