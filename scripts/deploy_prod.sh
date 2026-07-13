@@ -68,6 +68,7 @@ require_local_file "$ROOT_DIR/app.js"
 require_local_file "$ROOT_DIR/index.html"
 require_local_file "$ROOT_DIR/styles.css"
 require_local_file "$ROOT_DIR/server.py"
+require_local_file "$ROOT_DIR/bitrix-chart.js"
 require_local_file "$ROOT_DIR/assets/favicon.png"
 require_local_file "$ROOT_DIR/assets/apple-touch-icon.png"
 
@@ -78,10 +79,11 @@ echo "Deploying to ${USER_NAME}@${HOST}:${REMOTE_APP_DIR}"
 
 echo "1/4 Creating server backup"
 retry 6 remote_ssh \
-  "mkdir -p '${REMOTE_BACKUP_DIR}' && tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js index.html styles.css server.py assets/favicon.png assets/apple-touch-icon.png workspace.db 2>/dev/null || tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js index.html styles.css server.py workspace.db && ls -lh '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}'"
+  "mkdir -p '${REMOTE_BACKUP_DIR}' && tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js bitrix-chart.js index.html styles.css server.py assets/favicon.png assets/apple-touch-icon.png workspace.db 2>/dev/null || tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js bitrix-chart.js index.html styles.css server.py workspace.db && ls -lh '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}'"
 
 echo "2/4 Uploading files to /tmp"
 retry 6 remote_scp "$ROOT_DIR/app.js" "${USER_NAME}@${HOST}:/tmp/mmtable_app.js"
+retry 6 remote_scp "$ROOT_DIR/bitrix-chart.js" "${USER_NAME}@${HOST}:/tmp/mmtable_bitrix_chart.js"
 retry 6 remote_scp "$ROOT_DIR/index.html" "${USER_NAME}@${HOST}:/tmp/mmtable_index.html"
 retry 6 remote_scp "$ROOT_DIR/styles.css" "${USER_NAME}@${HOST}:/tmp/mmtable_styles.css"
 retry 6 remote_scp "$ROOT_DIR/server.py" "${USER_NAME}@${HOST}:/tmp/mmtable_server.py"
@@ -91,6 +93,7 @@ retry 6 remote_scp "$ROOT_DIR/assets/apple-touch-icon.png" "${USER_NAME}@${HOST}
 echo "3/4 Installing files and restarting gunicorn"
 retry 6 remote_ssh "
   install -m 644 /tmp/mmtable_app.js '${REMOTE_APP_DIR}/app.js' &&
+  install -m 644 /tmp/mmtable_bitrix_chart.js '${REMOTE_APP_DIR}/bitrix-chart.js' &&
   install -m 644 /tmp/mmtable_index.html '${REMOTE_APP_DIR}/index.html' &&
   install -m 644 /tmp/mmtable_styles.css '${REMOTE_APP_DIR}/styles.css' &&
   install -m 644 /tmp/mmtable_server.py '${REMOTE_APP_DIR}/server.py' &&
@@ -112,7 +115,7 @@ remote_ssh "
   echo ---
   curl -I --max-time 10 http://127.0.0.1:4173/ | sed -n '1,10p'
   echo ---
-  stat -c '%y %n' '${REMOTE_APP_DIR}/app.js' '${REMOTE_APP_DIR}/index.html' '${REMOTE_APP_DIR}/styles.css' '${REMOTE_APP_DIR}/server.py'
+  stat -c '%y %n' '${REMOTE_APP_DIR}/app.js' '${REMOTE_APP_DIR}/bitrix-chart.js' '${REMOTE_APP_DIR}/index.html' '${REMOTE_APP_DIR}/styles.css' '${REMOTE_APP_DIR}/server.py'
 "
 
 echo "4/4 Checking public URL"

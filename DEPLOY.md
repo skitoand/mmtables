@@ -42,6 +42,7 @@ ssh -oHostKeyAlgorithms=+ssh-rsa \
 Обычно нужно выкладывать весь runtime-комплект:
 
 - `app.js`
+- `bitrix-chart.js`
 - `index.html`
 - `styles.css`
 - `server.py`
