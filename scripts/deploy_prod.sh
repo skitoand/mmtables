@@ -101,11 +101,17 @@ retry 6 remote_ssh "
   pkill -f \"${GUNICORN_CMD}\" || true &&
   cd '${REMOTE_APP_DIR}' &&
   nohup ${GUNICORN_CMD} >/root/.gunicorn/mmtable.log 2>&1 &
-  sleep 2 &&
-  ps -ef | grep -F '${GUNICORN_CMD}' | grep -v grep &&
-  echo --- &&
-  curl -I --max-time 10 http://127.0.0.1:4173/ | sed -n '1,10p' &&
-  echo --- &&
+  sleep 2
+"
+
+echo "3b/4 Waiting for gunicorn healthcheck"
+retry 12 remote_ssh "curl -fsS --max-time 10 http://127.0.0.1:4173/ >/dev/null"
+
+remote_ssh "
+  ps -ef | grep -F '${GUNICORN_CMD}' | grep -v grep | head -1 || true
+  echo ---
+  curl -I --max-time 10 http://127.0.0.1:4173/ | sed -n '1,10p'
+  echo ---
   stat -c '%y %n' '${REMOTE_APP_DIR}/app.js' '${REMOTE_APP_DIR}/index.html' '${REMOTE_APP_DIR}/styles.css' '${REMOTE_APP_DIR}/server.py'
 "
 
