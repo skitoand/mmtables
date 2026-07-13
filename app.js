@@ -143,6 +143,7 @@ const fpX = $("fpX");
 const fpY = $("fpY");
 const fpW = $("fpW");
 const fpH = $("fpH");
+const fpR = $("fpR");
 const fpAngle = $("fpAngle");
 const fpFillType = $("fpFillType");
 const fpBorderHex = $("fpBorderHex");
@@ -2688,11 +2689,74 @@ function buildShapeTextFormatOptionsFromPanel(source = null) {
   include(fpFontFamily, "fontFamily", fontCssFromKey(fpFontFamily?.value));
   return options;
 }
+const DEFAULT_SHAPE_TEXT_PADDING = 10;
+function getTextPaddingControls() {
+  return [fpX, fpY, fpW, fpH, fpR].filter(Boolean);
+}
+function parseShapeTextPaddingPx(value, fallback = DEFAULT_SHAPE_TEXT_PADDING) {
+  if (value == null || value === "") return fallback;
+  const n = Number.parseFloat(String(value).replace("px", "").trim());
+  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : fallback;
+}
+function getShapeTextPaddingValues(text) {
+  if (!text) {
+    return {
+      top: DEFAULT_SHAPE_TEXT_PADDING,
+      right: DEFAULT_SHAPE_TEXT_PADDING,
+      bottom: DEFAULT_SHAPE_TEXT_PADDING,
+      left: DEFAULT_SHAPE_TEXT_PADDING
+    };
+  }
+  const hasInlinePadding = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]
+    .some((key) => String(text.style[key] || "").trim());
+  const tc = getComputedStyle(text);
+  const readSide = (inlineKey, computedKey) => parseShapeTextPaddingPx(
+    text.style[inlineKey] || (hasInlinePadding ? "" : tc[computedKey]),
+    DEFAULT_SHAPE_TEXT_PADDING
+  );
+  return {
+    top: readSide("paddingTop", "paddingTop"),
+    right: readSide("paddingRight", "paddingRight"),
+    bottom: readSide("paddingBottom", "paddingBottom"),
+    left: readSide("paddingLeft", "paddingLeft")
+  };
+}
+function applyShapeTextPaddingValues(text, pad) {
+  if (!text || !pad) return;
+  text.style.paddingTop = `${Math.max(0, Number(pad.top) || 0)}px`;
+  text.style.paddingRight = `${Math.max(0, Number(pad.right) || 0)}px`;
+  text.style.paddingBottom = `${Math.max(0, Number(pad.bottom) || 0)}px`;
+  text.style.paddingLeft = `${Math.max(0, Number(pad.left) || 0)}px`;
+}
+function syncTextPaddingControlsFromText(text) {
+  const pad = getShapeTextPaddingValues(text);
+  const allEqual = pad.top === pad.right && pad.right === pad.bottom && pad.bottom === pad.left;
+  if (fpX) fpX.value = String(pad.top);
+  if (fpH) fpH.value = String(pad.bottom);
+  if (fpW) fpW.value = String(pad.left);
+  if (fpR) fpR.value = String(pad.right);
+  if (fpY) fpY.value = allEqual ? String(pad.top) : "";
+}
+function readTextPaddingFromFormatPanel(formatSource) {
+  if (formatSource === fpY) {
+    const all = Math.max(0, Number(fpY?.value) || 0);
+    return { top: all, right: all, bottom: all, left: all };
+  }
+  return {
+    top: Math.max(0, Number(fpX?.value) || 0),
+    left: Math.max(0, Number(fpW?.value) || 0),
+    bottom: Math.max(0, Number(fpH?.value) || 0),
+    right: Math.max(0, Number(fpR?.value) || 0)
+  };
+}
+function isTextPaddingFormatControl(el) {
+  return !!(el && getTextPaddingControls().includes(el));
+}
 function isInlineTextFormatControl(el) {
   return !!(el && [fpTextColor, fpFontFamily, fpFontSize, fpBold, fpItalic, fpStrike, fpUnderline].filter(Boolean).includes(el));
 }
 function isBlockTextFormatControl(el) {
-  return !!(el && [fpWrap, fpScroll, fpNumberGrouping, fpNumberFormat, fpFormulaDecimals].filter(Boolean).includes(el));
+  return !!(el && [fpWrap, fpScroll, fpNumberGrouping, fpNumberFormat, fpFormulaDecimals, fpX, fpY, fpW, fpH, fpR].filter(Boolean).includes(el));
 }
 function isAnyTextFormatControl(el) {
   return isInlineTextFormatControl(el) || isBlockTextFormatControl(el);
@@ -5816,6 +5880,18 @@ function applyStyleDataToFormatPanel(data = {}) {
   if (fpFormulaDecimals) fpFormulaDecimals.value = data.decimalPlaces == null ? "" : String(Math.max(0, Number(data.decimalPlaces) || 0));
   if (fpAutoSize && data.tableAutoSize != null) fpAutoSize.checked = !!data.tableAutoSize;
   if (data.hAlign || data.vAlign) setAlignButtons(data.hAlign || "left", data.vAlign || "top");
+  if (data.textPaddingTop != null || data.textPaddingRight != null || data.textPaddingBottom != null || data.textPaddingLeft != null) {
+    if (fpX && data.textPaddingTop != null) fpX.value = String(data.textPaddingTop);
+    if (fpW && data.textPaddingLeft != null) fpW.value = String(data.textPaddingLeft);
+    if (fpH && data.textPaddingBottom != null) fpH.value = String(data.textPaddingBottom);
+    if (fpR && data.textPaddingRight != null) fpR.value = String(data.textPaddingRight);
+    if (fpY) {
+      const allEqual = data.textPaddingTop === data.textPaddingRight
+        && data.textPaddingRight === data.textPaddingBottom
+        && data.textPaddingBottom === data.textPaddingLeft;
+      fpY.value = allEqual ? String(data.textPaddingTop) : "";
+    }
+  }
 }
 
 function getStyleOperationTargets() {
@@ -5886,6 +5962,14 @@ function applyStyleDataToShape(node, data = {}, opts = {}) {
     if (data.numberFormat) setNumberFormat(text, data.numberFormat);
     if (data.decimalPlaces != null) setFormulaDecimalPlaces(text, data.decimalPlaces);
     applyTextAlign(text, data.hAlign || "left", data.vAlign || "top");
+    if (data.textPaddingTop != null || data.textPaddingRight != null || data.textPaddingBottom != null || data.textPaddingLeft != null) {
+      applyShapeTextPaddingValues(text, {
+        top: data.textPaddingTop ?? DEFAULT_SHAPE_TEXT_PADDING,
+        right: data.textPaddingRight ?? DEFAULT_SHAPE_TEXT_PADDING,
+        bottom: data.textPaddingBottom ?? DEFAULT_SHAPE_TEXT_PADDING,
+        left: data.textPaddingLeft ?? DEFAULT_SHAPE_TEXT_PADDING
+      });
+    }
     renderShapeText(text);
   }
   renderShapeVisual(node);
@@ -6741,8 +6825,6 @@ function applyTextAlign(text, h, v) {
 
 function syncShapeTextVerticalAlign(text) {
   if (!text) return;
-  text.style.paddingTop = "";
-  text.style.paddingBottom = "";
   const v = text.dataset.valign || "top";
   if (v === "middle" || v === "bottom") text.dataset.valign = v;
   else delete text.dataset.valign;
@@ -12018,6 +12100,14 @@ function createShapeRectangle(opts = {}, doSave = true) {
   text.style.fontSize = (opts.fontSize || 16) + "px";
   text.style.fontWeight = opts.bold ? "700" : "400";
   applyTextAlign(text, opts.hAlign || "left", opts.vAlign || "top");
+  if (opts.textPaddingTop != null || opts.textPaddingRight != null || opts.textPaddingBottom != null || opts.textPaddingLeft != null) {
+    applyShapeTextPaddingValues(text, {
+      top: opts.textPaddingTop ?? DEFAULT_SHAPE_TEXT_PADDING,
+      right: opts.textPaddingRight ?? DEFAULT_SHAPE_TEXT_PADDING,
+      bottom: opts.textPaddingBottom ?? DEFAULT_SHAPE_TEXT_PADDING,
+      left: opts.textPaddingLeft ?? DEFAULT_SHAPE_TEXT_PADDING
+    });
+  }
   bindShapeTextDblSelectEditing(node, text);
   text.addEventListener("pointerdown", (e) => {
     if (text.contentEditable === "true") e.stopPropagation();
@@ -12158,6 +12248,14 @@ function createShapeNote(opts = {}, doSave = true) {
   text.style.fontSize = (opts.fontSize || 16) + "px";
   text.style.fontWeight = opts.bold ? "700" : "400";
   applyTextAlign(text, opts.hAlign || "left", opts.vAlign || "top");
+  if (opts.textPaddingTop != null || opts.textPaddingRight != null || opts.textPaddingBottom != null || opts.textPaddingLeft != null) {
+    applyShapeTextPaddingValues(text, {
+      top: opts.textPaddingTop ?? DEFAULT_SHAPE_TEXT_PADDING,
+      right: opts.textPaddingRight ?? DEFAULT_SHAPE_TEXT_PADDING,
+      bottom: opts.textPaddingBottom ?? DEFAULT_SHAPE_TEXT_PADDING,
+      left: opts.textPaddingLeft ?? DEFAULT_SHAPE_TEXT_PADDING
+    });
+  }
   bindShapeTextDblSelectEditing(node, text);
   text.addEventListener("pointerdown", (e) => {
     if (text.contentEditable === "true") e.stopPropagation();
@@ -14142,10 +14240,6 @@ function createShapeTable(opts = {}, doSave = true) {
     if (fpOpacityNum) fpOpacityNum.value = String(Math.round(state.style.opacity * 100));
     if (fpShadow) fpShadow.value = String(state.style.shadow);
     if (fpShadowNum) fpShadowNum.value = String(state.style.shadow);
-    if (fpX) fpX.value = String(node.offsetLeft);
-    if (fpY) fpY.value = String(node.offsetTop);
-    if (fpW) fpW.value = String(node.offsetWidth);
-    if (fpH) fpH.value = String(node.offsetHeight);
     if (fpFontFamily) fpFontFamily.value = state.headerText.fontFamily;
     if (fpTextColor) fpTextColor.value = state.headerText.color;
     if (fpFontSize) fpFontSize.value = String(state.headerText.fontSize);
@@ -14271,10 +14365,6 @@ function createShapeTable(opts = {}, doSave = true) {
     state.headerText.wrap = fpWrap ? fpWrap.checked : state.headerText.wrap;
     state.headerText.hAlign = getPanelAlign();
     state.headerText.vAlign = getPanelVAlign();
-    if (fpX) node.style.left = formatPositionPx(Number(fpX.value) || 0);
-    if (fpY) node.style.top = formatPositionPx(Number(fpY.value) || 0);
-    if (fpW) node.style.width = `${Math.max(220, Number(fpW.value) || node.offsetWidth || 220)}px`;
-    if (fpH) node.style.height = `${Math.max(120, Number(fpH.value) || node.offsetHeight || 120)}px`;
     syncShapeStateToDataset();
     applyTableScrollState(tableWrap, state.tableScroll);
     applyTitle();
@@ -14755,6 +14845,7 @@ function readShapeData(node) {
   const actualTop = Number.isFinite(node.offsetTop) ? node.offsetTop : parseFloat(node.style.top || "0") || 0;
   const actualWidth = Number.isFinite(node.offsetWidth) ? node.offsetWidth : parseFloat(node.style.width || "0") || 0;
   const actualHeight = Number.isFinite(node.offsetHeight) ? node.offsetHeight : parseFloat(node.style.height || "0") || 0;
+  const textPadding = text ? getShapeTextPaddingValues(text) : null;
   return {
     id: node.dataset.shapeId,
     connId: node.dataset.connId || node.dataset.shapeId,
@@ -14822,6 +14913,10 @@ function readShapeData(node) {
     bold: text ? text.style.fontWeight === "700" : false,
     hAlign: text ? (text.dataset.halign || "left") : "left",
     vAlign: text ? (text.dataset.valign || "top") : "top",
+    textPaddingTop: textPadding ? textPadding.top : undefined,
+    textPaddingRight: textPadding ? textPadding.right : undefined,
+    textPaddingBottom: textPadding ? textPadding.bottom : undefined,
+    textPaddingLeft: textPadding ? textPadding.left : undefined,
     angle: Number(ang) || 0,
     flipX: node.dataset.flipX === "1",
     flipY: node.dataset.flipY === "1",
@@ -15100,10 +15195,6 @@ function syncFormatPanel() {
     return;
   }
   if (selectedWindow) {
-    fpX.value = selectedWindow.offsetLeft;
-    fpY.value = selectedWindow.offsetTop;
-    fpW.value = selectedWindow.offsetWidth;
-    fpH.value = selectedWindow.offsetHeight;
     return;
   }
   const panelShape = selectedShape
@@ -15155,6 +15246,18 @@ function syncFormatPanel() {
     if (fpNumberFormat) setNumberFormatButtons(fpNumberFormat, first.numberFormat || NUMBER_FORMAT_NUMBER, mixed("numberFormat"));
     if (fpBold) setCheckboxMixedState(fpBold, mixed("bold"), first.bold);
     if (fpScroll) setCheckboxMixedState(fpScroll, mixed("scrollEnabled"), first.scrollEnabled);
+    if (fpX) setTextMixedState(fpX, mixed("textPaddingTop"), first.textPaddingTop ?? DEFAULT_SHAPE_TEXT_PADDING);
+    if (fpW) setTextMixedState(fpW, mixed("textPaddingLeft"), first.textPaddingLeft ?? DEFAULT_SHAPE_TEXT_PADDING);
+    if (fpH) setTextMixedState(fpH, mixed("textPaddingBottom"), first.textPaddingBottom ?? DEFAULT_SHAPE_TEXT_PADDING);
+    if (fpR) setTextMixedState(fpR, mixed("textPaddingRight"), first.textPaddingRight ?? DEFAULT_SHAPE_TEXT_PADDING);
+    if (fpY) {
+      const uniform = data.every((item) => (
+        item.textPaddingTop === item.textPaddingRight
+        && item.textPaddingRight === item.textPaddingBottom
+        && item.textPaddingBottom === item.textPaddingLeft
+      ));
+      fpY.value = uniform && !mixed("textPaddingTop") ? String(first.textPaddingTop ?? DEFAULT_SHAPE_TEXT_PADDING) : "";
+    }
     updateFormatPanelVisuals();
     return;
   }
@@ -15186,10 +15289,6 @@ function syncFormatPanel() {
   if (fpOpacityNum) fpOpacityNum.value = fpOpacity.value;
   fpShadow.value = String(Number(panelShape.dataset.shadow ?? parseShadowValue(panelShape.style.boxShadow || cs.boxShadow)) || 0);
   if (fpShadowNum) fpShadowNum.value = fpShadow.value;
-  fpX.value = panelShape.offsetLeft;
-  fpY.value = panelShape.offsetTop;
-  fpW.value = panelShape.offsetWidth;
-  fpH.value = panelShape.offsetHeight;
   const m = (panelShape.style.transform || "").match(/rotate\(([-0-9.]+)deg\)/);
   fpAngle.value = m ? Number(m[1]).toFixed(0) : 0;
   if (text) {
@@ -15218,6 +15317,7 @@ function syncFormatPanel() {
     if (fpWrap) fpWrap.checked = (tc.whiteSpace || "pre-wrap") !== "nowrap";
     if (fpScroll) fpScroll.checked = panelShape.dataset.scrollEnabled === "1";
     setAlignButtons(text.dataset.halign || "left", text.dataset.valign || "top");
+    syncTextPaddingControlsFromText(text);
   }
   updateFormatPanelVisuals();
 }
@@ -15337,13 +15437,6 @@ function applyFormat(opts = {}) {
     return;
   }
   if (selectedWindow) {
-    selectedWindow.style.left = formatPositionPx(Number(fpX.value) || 0);
-    selectedWindow.style.top = formatPositionPx(Number(fpY.value) || 0);
-    selectedWindow.style.width = `${Math.max(360, Number(fpW.value) || 360)}px`;
-    selectedWindow.style.height = `${Math.max(240, Number(fpH.value) || 240)}px`;
-    layoutConnectorPoints(selectedWindow);
-    renderConnectors();
-    updateDesktopExtent();
     saveLayout();
     return;
   }
@@ -15422,6 +15515,9 @@ function applyFormat(opts = {}) {
           if (node.dataset.shapeType === "shape-rect") applyShapeScrollState(node);
           if (node.dataset.shapeType === "shape-table") applyTableScrollState(node.__tableWrapEl, fpScroll.checked);
         }
+        if (!formatSource || isTextPaddingFormatControl(formatSource)) {
+          applyShapeTextPaddingValues(text, readTextPaddingFromFormatPanel(formatSource));
+        }
         renderShapeText(text);
       }
       if (node.dataset.shapeType === "shape-table" && fpScroll && !isControlMixed(fpScroll)) {
@@ -15432,6 +15528,10 @@ function applyFormat(opts = {}) {
       syncShapeVisualStyle(node);
       layoutConnectorPoints(node);
     });
+    if (formatSource && isTextPaddingFormatControl(formatSource)) {
+      const firstText = shapes.map((node) => node.querySelector(".shape-text")).find(Boolean);
+      if (firstText) syncTextPaddingControlsFromText(firstText);
+    }
     renderConnectors();
     saveLayout();
     return;
@@ -15477,10 +15577,6 @@ function applyFormat(opts = {}) {
     selectedShape.style.backgroundImage = "none";
     selectedShape.style.background = lineEnabled ? fpBorder.value : "transparent";
   }
-  selectedShape.style.left = formatPositionPx(Number(fpX.value) || 0);
-  selectedShape.style.top = formatPositionPx(Number(fpY.value) || 0);
-  selectedShape.style.width = `${Math.max(20, Number(fpW.value) || 20)}px`;
-  selectedShape.style.height = `${Math.max(2, Number(fpH.value) || 2)}px`;
   renderShapeVisual(selectedShape);
   syncShapeVisualStyle(selectedShape);
   if (isBpProcessStage(selectedShape)) {
@@ -15528,6 +15624,10 @@ function applyFormat(opts = {}) {
           selectedShape.dataset.scrollEnabled = fpScroll.checked ? "1" : "0";
           applyShapeScrollState(selectedShape);
         }
+      }
+      if (!formatSource || isTextPaddingFormatControl(formatSource)) {
+        applyShapeTextPaddingValues(text, readTextPaddingFromFormatPanel(formatSource));
+        syncTextPaddingControlsFromText(text);
       }
     }
   }
@@ -15819,7 +15919,7 @@ safeOn(fpTextScale, "change", () => {
 });
 [
   fpFill, fpFill2, fpFillType, fpBorder, fpBorderEnabled, fpBorderWidth, fpBorderWidthNum, fpRadius, fpRadiusNum, fpTextColor, fpFontFamily, fpFontSize,
-  fpBold, fpItalic, fpStrike, fpUnderline, fpWrap, fpScroll, fpTableFilter, fpNumberGrouping, fpFormulaDecimals, fpAutoSize, fpCellBorders, fpOpacity, fpOpacityNum, fpShadow, fpShadowNum, fpX, fpY, fpW, fpH, fpAngle, fpLineStyle, fpConnRouteStyle, fpConnGapStart, fpConnGapStartNum, fpConnGapEnd, fpConnGapEndNum, fpArrowStartShape, fpArrowEndShape
+  fpBold, fpItalic, fpStrike, fpUnderline, fpWrap, fpScroll, fpTableFilter, fpNumberGrouping, fpFormulaDecimals, fpAutoSize, fpCellBorders, fpOpacity, fpOpacityNum, fpShadow, fpShadowNum, fpX, fpY, fpW, fpH, fpR, fpAngle, fpLineStyle, fpConnRouteStyle, fpConnGapStart, fpConnGapStartNum, fpConnGapEnd, fpConnGapEndNum, fpArrowStartShape, fpArrowEndShape
   , fpTableColWidth, fpTableRowHeight
 ].filter(Boolean).forEach((ctrl) => {
   ctrl.addEventListener("input", () => clearControlMixedState(ctrl));
