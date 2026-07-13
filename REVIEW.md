@@ -10,6 +10,29 @@
 
 ---
 
+## 2026-07-13 — график Bitrix24: количество или сумма по полю
+
+**Commit:** `cd5ed33` — Add count or sum-by-field metric selection to Bitrix24 chart settings.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-122259-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29249637198](https://github.com/skitoand/mmtables/actions/runs/29249637198) — success  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `index.html` | в настройках графика: показатель «Количество» / «Сумма по полю» и выбор поля |
+| `bitrix-chart.js` | сохранение metric/sumField в конфиге графика, форматирование значений и легенды |
+| `server.py` | chart-data суммирует выбранное поле по входам на стадию в каждый период |
+
+### Проверка на проде
+
+- [x] GitHub Actions завершился успешно
+- [x] gunicorn healthcheck → 200 (в workflow)
+- [x] локально проверено: в ⚙ графика доступны показатель и поле для суммы
+
+---
+
 ## 2026-07-13 — виджеты Bitrix24: график, карточка, фильтр дат
 
 **Commit:** `560fc2f` — Add Bitrix24 charts, KPI cards, and date filter widgets to the workspace.  
