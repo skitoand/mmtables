@@ -10,6 +10,29 @@
 
 ---
 
+## 2026-07-13 — выделение не масштабируется с zoom
+
+**Commit:** `286ea9c` — Keep shape selection chrome at a constant screen size across zoom levels.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-100223-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29241301015](https://github.com/skitoand/mmtables/actions/runs/29241301015) — success  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `styles.css` | рамка, маркеры и стрелки соединителей компенсируют `--desktop-zoom`, остаются одного экранного размера |
+| `app.js` | `--desktop-zoom`, пересчёт padding/offset при zoom, relayout стрелок и group selection box |
+
+### Проверка на проде
+
+- [x] GitHub Actions завершился успешно
+- [x] gunicorn healthcheck → 200
+- [x] `curl -I https://mmtable.crystalsystems.ru/` → 200
+- [x] локально проверено: при 83% и 200% zoom рамка и буллеты не меняют размер
+
+---
+
 ## 2026-07-13 — аккуратное выделение фигур
 
 **Commit:** `1aa2c6c` — Refine shape selection frame and resize handles for a cleaner look.  
