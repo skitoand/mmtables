@@ -1,0 +1,622 @@
+# Review — журнал выкладок MIndMapTable
+
+Прод: https://mmtable.crystalsystems.ru  
+Сервер: `95.163.226.145` (`/opt/apps/mmtable`)  
+Бэкапы: `/opt/apps/backups/`
+
+Формат записи: дата → бэкап → что выкатили → проверка.
+
+---
+
+## 2026-07-06 — новый БП без пользовательского стиля прямоугольника
+
+**Бэкап:** `mmtable-PROD-BACKUP-20260706-130431-before-deploy.tar.gz`  
+**Статус:** OK (`20260706-bp-create-factory-style`)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | при создании БП (base/stage/task) не применяется `defaultStyles['shape-rect']`; заводские `BP_FACTORY_VISUAL_OPTS` |
+| `index.html` | cache-buster `20260706-bp-create-factory-style` |
+
+### Проверка на проде
+
+- [ ] Создать «Последовательный бизнес-процесс» → ступенчатые синие стадии, без градиента/тени/скругления
+- [ ] Сброс стиля БП по-прежнему восстанавливает шаблон
+
+---
+
+## 2026-07-06 — сброс стиля БП к заводскому шаблону
+
+**Бэкап:** `mmtable-PROD-BACKUP-20260706-124552-before-deploy.tar.gz`  
+**Статус:** OK (`20260706-bp-reset-factory-style`)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | `restoreBpProcessFactoryStyles()` — для БП восстанавливает шаблон (цвета стадий, без градиента/тени/скругления), а не `defaultStyles['shape-rect']` |
+| `index.html` | cache-buster `20260706-bp-reset-factory-style` |
+
+### Проверка на проде
+
+- [ ] Выделить группу БП → «Сбросить к стилю по умолчанию» → ступенчатые синие стадии, зелёная последняя, лавандовая подложка, без градиента и тени
+- [ ] Обычный прямоугольник по-прежнему сбрасывается к сохранённому пользовательскому стилю
+
+---
+
+## 2026-07-06 — кнопка «Сбросить к стилю по умолчанию»
+
+**Бэкап скрипта деплоя:** `mmtable-PROD-BACKUP-20260706-113843-before-deploy.tar.gz`  
+**Статус:** OK (`20260706-reset-default-style`)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | `resetCurrentStyleToDefault()` — применяет сохранённый `defaultStyles[type]` к выделению |
+| `index.html` | кнопка «Сбросить к стилю по умолчанию» на вкладке Стиль |
+
+### Проверка на проде
+
+- [ ] Сохранить стиль прямоугольника как по умолчанию → изменить стадию БП → «Сбросить к стилю по умолчанию» возвращает сохранённый вид
+
+---
+
+**Бэкап скрипта деплоя:** `mmtable-PROD-BACKUP-20260706-111942-before-deploy.tar.gz`  
+**Статус:** OK (`20260706-text-valign`)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `styles.css` | `.shape-text` — CSS Grid + `align-content` для top/middle/bottom |
+| `app.js` | `syncShapeTextVerticalAlign` выставляет `data-valign` вместо padding-хака |
+
+### Проверка на проде
+
+- [ ] Фигура с текстом → кнопка ↕ (по центру) — текст по вертикали посередине
+
+---
+
+**Бэкап скрипта деплоя:** `mmtable-PROD-BACKUP-20260706-111624-before-deploy.tar.gz`  
+**Статус:** OK (`app.js?v=20260706-rich-text-font-scale`)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | кнопки A+/A− меняют `font-size` у всех span в `textHtml`, не только у корня `.shape-text` |
+
+### Проверка на проде
+
+- [ ] Фигура с разными размерами слов → A+/A− увеличивает/уменьшает все пропорционально на 1px
+
+---
+
+**Бэкап скрипта деплоя:** `mmtable-PROD-BACKUP-20260706-110642-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (`app.js?v=20260706-orphan-handles`, gunicorn 200)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | удаление orphaned `shape-handles` из overlay при потере владельца; `purgeOrphanedInteractionControls`; сброс `groupSelectionBox` при загрузке листа |
+| `index.html` | cache-buster `20260706-orphan-handles` |
+
+### Проверка на проде
+
+- [ ] Документ «Тест»: обновить страницу — «призрачные» зелёные кружки исчезают
+- [ ] Выделить фигуру → Delete — ручки не остаются на столе
+- [ ] Групповое выделение с нулевым размером не показывает кластер ручек
+
+---
+
+**Бэкап скрипта деплоя:** `mmtable-PROD-BACKUP-20260705-113753-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (`app.js?v=20260705-sheet-window-controls`, gunicorn 200)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | `addShapeHandles` для sheet-window; `selectWindow` + overlay lift по `connId`; Delete/Backspace удаляет выбранное окно |
+| `styles.css` | рамка выделения `.sheet-window.selected-window .shape-handles` |
+| `index.html` | cache-buster `20260705-sheet-window-controls` |
+
+### Проверка на проде
+
+- [ ] Добавить окно Google Sheets на рабочий стол — появляется зелёная рамка с ручками
+- [ ] Delete/Backspace удаляет выбранное окно
+- [ ] Фигуры и таблицы — выделение и удаление без регрессий
+
+---
+
+**Полный бэкап до выкладки:** `mmtable-PROD-FULL-BACKUP-20260704-113104-manual.tar.gz` (~40 МБ)  
+**Бэкап скрипта деплоя:** `mmtable-PROD-BACKUP-20260704-143115-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (`app.js?v=20260704-paste-group-v2`, healthcheck 200)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | копирование всей группы при выборе любого её члена; при вставке — новый `groupId` на всех объектах; выбор `selectGroup` после paste |
+| `index.html` | cache-buster `20260704-paste-group-v2` |
+
+### Проверка на проде
+
+- [ ] БП: выделить группу или одну стадию → Cmd+C / Cmd+D → вставка одной группой (общая рамка, drag всей группы)
+- [ ] Formal: подписи фигур на месте
+
+---
+
+## 2026-07-04 — BP-стадии, частичное форматирование текста, правки dblclick
+
+**Полный бэкап до выкладки:** `mmtable-PROD-FULL-BACKUP-20260704-112146-manual.tar.gz` (весь `/opt/apps/mmtable`, ~40 МБ: код, `workspace.db`, `workspace_documents`, `.venv`)  
+**Бэкап скрипта деплоя:** `mmtable-PROD-BACKUP-20260704-142204-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (`app.js?v=20260704-partial-format-v3`, healthcheck 200 на сервере и через nginx)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | выбор стадии BP при уже выбранной группе; красные «+» (fix `syncFormatPanel` / `tc`); dblclick — вход в редактирование без выделения слова; частичный inline-формат (B/I/U и др.); сохранение выделения при клике в панель «Формат» (в т.ч. свёрнутую) |
+| `styles.css` | `.shape-text` → `display:block` (исправлен разъезд текста на столбцы после `<span>`) |
+| `index.html` | cache-buster `20260704-partial-format-v3` |
+| `server.py` | актуальная серверная версия из локалки |
+| `assets/favicon.png`, `assets/apple-touch-icon.png` | иконки |
+
+### Проверка на проде
+
+- [ ] БП: клик по группе → клик по стадии → красные «+» слева/справа/снизу
+- [ ] Двойной клик по фигуре — только курсор, без выделения слова
+- [ ] Выделить фрагмент текста → **B** — жирным только выделение, текст не в столбцы
+- [ ] Свёрнутая панель «Формат» → развернуть → применить **B** к выделению
+- [ ] Formal / документы: подписи фигур на месте после автосохранения
+
+---
+
+## 2026-07-02 — z-order для мультивыделения и группы
+
+**Бэкап на сервере:** `mmtable-PROD-BACKUP-20260702-185419-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (`app.js?v=20260702-zorder-multi`, healthcheck 200)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | `getZOrderTargets()`: «На передний план» / «На задний план» работают для мультивыделения, формальной группы и одной фигуры |
+| `index.html` | cache-buster `20260702-zorder-multi` |
+
+### Проверка
+
+- выделить несколько задач рамкой → «Положение» → «На передний план» / «На задний план»;
+- то же для сгруппированных объектов.
+
+---
+
+## 2026-07-02 — возврат горизонтального смещения задач BP
+
+**Бэкап на сервере:** `mmtable-PROD-BACKUP-20260702-184542-before-deploy.tar.gz`  
+**Статус:** OK (`app.js?v=20260702-bp-task-offset`, healthcheck 200)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | вернуть `BP_TASK_OFFSET_X = 30` в `getBpTaskLeftForStage`; ширина по-прежнему = нижняя часть стадии |
+| `index.html` | cache-buster `20260702-bp-task-offset` |
+
+---
+
+## 2026-07-02 — ширина задач BP по нижней части стадии
+
+**Бэкап на сервере:** `mmtable-PROD-BACKUP-20260702-184117-before-deploy.tar.gz`  
+**Полный бэкап до выкладки:** `mmtable-PROD-FULL-BACKUP-20260702-153700-manual.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (`app.js?v=20260702-bp-task-body-width`, healthcheck 200)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | `getBpStageBodyWidth` / `getBpTaskLeftForStage`: ширина задачи = ширина bbox стадии − chevron inset; left = offsetLeft стадии; убрана обратная подгонка стадии при resize задачи |
+| `index.html` | cache-buster `20260702-bp-task-body-width` |
+
+### Проверка
+
+- Formal: задачи под нижней плоской частью chevron, без накопительного сдвига к концу процесса;
+- подписи фигур сохраняются (hotfix `text` в `readShapeData` на месте).
+
+---
+
+## 2026-07-02 — HOTFIX: восстановление сохранения подписей фигур
+
+**Бэкап на сервере:** `mmtable-PROD-BACKUP-20260702-183021-before-deploy.tar.gz`  
+**Причина:** в `readShapeData()` отсутствовало поле `text` — любое автосохранение стирало подписи всех фигур.  
+**База восстановлена из:** `mmtable-PROD-BACKUP-20260702-174917-before-deploy.tar.gz` (Formal: 89 подписей, 40 стадий с текстом).  
+**Фикс:** вернуть `text: text ? (text.dataset.rawText ?? innerText) : ""` в `readShapeData`.  
+**Cache-buster:** `20260702-save-text-hotfix`
+
+**Важно:** до этого hotfix не открывать документы — автосохранение снова сотрёт подписи.
+
+---
+
+## 2026-07-02 — ОТКАТ: фикс смещения задач BP (неудачный)
+
+**Откат с бэкапа:** `mmtable-PROD-BACKUP-20260702-181845-before-deploy.tar.gz`  
+**Причина отката:** после выкладки `20260702-bp-task-drift` — кривая ширина задач, наложения, пропали названия стадий.  
+**Восстановлено:** `app.js`, `index.html` из бэкапа до деплоя (`20260702-conn-label-format`).  
+**База данных:** `workspace.db` восстановлена из `mmtable-PROD-BACKUP-20260702-180013-before-deploy.tar.gz` (в бэкапе 181845 тексты стадий уже были пустыми; в 180013 — есть, напр. «НОВЫЙ ЗАПРОС»).  
+**Текущий cache-buster:** `20260702-conn-label-format`
+
+---
+
+## 2026-07-02 — фикс смещения задач BP от стадий (ОТКАЧЕН)
+
+**Бэкап на сервере:** `mmtable-PROD-BACKUP-20260702-181845-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** ОТКАЧЕН — см. запись выше
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | `layoutAllBpTasksInProcess`: горизонтальная сетка задач привязана к `getBpStageLeftAfter` вместо `left + taskWidth` — убран накопительный сдвиг (~16px/стадию) |
+| `index.html` | cache-buster `20260702-bp-task-drift` |
+
+### Проверка
+
+- BP с 15–20 стадиями: задачи остаются под своими стадиями, стрелки не «уезжают» к концу процесса;
+- вертикальный стек задач на одной стадии без изменений.
+
+---
+
+## 2026-07-02 — подписи на соединителях
+
+**Бэкап на сервере:** `mmtable-PROD-BACKUP-20260702-174917-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (`app.js?v=20260702-conn-label`, healthcheck 200)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | подпись на соединителе: печать при выделении; разрыв линии под текст; перетаскивание вдоль стрелки |
+| `styles.css` | `.conn-label`, ромб-ручка перетаскивания |
+| `index.html` | cache-buster `20260702-conn-label` |
+
+### Проверка
+
+- выделить стрелку → напечатать текст → подпись в середине, линия с разрывом;
+- перетащить подпись по телу стрелки;
+- Backspace удаляет символы подписи, пустая подпись — удаляет соединитель как раньше.
+
+---
+
+## 2026-07-02 — «На передний план» выше соединителей
+
+**Бэкап на сервере:** `mmtable-PROD-BACKUP-20260702-174423-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (`app.js?v=20260702-shape-above-conn`, healthcheck 200)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | явное «На передний план» поднимает фигуру выше стрелок (`aboveConnectors`); базовый z-index соединителей считается без таких фигур — стрелки по умолчанию остаются поверх |
+| `index.html` | cache-buster `20260702-shape-above-conn` |
+
+### Проверка
+
+- новая стрелка при создании — поверх таблиц/фигур;
+- «На передний план» у задачи — стрелка под блоком;
+- «На задний план» — сбрасывает флаг, стрелки снова поверх.
+
+---
+
+## 2026-07-02 — скролл таблицы под соединителями + z-index BP-задач
+
+**Бэкап на сервере:** `mmtable-PROD-BACKUP-20260702-172604-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (файлы на проде, `app.js?v=20260702-table-scroll-wheel`, healthcheck 200; скрипт завершился с code 1 на grep gunicorn)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | скролл таблицы при wheel над соединителем (`elementsFromPoint` + ручной scroll); авто-включение scroll после `renderTable()`; сохранение z-index BP-задачи после «На передний план» |
+| `index.html` | cache-buster `20260702-table-scroll-wheel` |
+
+### Проверка после деплоя
+
+```bash
+ssh ... "grep app.js /opt/apps/mmtable/index.html"
+# app.js?v=20260702-table-scroll-wheel
+curl -I http://127.0.0.1:4173/  # 200
+```
+
+Ручная проверка: таблица «ПАКЕТЫ (счета)» с перекрывающими стрелками — колёсико прокручивает строки; уменьшение шрифта в блоке задачи не сбрасывает z-index.
+
+---
+
+## 2026-07-02 — соединители ячеек: clamp, preview, handles
+
+**Локальный бэкап:** `backups/MIndMapTable-LOCAL-BACKUP-20260702-171205-before-cell-clamp-edge-deploy.tar.gz`  
+**Бэкап на сервере:** `mmtable-PROD-BACKUP-20260702-171211-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (файлы на проде, gunicorn и публичный URL 200; скрипт завершился с code 1 на шаге grep gunicorn — известная гонка)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | зелёные handles в overlay; жёлтые стрелки ячеек (⌘/Ctrl); capped z-index соединителей (≤19950); preview-линия при протягивании (fixed overlay); clamp якоря ячейки при скролле таблицы; точка крепления на внешнем крае ячейки |
+| `styles.css` | interaction-controls-layer; lifted cell guides; conn-draft-overlay |
+| `index.html` | cache-buster `20260702-cell-clamp-edge` |
+
+### Проверка после деплоя
+
+```bash
+curl -I https://mmtable.crystalsystems.ru/
+# HTTP/1.1 200 OK
+ssh ... "grep app.js /opt/apps/mmtable/index.html"
+# app.js?v=20260702-cell-clamp-edge
+curl -I http://127.0.0.1:4173/  # на сервере: HTTP/1.1 200 OK
+```
+
+Ручная проверка на проде:
+- клик по таблице/фигуре → зелёная рамка и resize handles;
+- ⌘/Ctrl + ячейка → жёлтые стрелки, preview-линия при drag;
+- соединитель ячейка→ячейка, скролл таблицы → стрелка на видимом крае, не за блоком;
+- стрелка на внешнем крае ячейки, не на тексте.
+
+---
+
+## 2026-07-02 — BP: ресайз связанных задач по ширине стадии
+
+**Бэкап:** `mmtable-PROD-BACKUP-20260702-105220-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (код на сервере обновлён, локальный healthcheck `127.0.0.1:4173` = 200; скрипт завершился с code 1 на финальной проверке)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | в `layoutAllBpTasksInProcess()` ширина применяется ко всем задачам стадии, затем повторно считается auto-height; вторая и последующие задачи теперь корректно расширяются при изменении ширины стадии |
+
+### Проверка после деплоя
+
+```bash
+python3 -c "... http://127.0.0.1:4173/ -> 200 ..."
+python3 -c "... проверить chunk function layoutAllBpTasksInProcess ..."
+```
+
+Ручная проверка: у стадии с несколькими задачами растянуть ширину стадии и убедиться, что 2-я и следующие задачи тоже меняют ширину.
+
+---
+
+## 2026-07-02 — тёмная тема при выключенной заливке рабочего стола
+
+**Бэкап:** `mmtable-PROD-BACKUP-20260702-102212-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (app.js на проде; gunicorn и URL 200)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | при `fillEnabled: false` не ставить `body { background: transparent }`, сбрасывать inline-фон — работает CSS `body` / `body.dark`; `setTheme()` вызывает `syncViewportDesktopBackground()` |
+| `index.html` | cache-buster `app.js?v=20260702-dark-theme-no-fill` |
+
+### Проверка после деплоя
+
+```bash
+curl -I https://mmtable.crystalsystems.ru/
+# HTTP/1.1 200 OK
+grep 'document.body.style.background = ""' /opt/apps/mmtable/app.js
+```
+
+Ручная проверка: документ Formal (заливка рабочего стола выкл.) → включить «Темная тема» → фон рабочего стола тёмный, не белый.
+
+---
+
+## 2026-07-01 (5) — BP: перевязка задач + соединители стадий
+
+**Бэкап:** `mmtable-PROD-BACKUP-20260701-142616-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (файлы установлены, gunicorn и публичный URL отвечают 200; скрипт завершился с code 1 на шаге grep gunicorn — известная гонка)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | перевязка задач между стадиями (dblclick → drag → подсветка → drop); соединительные стрелки на стадиях BP; drop на стадию другого BP-процесса; overlay не блокирует отпускание линии |
+| `styles.css` | подсветка стадии `.bp-stage-drop-target`; стрелки conn выше кнопок «+»; без стрелок у фона BP |
+| `index.html` | cache-buster `app.js?v=20260701-bp-conn-drop`, `styles.css?v=20260701-bp-conn-fix4` |
+
+### Проверка после деплоя
+
+```bash
+curl -I https://mmtable.crystalsystems.ru/
+# HTTP/1.1 200 OK
+```
+
+На проде: `app.js?v=20260701-bp-conn-drop`.
+
+Ручная проверка: перевязка задачи между стадиями; вытягивание линии со стадии и закрепление на стадии другого последовательного BP.
+
+### Откат
+
+```bash
+ssh -i ~/.ssh/lumalms_deploy root@95.163.226.145
+cd /opt/apps/mmtable
+tar -xzf /opt/apps/backups/mmtable-PROD-BACKUP-20260701-142616-before-deploy.tar.gz
+# перезапустить gunicorn
+```
+
+---
+
+## 2026-07-01 (4) — переназначение задач BP между стадиями
+
+**Бэкап:** `mmtable-PROD-BACKUP-20260701-115331-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (файлы установлены, gunicorn и публичный URL отвечают 200; скрипт завершился с code 1 на шаге grep gunicorn — известная гонка, сервис работает)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | переназначение задачи на другую стадию: двойной клик → drag → подсветка стадии → drop с авто-раскладкой |
+| `styles.css` | класс `.bp-stage-drop-target` — зелёная обводка стадии при наведении |
+| `index.html` | cache-buster `app.js?v=20260701-bp-task-reassign`, `styles.css?v=20260701-bp-task-reassign` |
+
+### Проверка после деплоя
+
+```bash
+curl -I https://mmtable.crystalsystems.ru/
+# HTTP/1.1 200 OK
+```
+
+На проде в `index.html`: `app.js?v=20260701-bp-task-reassign`.
+
+### Откат
+
+```bash
+ssh -i ~/.ssh/lumalms_deploy root@95.163.226.145
+cd /opt/apps/mmtable
+tar -xzf /opt/apps/backups/mmtable-PROD-BACKUP-20260701-115331-before-deploy.tar.gz
+# перезапустить gunicorn
+```
+
+---
+
+## 2026-07-01 (3) — заголовок вкладки «Название - MMTable»
+
+**Бэкап:** `mmtable-PROD-BACKUP-20260701-112602-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (файлы установлены, gunicorn и публичный URL отвечают 200)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | `document.title` = «{имя документа} - MMTable» |
+| `index.html` | дефолтный `<title>MMTable</title>`, cache-buster `app.js?v=20260701-doc-title` |
+
+### Проверка после деплоя
+
+```bash
+curl -I https://mmtable.crystalsystems.ru/
+# HTTP/1.1 200 OK
+```
+
+Во вкладке браузера: `Report - MMTable` (или другое имя открытого документа).
+
+### Откат
+
+```bash
+ssh -i ~/.ssh/lumalms_deploy root@95.163.226.145
+cd /opt/apps/mmtable
+tar -xzf /opt/apps/backups/mmtable-PROD-BACKUP-20260701-112602-before-deploy.tar.gz
+# перезапустить gunicorn
+```
+
+---
+
+## 2026-07-01 (2) — favicon: обрезка и прозрачный фон
+
+**Бэкап:** `mmtable-PROD-BACKUP-20260701-111458-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (файлы установлены, gunicorn и публичный URL отвечают 200)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `index.html` | ссылки на favicon `?v=20260701-crop`, `apple-touch-icon.png` |
+| `assets/favicon.png` | 128×128, обрезка по содержимому, прозрачный фон |
+| `assets/apple-touch-icon.png` | 180×180 для iOS |
+
+### Кратко по изменениям
+
+- Favicon обрезан по содержимому (убраны чёрные поля 682×1024)
+- Прозрачный фон вместо чёрного — корректное отображение во вкладке браузера
+- Осветлены контуры иконки для читаемости на светлой и тёмной вкладке
+- В `DEPLOY.md` и `AGENTS.md` зафиксирован обязательный порядок: бэкап → деплой → `REVIEW.md`
+
+### Проверка после деплоя
+
+```bash
+curl -I https://mmtable.crystalsystems.ru/
+# HTTP/1.1 200 OK
+```
+
+Проверить иконку во вкладке: при необходимости закрыть вкладку и открыть сайт заново (кэш favicon).
+
+### Откат
+
+```bash
+ssh -i ~/.ssh/lumalms_deploy root@95.163.226.145
+cd /opt/apps/mmtable
+tar -xzf /opt/apps/backups/mmtable-PROD-BACKUP-20260701-111458-before-deploy.tar.gz
+# перезапустить gunicorn
+```
+
+---
+
+## 2026-07-01 — фильтр, стиль шапки, favicon, тёмная тема (свёрнутая панель)
+
+**Бэкап:** `mmtable-PROD-BACKUP-20260701-110846-before-deploy.tar.gz`  
+**Скрипт:** `bash scripts/deploy_prod.sh`  
+**Статус:** OK (файлы установлены, gunicorn и публичный URL отвечают 200)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | фильтр таблиц, сохранение градиента шапки (`normalizeTableStyleRecord`), clipboard, прочие правки сессии |
+| `index.html` | favicon, cache-buster `app.js?v=20260630-table-style-save`, `styles.css?v=20260701-dark-fp-collapsed` |
+| `styles.css` | фильтр, скругление таблиц, фон рабочего стола, свёрнутая панель форматирования в тёмной теме |
+| `server.py` | серверные изменения (sharing, folders и др.) |
+| `assets/favicon.png` | иконка приложения |
+
+### Кратко по изменениям
+
+- Фильтр по первой строке таблицы (исправления UI и высоты строк)
+- Сохранение форматирования шапки таблицы (градиент заливки после перезагрузки)
+- Favicon в вкладке браузера
+- Видимость свёрнутого окна «Формат» в тёмной теме
+- Форматирование рабочего стола (отключение сетки/фона)
+
+### Проверка после деплоя
+
+```bash
+curl -I https://mmtable.crystalsystems.ru/
+# HTTP/1.1 200 OK
+```
+
+Рекомендуется на проде: жёсткое обновление страницы (`Cmd+Shift+R`), проверить градиент шапки таблицы, favicon, свёрнутую панель форматирования в тёмной теме.
+
+### Откат
+
+```bash
+ssh -i ~/.ssh/lumalms_deploy root@95.163.226.145
+cd /opt/apps/mmtable
+tar -xzf /opt/apps/backups/mmtable-PROD-BACKUP-20260701-110846-before-deploy.tar.gz
+# перезапустить gunicorn
+```
+
+---
+
+## 2026-06-30 — фильтр и правки UI (предыдущая выкладка)
+
+**Бэкап:** `mmtable-PROD-BACKUP-20260630-234241-before-deploy.tar.gz`  
+**Статус:** OK
+
+Первая выкладка сессии: фильтр, скругление таблиц, исправления ручек строк.
