@@ -67,6 +67,18 @@ ssh -oHostKeyAlgorithms=+ssh-rsa \
    - проверяет публичный URL
 4. **Запись в `REVIEW.md`** — после успешной выкладки добавить запись: дата, commit SHA, имя файла бэкапа, список изменений, ссылка на GitHub Actions run, результат проверки
 
+### Cache-buster в `index.html`
+
+При изменении `app.js`, `bitrix-chart.js` или `styles.css` **обязательно** обновлять `?v=...` в `index.html`. Иначе браузер может держать старую версию файла по тому же URL (типичный случай: `app.js` уже выкатили, а `?v=` не меняли).
+
+Текущие значения смотреть в конце `index.html`:
+
+```html
+<link rel="stylesheet" href="styles.css?v=..." />
+<script src="app.js?v=..."></script>
+<script src="bitrix-chart.js?v=..."></script>
+```
+
 ### Первичная настройка GitHub Actions
 
 Один раз настроить secrets в репозитории:
