@@ -197,6 +197,48 @@ body.dark .sheet-switcher-add:hover{background:#134e4a}
 .shape-palette button{height:42px;padding:6px;display:flex;align-items:center;justify-content:center}
 .shape-palette button svg{width:50%;height:50%}
 .shape-palette button rect,.shape-palette button ellipse,.shape-palette button polygon{fill:#fff;stroke:#111827;stroke-width:2;vector-effect:non-scaling-stroke}
+.bitrix-submenu-panel{width:196px;grid-template-columns:1fr;gap:4px;padding:6px}
+.bitrix-submenu-panel button{height:auto;padding:10px 12px;justify-content:flex-start;font-size:13px}
+.bitrix-submenu-panel button:disabled{opacity:.55;cursor:not-allowed;transform:none;box-shadow:none}
+.bitrix-card-date-toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:#334155}
+.bitrix-field-muted{opacity:.45}
+.shape.shape-bitrix-card{padding:0;overflow:visible;background:transparent !important;border:none !important;box-shadow:none !important}
+.bitrix-kpi-card{position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px 14px 14px;box-sizing:border-box}
+.bitrix-kpi-actions{position:absolute;top:8px;right:8px;display:flex;gap:4px;opacity:0;pointer-events:none;transition:opacity .15s ease}
+.shape.shape-bitrix-card:hover .bitrix-kpi-actions,.shape.shape-bitrix-card.selected .bitrix-kpi-actions{opacity:1;pointer-events:auto}
+.bitrix-kpi-value{line-height:1;letter-spacing:-.02em}
+.bitrix-kpi-label{margin-top:8px;text-transform:uppercase;text-align:center}
+.bitrix-kpi-label.bitrix-kpi-label-editing{text-transform:none}
+.bitrix-kpi-text-active{outline:2px solid #2563eb;outline-offset:3px;border-radius:6px}
+.bitrix-card-format-hint{margin:0 0 10px;padding:8px 10px;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-size:12px;line-height:1.4}
+.bitrix-kpi-status{margin-top:6px;font-size:10px;color:#64748b;text-align:center}
+body.dark .bitrix-kpi-card{background:#0f172a;border-color:#334155;box-shadow:0 8px 24px rgba(0,0,0,.28)}
+body.dark .bitrix-kpi-label,body.dark .bitrix-kpi-status{color:#94a3b8}
+body.dark .bitrix-card-date-toggle{color:#e2e8f0}
+.shape.shape-bitrix-date-filter{padding:0;overflow:visible;background:transparent !important;border:none !important;box-shadow:none !important}
+.bitrix-date-filter-card{position:relative;width:100%;height:100%;display:flex;flex-direction:column;gap:10px;padding:14px 14px 12px;box-sizing:border-box;background:#fff;border:1px solid #dbe4f0;border-radius:16px;box-shadow:0 8px 24px rgba(15,23,42,.08)}
+.bitrix-date-filter-header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.bitrix-date-filter-title{font-size:14px;font-weight:600;color:#111827}
+.bitrix-date-filter-actions{display:flex;gap:4px;opacity:0;pointer-events:none;transition:opacity .15s ease}
+.shape.shape-bitrix-date-filter:hover .bitrix-date-filter-actions,.shape.shape-bitrix-date-filter.selected .bitrix-date-filter-actions{opacity:1;pointer-events:auto}
+.bitrix-date-filter-inputs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.bitrix-date-filter-input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;font-size:13px;color:#111827;background:#fff}
+.bitrix-date-filter-slider{padding:2px 4px 0}
+.bitrix-date-slider-track{position:relative;height:18px}
+.bitrix-date-slider-range{position:absolute;top:50%;height:4px;transform:translateY(-50%);background:#334155;border-radius:999px}
+.bitrix-date-slider-track::before{content:"";position:absolute;left:0;right:0;top:50%;height:4px;transform:translateY(-50%);background:#e2e8f0;border-radius:999px}
+.bitrix-date-slider-handle{position:absolute;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border:none;border-radius:50%;background:#334155;box-shadow:0 1px 4px rgba(15,23,42,.25);cursor:grab;padding:0}
+.bitrix-date-slider-handle:active{cursor:grabbing}
+.bitrix-date-filter-target-list{display:flex;flex-direction:column;gap:8px;max-height:min(50vh,320px);overflow:auto;padding:4px 0}
+.bitrix-date-filter-target-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;font-size:13px;color:#111827}
+.bitrix-date-filter-empty{padding:10px 12px;border-radius:10px;background:#f8fafc;color:#64748b;font-size:13px;line-height:1.4}
+.bitrix-date-filter-config-note{margin:0;font-size:13px;line-height:1.45;color:#64748b}
+body.dark .bitrix-date-filter-card{background:#0f172a;border-color:#334155;box-shadow:0 8px 24px rgba(0,0,0,.28)}
+body.dark .bitrix-date-filter-title,body.dark .bitrix-date-filter-input{color:#e2e8f0}
+body.dark .bitrix-date-filter-input{background:#111827;border-color:#334155}
+body.dark .bitrix-date-filter-target-row{background:#111827;border-color:#334155;color:#e2e8f0}
+body.dark .bitrix-date-filter-empty,body.dark .bitrix-date-filter-config-note{color:#94a3b8}
+body.dark .bitrix-date-slider-track::before{background:#334155}
 .modal{position:fixed;inset:0;background:rgba(2,6,23,.38);display:flex;align-items:center;justify-content:center;z-index:5000;pointer-events:auto}.modal.hidden{display:none}.modal-card{width:min(560px,calc(100vw - 32px));background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:10px}.modal-actions{display:flex;justify-content:flex-end;gap:8px}
 .auth-modal-card{width:min(480px,calc(100vw - 32px))}
 .auth-tabs{display:flex;gap:8px}
@@ -402,6 +444,8 @@ body.dark .workspace-access-banner button{background:#1e293b;border-color:#d9770
 .context-menu-group.open > .context-submenu,.context-menu-group:focus-within > .context-submenu{display:block}
 .context-submenu.context-shape-palette{min-width:0;width:168px;padding:8px;display:none;grid-template-columns:repeat(2,1fr);gap:6px}
 .context-menu-group.open > .context-submenu.context-shape-palette,.context-menu-group:focus-within > .context-submenu.context-shape-palette{display:grid}
+.context-submenu.context-bitrix-submenu{min-width:196px;width:196px;padding:6px}
+.context-bitrix-submenu button{height:auto;padding:10px 12px;font-size:13px}
 .context-shape-btn{display:flex !important;align-items:center;justify-content:center;height:42px;padding:6px !important}
 .context-shape-btn svg{width:50%;height:50%}
 .context-shape-btn rect,.context-shape-btn ellipse,.context-shape-btn polygon{fill:#fff;stroke:#111827;stroke-width:2;vector-effect:non-scaling-stroke}
@@ -1843,4 +1887,160 @@ body.dark #fileModalCloseBtn{
 body.dark #fileModal .file-doc-open:hover,
 body.dark #fileModalCloseBtn:hover{
   background:#1f2937;
+}
+
+.bitrix-integration-block{
+  margin-top:18px;
+  padding-top:16px;
+  border-top:1px solid #e2e8f0;
+}
+.bitrix-integration-block h4{
+  margin:0 0 8px;
+  font-size:15px;
+}
+.bitrix-integration-hint{
+  margin:0 0 10px;
+  color:#64748b;
+  font-size:12px;
+  line-height:1.45;
+}
+.bitrix-integration-status{
+  margin:8px 0 10px;
+  font-size:12px;
+  color:#475569;
+}
+.bitrix-integration-actions{
+  display:flex;
+  gap:8px;
+}
+.bitrix-chart-config-card{
+  width:min(520px, calc(100vw - 32px));
+}
+.bitrix-chart-config-grid{
+  display:grid;
+  grid-template-columns:120px 1fr;
+  gap:10px 12px;
+  align-items:center;
+}
+.bitrix-chart-config-grid input,
+.bitrix-chart-config-grid select{
+  width:100%;
+}
+.shape.shape-chart{
+  padding:0;
+  overflow:visible;
+  background:transparent !important;
+  border:none !important;
+  box-shadow:none !important;
+}
+.bitrix-chart-card{
+  width:100%;
+  height:100%;
+  display:flex;
+  flex-direction:column;
+  background:#fff;
+  border:1px solid #dbe4f0;
+  border-radius:14px;
+  box-shadow:0 8px 24px rgba(15,23,42,.08);
+  overflow:hidden;
+}
+.bitrix-chart-header{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 14px 6px;
+  cursor:move;
+}
+.bitrix-chart-header-text{
+  cursor:move;
+}
+.bitrix-chart-title{
+  font-size:14px;
+  font-weight:700;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:#0f172a;
+}
+.bitrix-chart-meta{
+  margin-top:4px;
+  font-size:11px;
+  color:#64748b;
+}
+.bitrix-chart-actions{
+  display:flex;
+  gap:4px;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .15s ease;
+  cursor:default;
+}
+.shape.shape-chart:hover .bitrix-chart-actions,.shape.shape-chart.selected .bitrix-chart-actions{
+  opacity:1;
+  pointer-events:auto;
+}
+.bitrix-chart-icon-btn{
+  width:28px;
+  height:28px;
+  border:1px solid #dbe4f0;
+  border-radius:8px;
+  background:#f8fafc;
+  color:#334155;
+  cursor:pointer;
+}
+.bitrix-chart-legend{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:0 14px 6px;
+  font-size:12px;
+  color:#475569;
+  cursor:move;
+}
+.bitrix-chart-legend-dot{
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:#2563eb;
+  display:inline-block;
+}
+.bitrix-chart-body{
+  position:relative;
+  flex:1;
+  min-height:140px;
+  padding:0 10px 10px;
+  cursor:move;
+}
+.bitrix-chart-canvas{
+  width:100%;
+  height:calc(100% - 18px);
+  display:block;
+}
+.bitrix-chart-status{
+  position:absolute;
+  right:14px;
+  bottom:8px;
+  font-size:11px;
+  color:#64748b;
+}
+body.dark .bitrix-integration-block{
+  border-top-color:#334155;
+}
+body.dark .bitrix-chart-card{
+  background:#0f172a;
+  border-color:#334155;
+  box-shadow:0 8px 24px rgba(0,0,0,.28);
+}
+body.dark .bitrix-chart-title{
+  color:#f8fafc;
+}
+body.dark .bitrix-chart-meta,
+body.dark .bitrix-chart-status,
+body.dark .bitrix-chart-legend{
+  color:#94a3b8;
+}
+body.dark .bitrix-chart-icon-btn{
+  background:#1e293b;
+  border-color:#334155;
+  color:#e2e8f0;
 }

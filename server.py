@@ -8,8 +8,11 @@ import secrets
 import sqlite3
 import time
 import uuid
+from collections import defaultdict
+from datetime import datetime, timedelta
 from functools import wraps
 from urllib.parse import urlparse
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from authlib.integrations.flask_client import OAuth
@@ -280,6 +283,7 @@ def _init_db():
     _ensure_column(conn, "users", "name", "name TEXT")
     _ensure_column(conn, "users", "display_name", "display_name TEXT")
     _ensure_column(conn, "users", "auth_provider", "auth_provider TEXT NOT NULL DEFAULT 'password'")
+    _ensure_column(conn, "users", "bitrix_webhook_url", "bitrix_webhook_url TEXT")
     conn.execute("UPDATE users SET name = COALESCE(name, display_name, email) WHERE name IS NULL OR trim(name) = ''")
     conn.execute("UPDATE users SET display_name = COALESCE(display_name, name, email) WHERE display_name IS NULL OR trim(display_name) = ''")
     conn.execute("UPDATE users SET id = COALESCE(id, lower(hex(randomblob(16)))) WHERE id IS NULL OR trim(id) = ''")
@@ -1683,6 +1687,534 @@ def _extract_title(html_text):
         return None
     title = re.sub(r"\s+", " ", m.group(1)).strip()
     return title or None
+
+
+BITRIX_WEBHOOK_RE = re.compile(
+    r"^https://[a-z0-9.-]+\.bitrix24\.[a-z.]+/rest/\d+/[a-z0-9]+/?$",
+    re.IGNORECASE,
+)
+
+
+def _is_valid_bitrix_webhook(url):
+    return bool(BITRIX_WEBHOOK_RE.match(str(url or "").strip()))
+
+
+def _mask_bitrix_webhook(url):
+    raw = str(url or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    parts = raw.split("/")
+    if len(parts) < 2:
+        return raw
+    parts[-1] = parts[-1][:4] + "…" if parts[-1] else "…"
+    return "/".join(parts) + "/"
+
+
+def _bitrix_domain_from_webhook(url):
+    try:
+        return urlparse(str(url or "").strip()).netloc or ""
+    except Exception:
+        return ""
+
+
+def _get_user_bitrix_webhook(conn, email):
+    row = _get_user(conn, email)
+    if not row:
+        return ""
+    try:
+        return str(row["bitrix_webhook_url"] or "").strip()
+    except (KeyError, IndexError, TypeError):
+        return ""
+
+
+def _resolve_bitrix_webhook():
+    email = _current_email()
+    if email:
+        conn = _db()
+        try:
+            stored = _get_user_bitrix_webhook(conn, email)
+        finally:
+            conn.close()
+        if stored:
+            return stored
+    header_url = str(request.headers.get("X-Bitrix-Webhook") or "").strip()
+    if header_url and _is_valid_bitrix_webhook(header_url):
+        return header_url.rstrip("/") + "/"
+    env_url = os.getenv("BITRIX_WEBHOOK_URL", "").strip()
+    if env_url and _is_valid_bitrix_webhook(env_url):
+        return env_url.rstrip("/") + "/"
+    return ""
+
+
+def _bitrix_call(webhook_url, method, params=None):
+    base = str(webhook_url or "").strip().rstrip("/")
+    if not base:
+        raise ValueError("bitrix_not_configured")
+    url = f"{base}/{method}"
+    payload = json.dumps(params or {}, ensure_ascii=False).encode("utf-8")
+    req = Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=30) as resp:
+            body = resp.read().decode("utf-8", errors="ignore")
+    except HTTPError as err:
+        body = err.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"bitrix_http_{err.code}: {body[:240]}") from err
+    except URLError as err:
+        raise RuntimeError(f"bitrix_network_error: {err}") from err
+    data = json.loads(body or "{}")
+    if isinstance(data, dict) and data.get("error"):
+        raise RuntimeError(f"bitrix_api_error: {data.get('error_description') or data.get('error')}")
+    return data
+
+
+def _bitrix_result_list(data):
+    result = data.get("result") if isinstance(data, dict) else None
+    if isinstance(result, list):
+        return result
+    if isinstance(result, dict):
+        for key in ("categories", "items", "stages", "statuses"):
+            chunk = result.get(key)
+            if isinstance(chunk, list):
+                return chunk
+    return []
+
+
+def _bitrix_list_all(webhook_url, method, params=None):
+    items = []
+    start = 0
+    params = dict(params or {})
+    while True:
+        page_params = dict(params)
+        page_params["start"] = start
+        data = _bitrix_call(webhook_url, method, page_params)
+        chunk = _bitrix_result_list(data)
+        items.extend(chunk)
+        next_start = data.get("next")
+        if next_start is None:
+            break
+        start = int(next_start)
+        if start < 0:
+            break
+    return items
+
+
+def _bitrix_pick_id(item):
+    if not isinstance(item, dict):
+        return None
+    if item.get("id") is not None:
+        return item.get("id")
+    if item.get("ID") is not None:
+        return item.get("ID")
+    return None
+
+
+def _bitrix_pick_name(item, fallback=""):
+    return str(item.get("name") or item.get("NAME") or fallback).strip()
+
+
+def _bitrix_pick_status_id(item):
+    return str(item.get("STATUS_ID") or item.get("statusId") or item.get("status_id") or "").strip()
+
+
+def _bitrix_pick_sort(item):
+    try:
+        return int(item.get("sort") or item.get("SORT") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _bitrix_fetch_deal_pipelines(webhook):
+    pipelines = []
+    try:
+        categories = _bitrix_list_all(webhook, "crm.category.list", {"entityTypeId": 2})
+        pipelines = [
+            {
+                "id": int(_bitrix_pick_id(item) if _bitrix_pick_id(item) is not None else 0),
+                "name": _bitrix_pick_name(item, f"Воронка {_bitrix_pick_id(item)}"),
+                "isDefault": str(item.get("isDefault") or item.get("IS_DEFAULT") or "").upper() == "Y",
+            }
+            for item in categories
+            if _bitrix_pick_id(item) is not None
+        ]
+    except Exception:
+        pipelines = []
+    if pipelines:
+        return pipelines
+    legacy = _bitrix_list_all(webhook, "crm.dealcategory.list", {})
+    return [
+        {
+            "id": int(_bitrix_pick_id(item) if _bitrix_pick_id(item) is not None else 0),
+            "name": _bitrix_pick_name(item, f"Воронка {_bitrix_pick_id(item)}"),
+            "isDefault": False,
+        }
+        for item in legacy
+        if _bitrix_pick_id(item) is not None
+    ]
+
+
+def _parse_bitrix_datetime(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(raw[:19], fmt[: len(raw) if len(raw) < 19 else 19])
+            return dt
+        except ValueError:
+            continue
+    return None
+
+
+def _bitrix_fetch_stage_history(webhook, entity, category_id, stage_id, date_from, date_to):
+    entity_type_id = 1 if entity == "lead" else 2
+    if not date_from:
+        date_from = (datetime.utcnow() - timedelta(days=120)).strftime("%Y-%m-%d")
+    if not date_to:
+        date_to = datetime.utcnow().strftime("%Y-%m-%d")
+    stage_filter = {
+        "STAGE_ID": stage_id,
+        ">=CREATED_TIME": date_from,
+        "<=CREATED_TIME": f"{date_to} 23:59:59",
+    }
+    if entity == "deal":
+        stage_filter["CATEGORY_ID"] = category_id
+    params = {
+        "entityTypeId": entity_type_id,
+        "filter": stage_filter,
+        "select": ["ID", "CREATED_TIME", "STAGE_ID", "OWNER_ID"],
+        "order": {"CREATED_TIME": "ASC"},
+    }
+    if entity == "deal":
+        params["categoryId"] = category_id
+    return _bitrix_list_all(webhook, "crm.stagehistory.list", params)
+
+
+def _bucket_stage_history(items, granularity, date_from, date_to):
+    start = _parse_bitrix_datetime(date_from) or (datetime.utcnow() - timedelta(days=90))
+    end = _parse_bitrix_datetime(date_to) or datetime.utcnow()
+    if end < start:
+        start, end = end, start
+    buckets = defaultdict(int)
+    for item in items:
+        created = _parse_bitrix_datetime(item.get("CREATED_TIME"))
+        if not created:
+            continue
+        if created < start or created > end + timedelta(days=1):
+            continue
+        if granularity == "month":
+            key = created.strftime("%Y-%m")
+        elif granularity == "week":
+            iso = created.isocalendar()
+            key = f"{iso.year}-W{iso.week:02d}"
+        else:
+            key = created.strftime("%Y-%m-%d")
+        buckets[key] += 1
+    keys = sorted(buckets.keys())
+    return [{"label": key, "value": buckets[key]} for key in keys]
+
+
+@app.route("/api/integrations/bitrix", methods=["GET", "POST", "DELETE"])
+def bitrix_integration():
+    email = _current_email()
+    if request.method == "GET":
+        connected = False
+        domain = ""
+        masked = ""
+        if email:
+            conn = _db()
+            try:
+                webhook = _get_user_bitrix_webhook(conn, email)
+            finally:
+                conn.close()
+            if webhook:
+                connected = True
+                domain = _bitrix_domain_from_webhook(webhook)
+                masked = _mask_bitrix_webhook(webhook)
+        return jsonify({"connected": connected, "domain": domain, "webhookMasked": masked})
+    if not email:
+        return jsonify({"error": "unauthorized"}), 401
+    if request.method == "DELETE":
+        conn = _db()
+        conn.execute("UPDATE users SET bitrix_webhook_url = NULL, updated_at = CURRENT_TIMESTAMP WHERE email = ?", (email,))
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True, "connected": False})
+    payload = request.get_json(force=True, silent=True) or {}
+    webhook = str(payload.get("webhookUrl") or "").strip().rstrip("/") + "/"
+    if not _is_valid_bitrix_webhook(webhook):
+        return jsonify({"error": "invalid_webhook_url"}), 400
+    try:
+        _bitrix_call(webhook, "app.info")
+    except Exception as err:
+        return jsonify({"error": "bitrix_connection_failed", "details": str(err)}), 400
+    conn = _db()
+    _upsert_user(conn, email, name=session.get("name") or email)
+    conn.execute(
+        "UPDATE users SET bitrix_webhook_url = ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?",
+        (webhook, email),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify(
+        {
+            "ok": True,
+            "connected": True,
+            "domain": _bitrix_domain_from_webhook(webhook),
+            "webhookMasked": _mask_bitrix_webhook(webhook),
+        }
+    )
+
+
+@app.route("/api/integrations/bitrix/pipelines")
+def bitrix_pipelines():
+    webhook = _resolve_bitrix_webhook()
+    if not webhook:
+        return jsonify({"error": "bitrix_not_configured"}), 400
+    entity = str(request.args.get("entity") or "deal").strip().lower()
+    try:
+        if entity == "lead":
+            return jsonify(
+                {
+                    "entity": "lead",
+                    "pipelines": [{"id": 0, "name": "Лиды", "isDefault": True}],
+                }
+            )
+        categories = _bitrix_fetch_deal_pipelines(webhook)
+        pipelines = categories
+        pipelines.sort(key=lambda row: (not row["isDefault"], row["name"].lower()))
+        return jsonify({"entity": "deal", "pipelines": pipelines})
+    except Exception as err:
+        return jsonify({"error": "bitrix_request_failed", "details": str(err)}), 502
+
+
+@app.route("/api/integrations/bitrix/stages")
+def bitrix_stages():
+    webhook = _resolve_bitrix_webhook()
+    if not webhook:
+        return jsonify({"error": "bitrix_not_configured"}), 400
+    entity = str(request.args.get("entity") or "deal").strip().lower()
+    category_id = int(request.args.get("categoryId") or 0)
+    try:
+        if entity == "lead":
+            statuses = _bitrix_list_all(
+                webhook,
+                "crm.status.list",
+                {"filter": {"ENTITY_ID": "STATUS"}, "order": {"SORT": "ASC"}},
+            )
+            stages = [
+                {
+                    "id": _bitrix_pick_status_id(item),
+                    "name": _bitrix_pick_name(item, _bitrix_pick_status_id(item)),
+                    "sort": _bitrix_pick_sort(item),
+                }
+                for item in statuses
+                if _bitrix_pick_status_id(item)
+            ]
+        else:
+            stages_raw = _bitrix_list_all(webhook, "crm.dealcategory.stage.list", {"id": category_id})
+            stages = [
+                {
+                    "id": _bitrix_pick_status_id(item),
+                    "name": _bitrix_pick_name(item, _bitrix_pick_status_id(item)),
+                    "sort": _bitrix_pick_sort(item),
+                }
+                for item in stages_raw
+                if _bitrix_pick_status_id(item)
+            ]
+        stages.sort(key=lambda row: row["sort"])
+        return jsonify({"entity": entity, "categoryId": category_id, "stages": stages})
+    except Exception as err:
+        return jsonify({"error": "bitrix_request_failed", "details": str(err)}), 502
+
+
+@app.route("/api/integrations/bitrix/chart-data")
+def bitrix_chart_data():
+    webhook = _resolve_bitrix_webhook()
+    if not webhook:
+        return jsonify({"error": "bitrix_not_configured"}), 400
+    entity = str(request.args.get("entity") or "deal").strip().lower()
+    category_id = int(request.args.get("categoryId") or 0)
+    stage_id = str(request.args.get("stageId") or "").strip()
+    date_from = str(request.args.get("dateFrom") or "").strip()
+    date_to = str(request.args.get("dateTo") or "").strip()
+    granularity = str(request.args.get("granularity") or "week").strip().lower()
+    if granularity not in ("day", "week", "month"):
+        granularity = "week"
+    if not stage_id:
+        return jsonify({"error": "stage_required"}), 400
+    if not date_from:
+        date_from = (datetime.utcnow() - timedelta(days=120)).strftime("%Y-%m-%d")
+    if not date_to:
+        date_to = datetime.utcnow().strftime("%Y-%m-%d")
+    try:
+        history = _bitrix_fetch_stage_history(webhook, entity, category_id, stage_id, date_from, date_to)
+        points = _bucket_stage_history(history, granularity, date_from, date_to)
+        total = sum(point["value"] for point in points)
+        return jsonify(
+            {
+                "entity": entity,
+                "categoryId": category_id,
+                "stageId": stage_id,
+                "granularity": granularity,
+                "dateFrom": date_from,
+                "dateTo": date_to,
+                "total": total,
+                "points": points,
+            }
+        )
+    except Exception as err:
+        return jsonify({"error": "bitrix_request_failed", "details": str(err)}), 502
+
+
+NUMERIC_FIELD_TYPES = {"integer", "double", "money", "float", "number"}
+
+
+def _bitrix_build_entity_filter(entity, category_id, stage_id, date_from="", date_to=""):
+    entity = "lead" if entity == "lead" else "deal"
+    entity_filter = {}
+    if stage_id:
+        if entity == "lead":
+            entity_filter["STATUS_ID"] = stage_id
+        else:
+            entity_filter["STAGE_ID"] = stage_id
+    if entity == "deal":
+        entity_filter["CATEGORY_ID"] = category_id
+    if date_from:
+        entity_filter[">=DATE_CREATE"] = date_from
+    if date_to:
+        entity_filter["<=DATE_CREATE"] = f"{date_to} 23:59:59"
+    return entity_filter
+
+
+def _bitrix_fetch_numeric_fields(webhook, entity):
+    method = "crm.lead.fields" if entity == "lead" else "crm.deal.fields"
+    data = _bitrix_call(webhook, method, {})
+    result = data.get("result") or {}
+    fields = []
+    seen = set()
+    defaults = (
+        [("OPPORTUNITY", "Сумма"), ("OPPORTUNITY_ACCOUNT", "Сумма в валюте учёта")]
+        if entity == "deal"
+        else [("OPPORTUNITY", "Сумма")]
+    )
+    for field_id, label in defaults:
+        meta = result.get(field_id) if isinstance(result, dict) else None
+        fields.append(
+            {
+                "id": field_id,
+                "name": str((meta or {}).get("title") or label),
+                "type": str((meta or {}).get("type") or "money"),
+            }
+        )
+        seen.add(field_id)
+    if isinstance(result, dict):
+        for field_id, meta in result.items():
+            if field_id in seen or not isinstance(meta, dict):
+                continue
+            ftype = str(meta.get("type") or "").lower()
+            if ftype not in NUMERIC_FIELD_TYPES:
+                continue
+            fields.append(
+                {
+                    "id": field_id,
+                    "name": str(meta.get("title") or meta.get("listLabel") or field_id),
+                    "type": ftype,
+                }
+            )
+            seen.add(field_id)
+    fields.sort(key=lambda row: row["name"].lower())
+    return fields
+
+
+def _bitrix_entity_count(webhook, entity, entity_filter):
+    method = "crm.lead.list" if entity == "lead" else "crm.deal.list"
+    data = _bitrix_call(webhook, method, {"filter": entity_filter, "select": ["ID"], "start": 0})
+    return int(data.get("total") or 0)
+
+
+def _bitrix_entity_sum(webhook, entity, entity_filter, field):
+    method = "crm.lead.list" if entity == "lead" else "crm.deal.list"
+    total_sum = 0.0
+    start = 0
+    while True:
+        data = _bitrix_call(
+            webhook,
+            method,
+            {"filter": entity_filter, "select": ["ID", field], "start": start},
+        )
+        items = data.get("result") or []
+        if not isinstance(items, list):
+            break
+        for item in items:
+            try:
+                total_sum += float(item.get(field) or 0)
+            except (TypeError, ValueError):
+                continue
+        next_start = data.get("next")
+        if next_start is None:
+            break
+        start = int(next_start)
+    return total_sum
+
+
+@app.route("/api/integrations/bitrix/fields")
+def bitrix_fields():
+    webhook = _resolve_bitrix_webhook()
+    if not webhook:
+        return jsonify({"error": "bitrix_not_configured"}), 400
+    entity = str(request.args.get("entity") or "deal").strip().lower()
+    if entity not in ("lead", "deal"):
+        entity = "deal"
+    try:
+        fields = _bitrix_fetch_numeric_fields(webhook, entity)
+        return jsonify({"entity": entity, "fields": fields})
+    except Exception as err:
+        return jsonify({"error": "bitrix_request_failed", "details": str(err)}), 502
+
+
+@app.route("/api/integrations/bitrix/card-data")
+def bitrix_card_data():
+    webhook = _resolve_bitrix_webhook()
+    if not webhook:
+        return jsonify({"error": "bitrix_not_configured"}), 400
+    entity = str(request.args.get("entity") or "deal").strip().lower()
+    if entity not in ("lead", "deal"):
+        entity = "deal"
+    category_id = int(request.args.get("categoryId") or 0)
+    stage_id = str(request.args.get("stageId") or "").strip()
+    date_from = str(request.args.get("dateFrom") or "").strip()
+    date_to = str(request.args.get("dateTo") or "").strip()
+    metric = str(request.args.get("metric") or "count").strip().lower()
+    sum_field = str(request.args.get("sumField") or "OPPORTUNITY").strip() or "OPPORTUNITY"
+    entity_filter = _bitrix_build_entity_filter(entity, category_id, stage_id, date_from, date_to)
+    try:
+        if metric == "sum":
+            value = _bitrix_entity_sum(webhook, entity, entity_filter, sum_field)
+        elif metric == "count" and date_from and date_to and stage_id:
+            history = _bitrix_fetch_stage_history(webhook, entity, category_id, stage_id, date_from, date_to)
+            value = len(history)
+        else:
+            metric = "count"
+            value = _bitrix_entity_count(webhook, entity, entity_filter)
+        return jsonify(
+            {
+                "entity": entity,
+                "categoryId": category_id,
+                "stageId": stage_id,
+                "dateFrom": date_from,
+                "dateTo": date_to,
+                "metric": metric,
+                "sumField": sum_field if metric == "sum" else "",
+                "value": value,
+            }
+        )
+    except Exception as err:
+        return jsonify({"error": "bitrix_request_failed", "details": str(err)}), 502
 
 
 def _google_title_from_export(raw_url):

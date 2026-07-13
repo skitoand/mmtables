@@ -276,6 +276,11 @@ const SHAPE_MENU_ITEMS = [
   { variant: "arrow-right", label: "Стрелка вправо", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="10,16 34,16 34,8 54,22 34,36 34,28 10,28"/></svg>' },
   { variant: "hexagon", label: "Шестиугольник", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="18,8 46,8 56,22 46,36 18,36 8,22"/></svg>' }
 ];
+const BITRIX_MENU_ITEMS = [
+  { variant: "chart", label: "График" },
+  { variant: "bitrix-card", label: "Карточка" },
+  { variant: "bitrix-date-filter", label: "Фильтр дат" }
+];
 const SHAPE_SELECTION_PAD = 4;
 const CONN_ARROW_OFFSET = 22;
 const BP_CONN_ARROW_OFFSET = 38;
@@ -2276,6 +2281,13 @@ function tryInsertFormulaReferenceFromTarget(target, event = null) {
 function getShapeFormulaValueById(id, visiting = new Set()) {
   const node = getShapeById(id);
   if (!node) return 0;
+  if (node.dataset.shapeType === "shape-bitrix-card") {
+    if (window.BitrixChart && window.BitrixChart.getBitrixCardFormulaValue) {
+      return window.BitrixChart.getBitrixCardFormulaValue(node);
+    }
+    const stored = Number(node.dataset.bitrixCardValue);
+    return Number.isFinite(stored) ? stored : 0;
+  }
   const text = node.querySelector(".shape-text");
   const raw = text ? (text.dataset.rawText != null ? text.dataset.rawText : (text.innerText || text.textContent || "")) : "";
   const key = `shape:${String(node.dataset.shapeId || "").trim().toLowerCase()}`;
@@ -3982,6 +3994,8 @@ async function loadCurrentDocument() {
 
 async function persistCurrentDocument(layoutOverride = null) {
   if (!canEditCurrentDocument()) return;
+  clearTimeout(pendingPersistTimer);
+  pendingPersistTimer = null;
   if (layoutOverride && !Array.isArray(layoutOverride.sheets)) {
     flushCurrentSheetLayout(layoutOverride);
   } else {
@@ -5069,6 +5083,7 @@ function openProfileModal() {
   if (profileNewPasswordInput) profileNewPasswordInput.value = "";
   if (profileCurrentPasswordInput) profileCurrentPasswordInput.value = "";
   syncProfilePasswordUi();
+  if (window.BitrixChart && window.BitrixChart.syncBitrixProfileUi) window.BitrixChart.syncBitrixProfileUi();
   if (profileModal) profileModal.classList.remove("hidden");
   if (profileNameInput) profileNameInput.focus();
 }
@@ -7537,6 +7552,13 @@ function getContextShapeMenuItems(spawnPoint) {
   }));
 }
 
+function getContextBitrixMenuItems(spawnPoint) {
+  return BITRIX_MENU_ITEMS.map((item) => ({
+    label: item.label,
+    action: () => createShapeAtContextPoint(item.variant, spawnPoint)
+  }));
+}
+
 function ensureMarqueeSelectionEl() {
   let el = desktop.querySelector(".marquee-selection");
   if (el) return el;
@@ -7734,6 +7756,17 @@ function applyDraggedConnectorEntries(entries, dx, dy) {
   });
 }
 
+function isDesktopBackgroundPointerTarget(target) {
+  if (!target || !target.closest) return false;
+  if (!target.closest("#desktop")) return false;
+  if (target.closest(".shape, .sheet-window, .context-menu")) return false;
+  return target.id === "desktop"
+    || target.id === "desktopSurface"
+    || target.id === "desktopOrigin"
+    || target.classList.contains("desktop-surface")
+    || target.classList.contains("desktop-origin");
+}
+
 function canStartMarqueeSelectionFromTarget(target, touchMode = false) {
   if (!target || isActiveFormulaEditing()) return false;
   if (target.closest(".shape-table-grid td")) return false;
@@ -7789,6 +7822,7 @@ function showContextMenu(x, y, items = []) {
       group.appendChild(btn);
       const submenu = document.createElement("div");
       submenu.className = "context-submenu";
+      if (item.submenuClass) submenu.classList.add(item.submenuClass);
       if (item.children.every((child) => child.iconOnly && child.iconSvg)) submenu.classList.add("context-shape-palette");
       const openSubmenu = () => openContextSubmenu(group);
       const closeSubmenu = () => scheduleContextSubmenuClose(group);
@@ -7955,6 +7989,18 @@ function createShapeAtContextPoint(shape, point) {
   }
   if (shape === "table") {
     createShapeTable({ left: formatContextSpawnPx(x), top: formatContextSpawnPx(y) });
+    return;
+  }
+  if (shape === "chart" && window.BitrixChart) {
+    window.BitrixChart.createShapeChart({ left: formatContextSpawnPx(x), top: formatContextSpawnPx(y) });
+    return;
+  }
+  if (shape === "bitrix-card" && window.BitrixChart) {
+    window.BitrixChart.createShapeCard({ left: formatContextSpawnPx(x), top: formatContextSpawnPx(y) });
+    return;
+  }
+  if (shape === "bitrix-date-filter" && window.BitrixChart) {
+    window.BitrixChart.createShapeDateFilter({ left: formatContextSpawnPx(x), top: formatContextSpawnPx(y) });
     return;
   }
   if (shape === "bp-process") {
@@ -8199,6 +8245,9 @@ function attachDrag(node, handle, opts = {}) {
     if (event.target.closest(".h") || event.target.closest(".shape-line-handle") || event.target.closest(".shape-param-handle") || event.target.closest(".resize-handle")) return;
     if (event.target.closest(".conn-arrow, .conn-point")) return;
     if (event.target.closest(".bp-task-title, .bp-task-toggle, .bp-task-field")) return;
+    if (event.target.closest(".bitrix-kpi-value, .bitrix-kpi-label, .bitrix-kpi-actions, .bitrix-kpi-status")) return;
+    if (event.target.closest(".bitrix-date-filter-inputs, .bitrix-date-filter-slider, .bitrix-date-filter-actions, .bitrix-date-filter-input")) return;
+    if (event.target.closest(".bitrix-chart-icon-btn, .bitrix-chart-actions")) return;
     const bulkDrag = createBulkSelectionDrag(node, event);
     if (bulkDrag) {
       drag = bulkDrag;
@@ -8242,7 +8291,7 @@ function attachDrag(node, handle, opts = {}) {
     }
     updateDesktopExtent();
     autoScrollViewportDuringDrag(event.clientX, event.clientY);
-    syncFormatPanel();
+    scheduleSyncFormatPanel();
     renderConnectors();
     syncAllLiftedControlsPositions();
   });
@@ -8509,6 +8558,9 @@ function addShapeHandles(node, isLine = false, opts = {}) {
 function selectShape(node) {
   if (isWorkspaceReadOnly()) return;
   clearPendingGroupMemberSelect();
+  if (window.BitrixChart?.clearAllBitrixCardTextSelections) {
+    window.BitrixChart.clearAllBitrixCardTextSelections(node);
+  }
   const preserveBpTaskReassign = selectedShape === node && node?.dataset?.bpTaskReassignReady === "1";
   clearAllTableCellSelections();
   clearSelectedShape();
@@ -8532,6 +8584,9 @@ function selectShape(node) {
 
 function clearSelectedShape() {
   if (selectedShape) {
+    if (selectedShape.dataset.shapeType === "shape-bitrix-card" && window.BitrixChart?.clearBitrixCardTextPart) {
+      window.BitrixChart.clearBitrixCardTextPart(selectedShape, { sync: false });
+    }
     if (selectedShape.dataset.bpTaskReassignReady === "1") delete selectedShape.dataset.bpTaskReassignReady;
     restoreLiftedShapeControls(selectedShape.dataset.shapeId);
     selectedShape.classList.remove("selected");
@@ -8582,6 +8637,9 @@ function clearAllTableCellSelections(exceptNode = null) {
 
 function clearSelection() {
   clearAllTableCellSelections();
+  if (window.BitrixChart?.clearAllBitrixCardTextSelections) {
+    window.BitrixChart.clearAllBitrixCardTextSelections();
+  }
   clearSelectedShape();
   clearSelectedGroup();
   clearMultiSelection();
@@ -8902,6 +8960,9 @@ function createShapeFromData(shapeData, offsetX = 0, offsetY = 0, opts = {}) {
   if (copy.type === "shape-line") return createShapeLine(copy, doSave);
   if (copy.type === "shape-table") return createShapeTable(copy, doSave);
   if (copy.type === "shape-image") return createShapeImage(copy, doSave);
+  if (copy.type === "shape-chart" && window.BitrixChart) return window.BitrixChart.restoreShapeChart(copy, doSave);
+  if (copy.type === "shape-bitrix-card" && window.BitrixChart) return window.BitrixChart.restoreShapeCard(copy, doSave);
+  if (copy.type === "shape-bitrix-date-filter" && window.BitrixChart) return window.BitrixChart.restoreShapeDateFilter(copy, doSave);
   return null;
 }
 
@@ -9177,6 +9238,11 @@ function createShapeBase(type, opts = {}) {
   node.addEventListener("pointerdown", (e) => {
     if (activeFormulaEditor && node.contains(activeFormulaEditor)) return;
     if (insertFormulaReferenceToken(`@${node.dataset.shapeId}`, e)) return;
+    if (node.dataset.shapeType === "shape-bitrix-card" && window.BitrixChart?.clearBitrixCardTextPart) {
+      if (!e.target.closest(".bitrix-kpi-value, .bitrix-kpi-label")) {
+        window.BitrixChart.clearBitrixCardTextPart(node, { sync: false });
+      }
+    }
     if (e.button !== 0) {
       e.stopPropagation();
       return;
@@ -14846,7 +14912,7 @@ function readShapeData(node) {
   const actualWidth = Number.isFinite(node.offsetWidth) ? node.offsetWidth : parseFloat(node.style.width || "0") || 0;
   const actualHeight = Number.isFinite(node.offsetHeight) ? node.offsetHeight : parseFloat(node.style.height || "0") || 0;
   const textPadding = text ? getShapeTextPaddingValues(text) : null;
-  return {
+  const base = {
     id: node.dataset.shapeId,
     connId: node.dataset.connId || node.dataset.shapeId,
     groupId: node.dataset.groupId || undefined,
@@ -14932,6 +14998,12 @@ function readShapeData(node) {
     imageSrc: node.dataset.shapeType === "shape-image" ? (node.dataset.imageSrc || "") : undefined,
     tableData
   };
+  if (node.dataset.shapeType === "shape-chart" || node.dataset.shapeType === "shape-bitrix-card" || node.dataset.shapeType === "shape-bitrix-date-filter") {
+    if (window.BitrixChart && window.BitrixChart.readBitrixShapeExtras) {
+      return window.BitrixChart.readBitrixShapeExtras(node, base);
+    }
+  }
+  return base;
 }
 
 function getCurrentLayout() {
@@ -14947,16 +15019,73 @@ function getCurrentLayout() {
 
 async function saveLayout(opts = {}) {
   if (!canEditCurrentDocument()) return;
+  scheduleLayoutSave(opts);
+}
+
+function scheduleLayoutSave(opts = {}) {
+  if (!canEditCurrentDocument()) return;
   const recordHistory = opts.recordHistory !== false;
-  if (recordHistory) pushHistorySnapshot();
+  const immediate = !!opts.immediate;
+  if (recordHistory) {
+    scheduleHistorySnapshot(immediate ? 0 : 350);
+  }
+  flushCurrentSheetLayout();
   if (autoSaveEnabled) {
+    scheduleDocumentPersist(immediate ? 0 : 700);
+  }
+  saveViewportState();
+}
+
+let pendingHistoryTimer = null;
+let pendingPersistTimer = null;
+
+function scheduleHistorySnapshot(delay = 350) {
+  clearTimeout(pendingHistoryTimer);
+  if (delay <= 0) {
+    pushHistorySnapshot();
+    return;
+  }
+  pendingHistoryTimer = setTimeout(() => {
+    pendingHistoryTimer = null;
+    pushHistorySnapshot();
+  }, delay);
+}
+
+async function flushPersistDocument() {
+  if (!canEditCurrentDocument() || !autoSaveEnabled) return;
+  flushCurrentSheetLayout();
+  const docPayload = buildDocumentLayoutPayload();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(docPayload));
+  try {
+    await persistCurrentDocument();
+  } catch (err) {
+    console.error("Failed to persist document:", err);
+  }
+}
+
+function scheduleDocumentPersist(delay = 700) {
+  clearTimeout(pendingPersistTimer);
+  if (delay <= 0) {
+    void flushPersistDocument();
+    return;
+  }
+  pendingPersistTimer = setTimeout(() => {
+    pendingPersistTimer = null;
+    void flushPersistDocument();
+  }, delay);
+}
+
+function flushPendingLayoutSave() {
+  clearTimeout(pendingHistoryTimer);
+  pendingHistoryTimer = null;
+  clearTimeout(pendingPersistTimer);
+  pendingPersistTimer = null;
+  if (!canEditCurrentDocument()) return;
+  pushHistorySnapshot();
+  if (autoSaveEnabled) {
+    flushCurrentSheetLayout();
     const docPayload = buildDocumentLayoutPayload();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(docPayload));
-    try {
-      await persistCurrentDocument();
-    } catch (err) {
-      console.error("Failed to persist document:", err);
-    }
   }
   saveViewportState();
 }
@@ -14991,6 +15120,9 @@ function applyLayout(data) {
       else if (s.type === "shape-line") createShapeLine(s, false);
       else if (s.type === "shape-table") createShapeTable(s, false);
       else if (s.type === "shape-image") createShapeImage(s, false);
+      else if (s.type === "shape-chart" && window.BitrixChart) window.BitrixChart.restoreShapeChart(s, false);
+      else if (s.type === "shape-bitrix-card" && window.BitrixChart) window.BitrixChart.restoreShapeCard(s, false);
+      else if (s.type === "shape-bitrix-date-filter" && window.BitrixChart) window.BitrixChart.restoreShapeDateFilter(s, false);
     } catch (err) {
       console.error("Failed to restore shape:", s, err);
     }
@@ -15008,6 +15140,7 @@ function applyLayout(data) {
   refreshAllFormulaDisplays();
   syncWorkspaceAccessMode();
   purgeOrphanedInteractionControls();
+  if (window.BitrixChart && window.BitrixChart.refreshAllBitrixWidgets) window.BitrixChart.refreshAllBitrixWidgets();
   return true;
 }
 
@@ -15145,8 +15278,22 @@ async function handleFileOpen() {
   }
 }
 
+let syncFormatPanelRaf = 0;
+function scheduleSyncFormatPanel() {
+  if (!formatToggle.checked) return;
+  if (syncFormatPanelRaf) return;
+  syncFormatPanelRaf = requestAnimationFrame(() => {
+    syncFormatPanelRaf = 0;
+    syncFormatPanel();
+  });
+}
+
 function syncFormatPanel() {
   if (!formatToggle.checked) return;
+  const bitrixHint = $("bitrixCardFormatHint");
+  if (bitrixHint && (!selectedShape || selectedShape.dataset.shapeType !== "shape-bitrix-card")) {
+    bitrixHint.classList.add("hidden");
+  }
   setControlVisibilityByMode(getSelectionMode());
   if (getSelectionMode() === "desktop") {
     if (fpFillEnabled) fpFillEnabled.checked = desktopStyleState.fillEnabled;
@@ -15268,6 +15415,14 @@ function syncFormatPanel() {
     }
     return;
   }
+  if (panelShape.dataset.shapeType === "shape-bitrix-card") {
+    if (panelShape.__cardApi && panelShape.__cardApi.syncToFormatPanel) {
+      panelShape.__cardApi.syncToFormatPanel();
+    } else if (window.BitrixChart && window.BitrixChart.syncCardFormatPanel) {
+      window.BitrixChart.syncCardFormatPanel(panelShape);
+    }
+    return;
+  }
   const cs = getComputedStyle(panelShape);
   const text = panelShape.querySelector(".shape-text");
   const fillState = getFillStyleFromNode(panelShape, "#ffffff");
@@ -15367,6 +15522,10 @@ function adjustShapeTextFontSizesBy(delta) {
       changed = node.__tableApi.adjustAllFontSizesBy(step) || changed;
       return;
     }
+    if (node.dataset.shapeType === "shape-bitrix-card" && window.BitrixChart?.adjustCardFontSize) {
+      changed = window.BitrixChart.adjustCardFontSize(node, step) || changed;
+      return;
+    }
     if (isBpProcessTask(node)) {
       const typography = getBpTaskTypography(node);
       applyBpTaskTypography(node, {
@@ -15413,7 +15572,7 @@ function applyFormat(opts = {}) {
       opacity: fpOpacity ? Number(fpOpacity.value) || desktopStyleState.opacity : desktopStyleState.opacity
     });
     updateFormatPanelVisuals();
-    saveLayout({ recordHistory: false });
+    if (!opts.preview) saveLayout({ recordHistory: false });
     return;
   }
   if (selectedConnector) {
@@ -15432,12 +15591,14 @@ function applyFormat(opts = {}) {
     c.endArrowShape = getArrowShapeButtonsValue(fpArrowEndShape);
     applyConnectorLabelStyleFromPanel(c);
     renderConnectors();
-    syncFormatPanel();
-    saveLayout();
+    if (!opts.preview) {
+      syncFormatPanel();
+      saveLayout();
+    }
     return;
   }
   if (selectedWindow) {
-    saveLayout();
+    if (!opts.preview) saveLayout();
     return;
   }
   if (!selectedShape && multiSelectedShapeIds.size) {
@@ -15533,7 +15694,7 @@ function applyFormat(opts = {}) {
       if (firstText) syncTextPaddingControlsFromText(firstText);
     }
     renderConnectors();
-    saveLayout();
+    if (!opts.preview) saveLayout();
     return;
   }
   if (!selectedShape) return;
@@ -15541,6 +15702,21 @@ function applyFormat(opts = {}) {
     if (selectedShape.__tableApi && selectedShape.__tableApi.applyFromFormatPanel) {
       const changed = selectedShape.__tableApi.applyFromFormatPanel();
       if (changed) {
+        if (!opts.preview) {
+          syncFormatPanel();
+          saveLayout();
+        }
+      }
+    }
+    return;
+  }
+  if (selectedShape.dataset.shapeType === "shape-bitrix-card") {
+    const applyFn = selectedShape.__cardApi?.applyFromFormatPanel
+      || (window.BitrixChart && window.BitrixChart.applyCardFormatPanel
+        ? (node, opts) => window.BitrixChart.applyCardFormatPanel(node, opts)
+        : null);
+    if (applyFn && applyFn(selectedShape, opts)) {
+      if (!opts.preview) {
         syncFormatPanel();
         saveLayout();
       }
@@ -15634,7 +15810,7 @@ function applyFormat(opts = {}) {
   layoutConnectorPoints(selectedShape);
   renderConnectors();
   updateDesktopExtent();
-  saveLayout();
+  if (!opts.preview) saveLayout();
 }
 
 function openFormatTab(name) {
@@ -15795,12 +15971,21 @@ safeOn(shareEmailInput, "keydown", (e) => {
 
 desktop.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
-  if (e.target === desktop && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+  if (isDesktopBackgroundPointerTarget(e.target) && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
     clearSelection();
   }
   if (!canStartMarqueeSelectionFromTarget(e.target, e.shiftKey)) return;
   startMarqueeSelection(e, e.shiftKey);
 });
+if (formatPanel) {
+  formatPanel.addEventListener("pointerdown", (e) => {
+    if (!selectedShape || selectedShape.dataset.shapeType !== "shape-bitrix-card") return;
+    if (e.target.closest(".bitrix-kpi-value, .bitrix-kpi-label")) return;
+    if (window.BitrixChart?.clearBitrixCardTextPart) {
+      window.BitrixChart.clearBitrixCardTextPart(selectedShape, { sync: true });
+    }
+  });
+}
 document.addEventListener("click", (e) => {
   if (!fileMenuDropdown) return;
   if (e.target.closest("#fileMenuBtn") || e.target.closest("#fileMenuDropdown")) return;
@@ -15830,6 +16015,9 @@ window.addEventListener("blur", () => {
   if (!ctrlModifierActive) return;
   ctrlModifierActive = false;
   updateAllTableCellConnectorGuides();
+});
+window.addEventListener("beforeunload", () => {
+  flushPendingLayoutSave();
 });
 document.addEventListener("pointermove", (e) => {
   if (marqueeSelection && e.pointerId === marqueeSelection.pointerId) {
@@ -15924,7 +16112,7 @@ safeOn(fpTextScale, "change", () => {
 ].filter(Boolean).forEach((ctrl) => {
   ctrl.addEventListener("input", () => clearControlMixedState(ctrl));
   ctrl.addEventListener("change", () => clearControlMixedState(ctrl));
-  ctrl.addEventListener("input", () => applyFormat({ source: ctrl }));
+  ctrl.addEventListener("input", () => applyFormat({ source: ctrl, preview: true }));
   ctrl.addEventListener("change", () => applyFormat({ source: ctrl }));
 });
 bindFormatPanelShapeTextSelectionGuard();
@@ -16201,6 +16389,12 @@ function applyAlignButtonsForCurrentSelection(h, v) {
     return;
   }
   if (!selectedShape) return;
+  if (selectedShape.dataset.shapeType === "shape-bitrix-card" && window.BitrixChart) {
+    setAlignButtons(h, v);
+    window.BitrixChart.applyCardTextAlign(selectedShape, h, v);
+    syncFormatPanel();
+    return;
+  }
   if (selectedShape.dataset.shapeType === "shape-table" && selectedShape.__tableApi) {
     setAlignButtons(h, v);
     const changed = selectedShape.__tableApi.applyFromFormatPanel();
@@ -16261,6 +16455,9 @@ safeOn(shapeButton && shapeButton.closest(".app-menu-nested"), "focusin", () => 
       else if (k === "line") createShapeLine();
       else if (k === "note") createShapeNote();
       else if (k === "table") createShapeTable();
+      else if (k === "chart" && window.BitrixChart) window.BitrixChart.createShapeChart();
+      else if (k === "bitrix-card" && window.BitrixChart) window.BitrixChart.createShapeCard();
+      else if (k === "bitrix-date-filter" && window.BitrixChart) window.BitrixChart.createShapeDateFilter();
       else if (k === "bp-process") createSequentialBusinessProcess();
     } catch (err) {
       console.error("Failed to create shape:", k, err);
@@ -16364,6 +16561,11 @@ document.addEventListener("contextmenu", (e) => {
         action: () => promptImageImportAtPoint(spawnPoint)
       },
       { label: "Таблица", action: () => createShapeAtContextPoint("table", spawnPoint) },
+      {
+        label: "Bitrix24",
+        submenuClass: "context-bitrix-submenu",
+        children: getContextBitrixMenuItems(spawnPoint)
+      },
       { label: "Последовательный бизнес-процесс", action: () => createShapeAtContextPoint("bp-process", spawnPoint) },
       {
         label: "Импорт CSV",

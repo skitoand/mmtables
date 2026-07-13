@@ -65,6 +65,14 @@
                       <button type="button" data-shape="note">Заметка</button>
                       <button type="button" data-action="import-image">Картинка</button>
                       <button type="button" data-shape="table">Таблица</button>
+                      <div class="shape-submenu bitrix-submenu">
+                        <button type="button" class="shape-submenu-trigger">Bitrix24 <span>▸</span></button>
+                        <div class="shape-palette bitrix-submenu-panel">
+                          <button type="button" data-shape="chart">График</button>
+                          <button type="button" data-shape="bitrix-card">Карточка</button>
+                          <button type="button" data-shape="bitrix-date-filter">Фильтр дат</button>
+                        </div>
+                      </div>
                       <button type="button" data-shape="bp-process">Последовательный бизнес-процесс</button>
                       <button type="button" data-action="import-csv">Импорт CSV</button>
                     </div>
@@ -316,6 +324,7 @@
           </section>
 
           <section id="panelText" class="fp-panel hidden">
+            <div id="bitrixCardFormatHint" class="bitrix-card-format-hint hidden"></div>
             <div class="fp-font-head">Шрифт</div>
             <select id="fpFontFamily" class="fp-font-select">
               <option value="" hidden></option>
@@ -591,6 +600,17 @@
             <input id="profileNewPasswordInput" type="password" placeholder="Минимум 6 символов" autocomplete="new-password" />
           </div>
           <div id="profileErrorText" class="auth-error hidden" role="alert" aria-live="polite"></div>
+          <div class="bitrix-integration-block">
+            <h4>Bitrix24</h4>
+            <p class="bitrix-integration-hint">Вставьте URL входящего webhook из Bitrix24 (CRM → Настройки → Входящий webhook).</p>
+            <label for="bitrixWebhookInput">Webhook URL</label>
+            <input id="bitrixWebhookInput" type="url" placeholder="https://company.bitrix24.ru/rest/1/..." autocomplete="off" />
+            <div id="bitrixIntegrationStatus" class="bitrix-integration-status">Bitrix24 не подключён</div>
+            <div class="bitrix-integration-actions">
+              <button id="bitrixConnectBtn" type="button">Подключить</button>
+              <button id="bitrixDisconnectBtn" type="button">Отключить</button>
+            </div>
+          </div>
         </div>
         <div class="modal-actions">
           <button id="profileModalCloseBtn" type="button">Закрыть</button>
@@ -666,6 +686,93 @@
     <input id="csvImportInput" type="file" accept=".csv,text/csv" hidden />
     <input id="imageImportInput" type="file" accept="image/*" hidden />
 
-    <script src="app.js?v=20260707-paste-image-fix"></script>
+    <div id="bitrixChartConfigModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="bitrixChartConfigTitle">
+      <div class="modal-card bitrix-chart-config-card">
+        <h3 id="bitrixChartConfigTitle">Настройки графика Bitrix24</h3>
+        <div class="bitrix-chart-config-grid">
+          <label for="bitrixChartEntity">Тип</label>
+          <select id="bitrixChartEntity">
+            <option value="deal">Сделки</option>
+            <option value="lead">Лиды</option>
+          </select>
+          <label for="bitrixChartPipeline">Воронка</label>
+          <select id="bitrixChartPipeline"></select>
+          <label for="bitrixChartStage">Стадия</label>
+          <select id="bitrixChartStage"></select>
+          <label for="bitrixChartGranularity">Группировка</label>
+          <select id="bitrixChartGranularity">
+            <option value="day">День</option>
+            <option value="week" selected>Неделя</option>
+            <option value="month">Месяц</option>
+          </select>
+          <label for="bitrixChartDateFrom">С</label>
+          <input id="bitrixChartDateFrom" type="date" />
+          <label for="bitrixChartDateTo">По</label>
+          <input id="bitrixChartDateTo" type="date" />
+          <label for="bitrixChartTitle">Заголовок</label>
+          <input id="bitrixChartTitle" type="text" placeholder="Название графика" />
+        </div>
+        <div id="bitrixChartConfigError" class="auth-error hidden" role="alert"></div>
+        <div class="modal-actions">
+          <button id="bitrixChartConfigCancelBtn" type="button">Отмена</button>
+          <button id="bitrixChartConfigSaveBtn" type="button">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="bitrixCardConfigModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="bitrixCardConfigTitle">
+      <div class="modal-card bitrix-chart-config-card">
+        <h3 id="bitrixCardConfigTitle">Настройки карточки Bitrix24</h3>
+        <div class="bitrix-chart-config-grid">
+          <label for="bitrixCardEntity">Тип</label>
+          <select id="bitrixCardEntity">
+            <option value="deal">Сделки</option>
+            <option value="lead">Лиды</option>
+          </select>
+          <label for="bitrixCardPipeline">Воронка</label>
+          <select id="bitrixCardPipeline"></select>
+          <label for="bitrixCardStage">Стадия</label>
+          <select id="bitrixCardStage"></select>
+          <label for="bitrixCardMetric">Показатель</label>
+          <select id="bitrixCardMetric">
+            <option value="count">Количество</option>
+            <option value="sum">Сумма по полю</option>
+          </select>
+          <label for="bitrixCardSumField">Поле для суммы</label>
+          <select id="bitrixCardSumField"></select>
+          <label for="bitrixCardUseDates">Период</label>
+          <label class="bitrix-card-date-toggle">
+            <input id="bitrixCardUseDates" type="checkbox" />
+            <span>Ограничить датами создания</span>
+          </label>
+          <label for="bitrixCardDateFrom">С</label>
+          <input id="bitrixCardDateFrom" type="date" />
+          <label for="bitrixCardDateTo">По</label>
+          <input id="bitrixCardDateTo" type="date" />
+          <label for="bitrixCardTitle">Подпись</label>
+          <input id="bitrixCardTitle" type="text" placeholder="НОВАЯ ЗАЯВКА" />
+        </div>
+        <div id="bitrixCardConfigError" class="auth-error hidden" role="alert"></div>
+        <div class="modal-actions">
+          <button id="bitrixCardConfigCancelBtn" type="button">Отмена</button>
+          <button id="bitrixCardConfigSaveBtn" type="button">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="bitrixDateFilterConfigModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="bitrixDateFilterConfigTitle">
+      <div class="modal-card bitrix-chart-config-card">
+        <h3 id="bitrixDateFilterConfigTitle">Настройки фильтра дат</h3>
+        <p class="bitrix-date-filter-config-note">По умолчанию фильтр применяется ко всем элементам Bitrix24 на рабочем столе, включая новые. Снимите галочку, чтобы исключить элемент.</p>
+        <div id="bitrixDateFilterTargetList" class="bitrix-date-filter-target-list"></div>
+        <div class="modal-actions">
+          <button id="bitrixDateFilterConfigCancelBtn" type="button">Отмена</button>
+          <button id="bitrixDateFilterConfigSaveBtn" type="button">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js?v=20260713-bitrix-chart-filter"></script>
+    <script src="bitrix-chart.js?v=20260713-bitrix-chart-filter"></script>
   </body>
 </html>
