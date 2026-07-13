@@ -110,6 +110,9 @@
       stageId: "",
       stageName: "",
       granularity: "week",
+      metric: "count",
+      sumField: "OPPORTUNITY",
+      sumFieldName: "Сумма",
       dateFrom: from.toISOString().slice(0, 10),
       dateTo: today.toISOString().slice(0, 10),
       title: "График Bitrix24"
@@ -126,6 +129,9 @@
       stageId: String(raw.stageId || ""),
       stageName: String(raw.stageName || ""),
       granularity: ["day", "week", "month"].includes(raw.granularity) ? raw.granularity : "week",
+      metric: raw.metric === "sum" ? "sum" : "count",
+      sumField: String(raw.sumField || base.sumField),
+      sumFieldName: String(raw.sumFieldName || base.sumFieldName),
       dateFrom: String(raw.dateFrom || base.dateFrom),
       dateTo: String(raw.dateTo || base.dateTo),
       title: String(raw.title || raw.stageName || "График Bitrix24")
@@ -885,9 +891,17 @@
   }
 
   function syncCardMetricUi(metricSelect, sumFieldSelect) {
+    syncBitrixMetricUi(metricSelect, sumFieldSelect, "bitrixCardSumField");
+  }
+
+  function syncChartMetricUi(metricSelect, sumFieldSelect) {
+    syncBitrixMetricUi(metricSelect, sumFieldSelect, "bitrixChartSumField");
+  }
+
+  function syncBitrixMetricUi(metricSelect, sumFieldSelect, sumFieldLabelFor) {
     const isSum = metricSelect.value === "sum";
     sumFieldSelect.disabled = !isSum;
-    sumFieldSelect.closest(".bitrix-chart-config-grid")?.querySelector('label[for="bitrixCardSumField"]')?.classList.toggle("bitrix-field-muted", !isSum);
+    sumFieldSelect.closest(".bitrix-chart-config-grid")?.querySelector(`label[for="${sumFieldLabelFor}"]`)?.classList.toggle("bitrix-field-muted", !isSum);
   }
 
   function syncCardDateUi(useDatesInput, dateFromInput, dateToInput) {
@@ -905,6 +919,8 @@
     const pipelineSelect = $("bitrixChartPipeline");
     const stageSelect = $("bitrixChartStage");
     const granularitySelect = $("bitrixChartGranularity");
+    const metricSelect = $("bitrixChartMetric");
+    const sumFieldSelect = $("bitrixChartSumField");
     const dateFromInput = $("bitrixChartDateFrom");
     const dateToInput = $("bitrixChartDateTo");
     const titleInput = $("bitrixChartTitle");
@@ -922,10 +938,12 @@
 
     entitySelect.addEventListener("change", () => {
       loadPipelines().catch((err) => showBitrixError(errorEl, err));
+      loadBitrixSumFields(entitySelect.value, sumFieldSelect).catch((err) => showBitrixError(errorEl, err));
     });
     pipelineSelect.addEventListener("change", () => {
       loadStages().catch((err) => showBitrixError(errorEl, err));
     });
+    metricSelect.addEventListener("change", () => syncChartMetricUi(metricSelect, sumFieldSelect));
 
     function showChartConfigError(err) {
       showBitrixError(errorEl, err);
@@ -939,20 +957,31 @@
       clearChartConfigError();
       const cfg = normalizeChartConfig(initialConfig);
       entitySelect.value = cfg.entity;
+      metricSelect.value = cfg.metric;
       granularitySelect.value = cfg.granularity;
       dateFromInput.value = cfg.dateFrom;
       dateToInput.value = cfg.dateTo;
       titleInput.value = cfg.title;
-      prefillBitrixConfigSelects(cfg, pipelineSelect, stageSelect);
+      syncChartMetricUi(metricSelect, sumFieldSelect);
+      prefillBitrixConfigSelects(cfg, pipelineSelect, stageSelect, sumFieldSelect);
       chartConfigModal.classList.remove("hidden");
       try {
-        await loadPipelines();
-        if (cfg.categoryId != null) pipelineSelect.value = String(cfg.categoryId);
-        await loadStages();
-        if (cfg.stageId) stageSelect.value = cfg.stageId;
+        await Promise.all([
+          (async () => {
+            await loadPipelines();
+            if (cfg.categoryId != null) pipelineSelect.value = String(cfg.categoryId);
+            await loadStages();
+            if (cfg.stageId) stageSelect.value = cfg.stageId;
+          })(),
+          (async () => {
+            await loadBitrixSumFields(entitySelect.value, sumFieldSelect);
+            if (cfg.sumField) sumFieldSelect.value = cfg.sumField;
+          })()
+        ]);
       } catch (err) {
         showChartConfigError(err);
       }
+      syncChartMetricUi(metricSelect, sumFieldSelect);
       return new Promise((resolve) => {
         chartConfigResolve = resolve;
       });
@@ -977,6 +1006,7 @@
       }
       const pipelineOption = pipelineSelect.selectedOptions[0];
       const stageOption = stageSelect.selectedOptions[0];
+      const sumFieldOption = sumFieldSelect.selectedOptions[0];
       closeChartConfigModal(
         normalizeChartConfig({
           entity: entitySelect.value,
@@ -984,6 +1014,9 @@
           categoryName: pipelineOption ? pipelineOption.textContent : "",
           stageId,
           stageName: stageOption ? stageOption.textContent : "",
+          metric: metricSelect.value,
+          sumField: sumFieldSelect.value || "OPPORTUNITY",
+          sumFieldName: sumFieldOption ? sumFieldOption.textContent : "",
           granularity: granularitySelect.value,
           dateFrom: dateFromInput.value,
           dateTo: dateToInput.value,
@@ -1042,7 +1075,10 @@
     header.appendChild(actions);
     const legend = document.createElement("div");
     legend.className = "bitrix-chart-legend";
-    legend.innerHTML = '<span class="bitrix-chart-legend-dot"></span><span>all</span>';
+    const legendLabel = config.metric === "sum"
+      ? (config.sumFieldName || config.sumField || "Сумма")
+      : "all";
+    legend.innerHTML = `<span class="bitrix-chart-legend-dot"></span><span>${legendLabel}</span>`;
     const body = document.createElement("div");
     body.className = "bitrix-chart-body";
     const canvas = document.createElement("canvas");
@@ -1120,13 +1156,16 @@
         stageId: cfg.stageId,
         dateFrom: dateRange.dateFrom,
         dateTo: dateRange.dateTo,
-        granularity: cfg.granularity
+        granularity: cfg.granularity,
+        metric: cfg.metric,
+        sumField: cfg.sumField || "OPPORTUNITY"
       });
       const data = await bitrixFetch(`/api/integrations/bitrix/chart-data?${query.toString()}`);
       if (api.refreshRequestId !== requestId) return;
       const points = filterChartPointsByDateRange(data.points || [], dateRange.dateFrom, dateRange.dateTo, cfg.granularity);
       renderLineChart(api.canvas, points, cfg);
-      api.status.textContent = `Всего: ${points.reduce((sum, point) => sum + (Number(point.value) || 0), 0)}`;
+      const total = points.reduce((sum, point) => sum + (Number(point.value) || 0), 0);
+      api.status.textContent = `Всего: ${formatCardValue(total, cfg.metric)}`;
       api.status.classList.toggle("hidden", false);
     } catch (err) {
       if (api.refreshRequestId !== requestId) return;
@@ -1212,7 +1251,7 @@
       ctx.fillStyle = "#0f172a";
       ctx.font = "11px Inter, system-ui, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText(String(pt.value), pt.x, pt.y - 8);
+      ctx.fillText(formatCardValue(pt.value, config && config.metric === "sum" ? "sum" : "count"), pt.x, pt.y - 8);
       if (index === 0 || index === coords.length - 1 || coords.length <= 8 || index % Math.ceil(coords.length / 6) === 0) {
         ctx.fillStyle = "#64748b";
         ctx.font = "10px Inter, system-ui, sans-serif";
@@ -1238,15 +1277,7 @@
         node.remove();
         return null;
       }
-      initialConfig.entity = chosen.entity;
-      initialConfig.categoryId = chosen.categoryId;
-      initialConfig.categoryName = chosen.categoryName;
-      initialConfig.stageId = chosen.stageId;
-      initialConfig.stageName = chosen.stageName;
-      initialConfig.granularity = chosen.granularity;
-      initialConfig.dateFrom = chosen.dateFrom;
-      initialConfig.dateTo = chosen.dateTo;
-      initialConfig.title = chosen.title;
+      Object.assign(initialConfig, chosen);
     }
     applyChartConfig(node, initialConfig, false);
     if (window.appendToDesktop) window.appendToDesktop(node);

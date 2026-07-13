@@ -1894,12 +1894,12 @@ def _bitrix_fetch_stage_history(webhook, entity, category_id, stage_id, date_fro
     return _bitrix_list_all(webhook, "crm.stagehistory.list", params)
 
 
-def _bucket_stage_history(items, granularity, date_from, date_to):
+def _bucket_stage_history(items, granularity, date_from, date_to, value_by_owner=None):
     start = _parse_bitrix_datetime(date_from) or (datetime.utcnow() - timedelta(days=90))
     end = _parse_bitrix_datetime(date_to) or datetime.utcnow()
     if end < start:
         start, end = end, start
-    buckets = defaultdict(int)
+    buckets = defaultdict(float)
     for item in items:
         created = _parse_bitrix_datetime(item.get("CREATED_TIME"))
         if not created:
@@ -1913,9 +1913,44 @@ def _bucket_stage_history(items, granularity, date_from, date_to):
             key = f"{iso.year}-W{iso.week:02d}"
         else:
             key = created.strftime("%Y-%m-%d")
-        buckets[key] += 1
+        if value_by_owner is None:
+            buckets[key] += 1
+        else:
+            owner_id = str(item.get("OWNER_ID") or "")
+            try:
+                buckets[key] += float(value_by_owner.get(owner_id, 0) or 0)
+            except (TypeError, ValueError):
+                continue
     keys = sorted(buckets.keys())
     return [{"label": key, "value": buckets[key]} for key in keys]
+
+
+def _bitrix_fetch_entity_field_values(webhook, entity, owner_ids, field):
+    method = "crm.lead.list" if entity == "lead" else "crm.deal.list"
+    values = {}
+    ids = [str(owner_id) for owner_id in owner_ids if owner_id is not None and str(owner_id).strip()]
+    if not ids or not field:
+        return values
+    chunk_size = 50
+    for offset in range(0, len(ids), chunk_size):
+        chunk = ids[offset : offset + chunk_size]
+        data = _bitrix_call(
+            webhook,
+            method,
+            {"filter": {"ID": chunk}, "select": ["ID", field]},
+        )
+        items = data.get("result") or []
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            item_id = str(item.get("ID") or "")
+            if not item_id:
+                continue
+            try:
+                values[item_id] = float(item.get(field) or 0)
+            except (TypeError, ValueError):
+                values[item_id] = 0.0
+    return values
 
 
 @app.route("/api/integrations/bitrix", methods=["GET", "POST", "DELETE"])
@@ -2045,6 +2080,8 @@ def bitrix_chart_data():
     granularity = str(request.args.get("granularity") or "week").strip().lower()
     if granularity not in ("day", "week", "month"):
         granularity = "week"
+    metric = str(request.args.get("metric") or "count").strip().lower()
+    sum_field = str(request.args.get("sumField") or "OPPORTUNITY").strip() or "OPPORTUNITY"
     if not stage_id:
         return jsonify({"error": "stage_required"}), 400
     if not date_from:
@@ -2053,7 +2090,14 @@ def bitrix_chart_data():
         date_to = datetime.utcnow().strftime("%Y-%m-%d")
     try:
         history = _bitrix_fetch_stage_history(webhook, entity, category_id, stage_id, date_from, date_to)
-        points = _bucket_stage_history(history, granularity, date_from, date_to)
+        if metric == "sum":
+            owner_ids = [item.get("OWNER_ID") for item in history if item.get("OWNER_ID") is not None]
+            value_by_owner = _bitrix_fetch_entity_field_values(webhook, entity, owner_ids, sum_field)
+            points = _bucket_stage_history(history, granularity, date_from, date_to, value_by_owner)
+            metric = "sum"
+        else:
+            metric = "count"
+            points = _bucket_stage_history(history, granularity, date_from, date_to)
         total = sum(point["value"] for point in points)
         return jsonify(
             {
@@ -2061,6 +2105,8 @@ def bitrix_chart_data():
                 "categoryId": category_id,
                 "stageId": stage_id,
                 "granularity": granularity,
+                "metric": metric,
+                "sumField": sum_field if metric == "sum" else "",
                 "dateFrom": date_from,
                 "dateTo": date_to,
                 "total": total,
