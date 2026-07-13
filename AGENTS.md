@@ -18,11 +18,22 @@
 ## Прод
 
 Приложение опубликовано в проде здесь:
-- `https://mmtable.skitovich.ru`
+- `https://mmtable.crystalsystems.ru`
+- legacy redirect: `https://mmtable.skitovich.ru`
 - серверный IP: `95.163.226.145`
+- GitHub: `https://github.com/skitoand/mmtables`
 
 Хостинг и инфраструктура:
 - REG Cloud
+
+## Деплой
+
+Основной способ публикации на прод:
+- коммит в `main`
+- `git push origin main`
+- GitHub Actions workflow `.github/workflows/deploy.yml`
+
+Подробности: `DEPLOY.md`
 
 ## Как получить доступ
 
@@ -37,7 +48,7 @@ SSH-доступ к серверу выполняется по ключу:
 ## Как устроены локалка и прод
 
 - Локальный запуск: `python3 server.py` на `127.0.0.1:4173`
-- Прод: `gunicorn` на сервере за nginx, внешний вход через `https://mmtable.skitovich.ru`
+- Прод: `gunicorn` на сервере за nginx, внешний вход через `https://mmtable.crystalsystems.ru`
 - Локально документы для гостя могут писаться в `workspace_documents/local_at_localhost/`
 - На проде документы пишутся в `workspace_documents/<email_safe>/`
 - На проде первый рабочий аккаунт: `skitovich@yandex.ru`

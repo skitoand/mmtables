@@ -20,3 +20,4 @@ backups/
 *.bak*
 *.pre_*
 .tmp_*/
+tickets-staging/
