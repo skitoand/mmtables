@@ -69,6 +69,9 @@ require_local_file "$ROOT_DIR/index.html"
 require_local_file "$ROOT_DIR/styles.css"
 require_local_file "$ROOT_DIR/server.py"
 require_local_file "$ROOT_DIR/bitrix-chart.js"
+require_local_file "$ROOT_DIR/draw-tools.js"
+require_local_file "$ROOT_DIR/vendor/laser-pointer.js"
+require_local_file "$ROOT_DIR/vendor/perfect-freehand.js"
 require_local_file "$ROOT_DIR/assets/favicon.png"
 require_local_file "$ROOT_DIR/assets/apple-touch-icon.png"
 
@@ -79,27 +82,37 @@ echo "Deploying to ${USER_NAME}@${HOST}:${REMOTE_APP_DIR}"
 
 echo "1/4 Creating server backup"
 retry 6 remote_ssh \
-  "mkdir -p '${REMOTE_BACKUP_DIR}' && tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js index.html styles.css server.py assets/favicon.png assets/apple-touch-icon.png workspace.db bitrix-chart.js 2>/dev/null || tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js index.html styles.css server.py workspace.db 2>/dev/null || tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js index.html styles.css server.py workspace.db && ls -lh '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}'"
+  "mkdir -p '${REMOTE_BACKUP_DIR}' && tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js index.html styles.css server.py assets/favicon.png assets/apple-touch-icon.png workspace.db bitrix-chart.js draw-tools.js vendor/perfect-freehand.js vendor/laser-pointer.js 2>/dev/null || tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js index.html styles.css server.py workspace.db 2>/dev/null || tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js index.html styles.css server.py workspace.db && ls -lh '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}'"
 
 echo "2/4 Uploading files to /tmp"
 retry 6 remote_scp "$ROOT_DIR/app.js" "${USER_NAME}@${HOST}:/tmp/mmtable_app.js"
 retry 6 remote_scp "$ROOT_DIR/bitrix-chart.js" "${USER_NAME}@${HOST}:/tmp/mmtable_bitrix_chart.js"
+retry 6 remote_scp "$ROOT_DIR/draw-tools.js" "${USER_NAME}@${HOST}:/tmp/mmtable_draw_tools.js"
+retry 6 remote_scp "$ROOT_DIR/vendor/perfect-freehand.js" "${USER_NAME}@${HOST}:/tmp/mmtable_perfect_freehand.js"
+retry 6 remote_scp "$ROOT_DIR/vendor/laser-pointer.js" "${USER_NAME}@${HOST}:/tmp/mmtable_laser_pointer.js"
 retry 6 remote_scp "$ROOT_DIR/index.html" "${USER_NAME}@${HOST}:/tmp/mmtable_index.html"
 retry 6 remote_scp "$ROOT_DIR/styles.css" "${USER_NAME}@${HOST}:/tmp/mmtable_styles.css"
 retry 6 remote_scp "$ROOT_DIR/server.py" "${USER_NAME}@${HOST}:/tmp/mmtable_server.py"
 retry 6 remote_scp "$ROOT_DIR/assets/favicon.png" "${USER_NAME}@${HOST}:/tmp/mmtable_favicon.png"
 retry 6 remote_scp "$ROOT_DIR/assets/apple-touch-icon.png" "${USER_NAME}@${HOST}:/tmp/mmtable_apple_touch_icon.png"
+retry 6 remote_scp -r "$ROOT_DIR/assets/whiteboard-icons" "${USER_NAME}@${HOST}:/tmp/mmtable_whiteboard_icons"
 
 echo "3/4 Installing files and restarting gunicorn"
 retry 6 remote_ssh "
   install -m 644 /tmp/mmtable_app.js '${REMOTE_APP_DIR}/app.js' &&
   install -m 644 /tmp/mmtable_bitrix_chart.js '${REMOTE_APP_DIR}/bitrix-chart.js' &&
+  install -m 644 /tmp/mmtable_draw_tools.js '${REMOTE_APP_DIR}/draw-tools.js' &&
+  mkdir -p '${REMOTE_APP_DIR}/vendor' &&
+  install -m 644 /tmp/mmtable_perfect_freehand.js '${REMOTE_APP_DIR}/vendor/perfect-freehand.js' &&
+  install -m 644 /tmp/mmtable_laser_pointer.js '${REMOTE_APP_DIR}/vendor/laser-pointer.js' &&
   install -m 644 /tmp/mmtable_index.html '${REMOTE_APP_DIR}/index.html' &&
   install -m 644 /tmp/mmtable_styles.css '${REMOTE_APP_DIR}/styles.css' &&
   install -m 644 /tmp/mmtable_server.py '${REMOTE_APP_DIR}/server.py' &&
   mkdir -p '${REMOTE_APP_DIR}/assets' &&
   install -m 644 /tmp/mmtable_favicon.png '${REMOTE_APP_DIR}/assets/favicon.png' &&
   install -m 644 /tmp/mmtable_apple_touch_icon.png '${REMOTE_APP_DIR}/assets/apple-touch-icon.png' &&
+  rm -rf '${REMOTE_APP_DIR}/assets/whiteboard-icons' &&
+  cp -R /tmp/mmtable_whiteboard_icons '${REMOTE_APP_DIR}/assets/whiteboard-icons' &&
   mkdir -p /root/.gunicorn &&
   pkill -f \"${GUNICORN_CMD}\" || true &&
   cd '${REMOTE_APP_DIR}' &&

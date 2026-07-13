@@ -7,7 +7,7 @@
     <title>MMTable</title>
     <link rel="icon" type="image/png" sizes="128x128" href="assets/favicon.png?v=20260701-crop" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=20260701-crop" />
-    <link rel="stylesheet" href="styles.css?v=20260713-bitrix-shadow" />
+    <link rel="stylesheet" href="styles.css?v=20260713-bp-dark-stages-v1" />
   </head>
   <body>
     <div class="app">
@@ -66,6 +66,8 @@
                       <button type="button" data-action="import-image">Картинка</button>
                       <button type="button" data-shape="table">Таблица</button>
                       <button type="button" data-shape="frame" title="Фрейм (F)">Фрейм</button>
+                      <button type="button" data-tool="draw" title="Рисование (7)">Рисование</button>
+                      <button type="button" data-tool="laser" title="Лазерная указка (K)">Лазерная указка</button>
                       <div class="shape-submenu bitrix-submenu">
                         <button type="button" class="shape-submenu-trigger">Bitrix24 <span>▸</span></button>
                         <div class="shape-palette bitrix-submenu-panel">
@@ -78,10 +80,19 @@
                       <button type="button" data-action="import-csv">Импорт CSV</button>
                     </div>
                   </div>
-                  <label class="app-menu-item app-menu-check" role="menuitemcheckbox">
-                    <input id="formatToggle" type="checkbox" />
-                    <span class="app-menu-checkmark">✓</span>
+                  <label class="app-menu-item app-menu-switch" role="menuitemcheckbox">
                     <span>Форматирование</span>
+                    <span class="app-menu-switch-control">
+                      <input id="formatToggle" type="checkbox" checked />
+                      <span class="app-menu-switch-track"><span class="app-menu-switch-thumb"></span></span>
+                    </span>
+                  </label>
+                  <label class="app-menu-item app-menu-switch" role="menuitemcheckbox">
+                    <span>Объекты</span>
+                    <span class="app-menu-switch-control">
+                      <input id="objectsToggle" type="checkbox" />
+                      <span class="app-menu-switch-track"><span class="app-menu-switch-thumb"></span></span>
+                    </span>
                   </label>
                   <label class="app-menu-item app-menu-switch" role="menuitemcheckbox">
                     <span>Темная тема</span>
@@ -118,6 +129,7 @@
             <button id="zoomInBtn" class="toolbar-zoom-btn" type="button" aria-label="Увеличить масштаб">+</button>
             <button id="resetZoomBtn" class="toolbar-reset-btn" type="button">Сброс</button>
           </div>
+          <nav id="objectsToolbar" class="objects-toolbar hidden" aria-label="Объекты" hidden></nav>
         </div>
         <div id="currentDocumentTitle" class="toolbar-title" aria-hidden="true">Рабочий стол</div>
         <div id="themeToggle" class="theme-toggle hidden" role="group" aria-label="Тема">
@@ -534,10 +546,12 @@
     </div>
 
     <div id="addWindowModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <div class="modal-card">
+      <div class="modal-card modal-form-card">
         <h3 id="modalTitle">Добавить таблицу</h3>
-        <label for="modalSheetUrl">URL таблицы:</label>
-        <input id="modalSheetUrl" type="url" placeholder="https://..." />
+        <div class="modal-form-grid">
+          <label for="modalSheetUrl">URL таблицы</label>
+          <input id="modalSheetUrl" type="url" placeholder="https://..." />
+        </div>
         <div class="modal-actions">
           <button id="modalCancelBtn">Отмена</button>
           <button id="modalCreateBtn">Добавить</button>
@@ -802,7 +816,10 @@
       </div>
     </div>
 
-    <script src="app.js?v=20260713-bitrix-webhook-persist"></script>
-    <script src="bitrix-chart.js?v=20260713-bitrix-webhook-persist"></script>
+    <script src="vendor/laser-pointer.js?v=20260713-excalidraw-laser-v1"></script>
+    <script src="vendor/perfect-freehand.js?v=20260713-excalidraw-laser-v1"></script>
+    <script src="draw-tools.js?v=20260713-objects-toolbar-v1"></script>
+    <script src="app.js?v=20260713-bp-dark-stages-v1"></script>
+    <script src="bitrix-chart.js?v=20260713-laser-fade-v1"></script>
   </body>
 </html>

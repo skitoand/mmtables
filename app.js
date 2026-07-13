@@ -81,6 +81,9 @@ const sheetSwitcherAdd = $("sheetSwitcherAdd");
 const themeLightBtn = $("themeLightBtn");
 const themeDarkBtn = $("themeDarkBtn");
 const themeDarkToggle = $("themeDarkToggle");
+const objectsToggle = $("objectsToggle");
+const objectsToggleLabel = objectsToggle ? objectsToggle.closest("label") : null;
+const objectsToolbar = $("objectsToolbar");
 const zoomLabel = $("zoomLabel");
 const undoBtn = $("undoBtn");
 const redoBtn = $("redoBtn");
@@ -212,6 +215,7 @@ let shapeSpawnStep = 0;
 let zoom = 1;
 let guestPublicView = false;
 let guestPublicToken = "";
+var currentUser = null;
 let hintTimer = null;
 let currentDocumentRole = null;
 let selectedShape = null;
@@ -229,6 +233,7 @@ let connectorDraftPointerMove = null;
 let connectorDraftPointerUp = null;
 let activeConnectorLabelEditId = null;
 let ctrlModifierActive = false;
+let altModifierActive = false;
 let groupCounter = 1;
 let frameCounter = 1;
 let bpProcessCounter = 1;
@@ -272,20 +277,21 @@ const SHAPE_VARIANTS = {
   "arrow-right": { kind: "svg", tag: "polygon", points: "0,28 62,28 62,0 100,50 62,100 62,72 0,72" },
   hexagon: { kind: "svg", tag: "polygon", points: "18,0 82,0 100,50 82,100 18,100 0,50" }
 };
+const WB_ICON_BASE = "assets/whiteboard-icons/";
 const SHAPE_MENU_ITEMS = [
-  { variant: "rectangle", label: "Прямоугольник", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><rect x="10" y="8" width="44" height="28"/></svg>' },
-  { variant: "rounded", label: "Скругленный прямоугольник", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><rect x="10" y="8" width="44" height="28" rx="8" ry="8"/></svg>' },
-  { variant: "circle", label: "Круг", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><ellipse cx="32" cy="22" rx="18" ry="18"/></svg>' },
-  { variant: "parallelogram", label: "Параллелограмм", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="18,8 52,8 46,36 12,36"/></svg>' },
-  { variant: "diamond", label: "Ромб", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="32,6 50,22 32,38 14,22"/></svg>' },
-  { variant: "chevron", label: "Шеврон", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="12,8 46,8 56,22 46,36 12,36 20,22"/></svg>' },
-  { variant: "arrow-right", label: "Стрелка вправо", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="10,16 34,16 34,8 54,22 34,36 34,28 10,28"/></svg>' },
-  { variant: "hexagon", label: "Шестиугольник", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="18,8 46,8 56,22 46,36 18,36 8,22"/></svg>' }
+  { variant: "rectangle", label: "Прямоугольник", icon: "shape-rectangle.svg" },
+  { variant: "rounded", label: "Скругленный прямоугольник", icon: "shape-rounded-rectangle.svg" },
+  { variant: "circle", label: "Круг", icon: "shape-circle.svg" },
+  { variant: "parallelogram", label: "Параллелограмм", icon: "shape-parallelogram.svg" },
+  { variant: "diamond", label: "Ромб", icon: "shape-diamond.svg" },
+  { variant: "chevron", label: "Шеврон", icon: "shape-chevron.svg" },
+  { variant: "arrow-right", label: "Стрелка вправо", icon: "shape-arrow-right.svg" },
+  { variant: "hexagon", label: "Шестиугольник", icon: "shape-hexagon.svg" }
 ];
 const BITRIX_MENU_ITEMS = [
-  { variant: "chart", label: "График" },
-  { variant: "bitrix-card", label: "Карточка" },
-  { variant: "bitrix-date-filter", label: "Фильтр" }
+  { variant: "chart", label: "График", icon: "chart.svg" },
+  { variant: "bitrix-card", label: "Карточка", icon: "card.svg" },
+  { variant: "bitrix-date-filter", label: "Фильтр", icon: "filter.svg" }
 ];
 const SHAPE_SELECTION_PAD = 4;
 const CONN_ARROW_OFFSET = 22;
@@ -319,8 +325,14 @@ const BP_STAGE_GAP = 5;
 const BP_BASE_PAD_X = 15;
 const BP_BASE_PAD_Y = 15;
 const BP_DEFAULT_STAGE_COUNT = 4;
-const BP_STAGE_COLORS = ["#bfdbfe", "#93c5fd", "#60a5fa", "#22c55e"];
-const BP_BASE_FILL = "#ece8fd";
+const BP_STAGE_COLORS_LIGHT = Object.freeze(["#bfdbfe", "#93c5fd", "#60a5fa", "#22c55e"]);
+const BP_STAGE_COLORS_DARK = Object.freeze(["#1e3a5f", "#1d4ed8", "#3b82f6", "#16a34a"]);
+const BP_BASE_FILL_LIGHT = "#ece8fd";
+const BP_BASE_FILL_DARK = "#2a2738";
+const BP_STAGE_TEXT_LIGHT = "#111827";
+const BP_STAGE_TEXT_DARK = "#f1f5f9";
+const BP_STAGE_COLORS = BP_STAGE_COLORS_LIGHT;
+const BP_BASE_FILL = BP_BASE_FILL_LIGHT;
 const BP_FACTORY_VISUAL_OPTS = Object.freeze({
   gradientEnabled: false,
   shadow: 0,
@@ -331,6 +343,33 @@ const BP_FACTORY_VISUAL_OPTS = Object.freeze({
   opacity: 1,
   scrollEnabled: false
 });
+function getBpStageColors() {
+  return isDarkThemeActive() ? BP_STAGE_COLORS_DARK : BP_STAGE_COLORS_LIGHT;
+}
+function getBpBaseFill() {
+  return isDarkThemeActive() ? BP_BASE_FILL_DARK : BP_BASE_FILL_LIGHT;
+}
+function getBpStageTextColor(isLast = false) {
+  if (isLast) return "#ffffff";
+  return isDarkThemeActive() ? BP_STAGE_TEXT_DARK : BP_STAGE_TEXT_LIGHT;
+}
+function normalizeHexColor(value) {
+  return rgbToHex(String(value || "").trim()).toLowerCase();
+}
+function remapBpFactoryFillForTheme(fill) {
+  const hex = normalizeHexColor(fill);
+  if (!hex) return null;
+  const fromColors = isDarkThemeActive() ? BP_STAGE_COLORS_LIGHT : BP_STAGE_COLORS_DARK;
+  const toColors = getBpStageColors();
+  const fromBase = isDarkThemeActive() ? BP_BASE_FILL_LIGHT : BP_BASE_FILL_DARK;
+  const toBase = getBpBaseFill();
+  if (hex === normalizeHexColor(fromBase) || hex === normalizeHexColor(toBase)) return toBase;
+  const idx = fromColors.findIndex((c) => normalizeHexColor(c) === hex);
+  if (idx >= 0) return toColors[Math.min(idx, toColors.length - 1)];
+  const sameIdx = toColors.findIndex((c) => normalizeHexColor(c) === hex);
+  if (sameIdx >= 0) return toColors[sameIdx];
+  return null;
+}
 const BP_TASK_OFFSET_X = 30;
 const BP_TASK_GAP = 5;
 const BP_TASK_STAGE_GAP = 15;
@@ -356,6 +395,7 @@ const DOC_STORE_KEY = "table-workspace-doc-store-v1";
 const LEGACY_DOC_KEY = "table-workspace-active-doc-v1";
 const AUTOSAVE_KEY = "table-workspace-autosave-v1";
 const THEME_KEY = "table-workspace-theme-v1";
+const OBJECTS_TOOLBAR_KEY = "table-workspace-objects-toolbar-v1";
 const PANEL_KEY = "table-format-panel-v1";
 const FILE_BROWSER_SIZE_KEY = "table-file-browser-size-v1";
 const VIEWPORT_KEY = "table-workspace-viewport-v1";
@@ -433,8 +473,11 @@ function normalizeOpacityValue(value, fallback = 1) {
 function isCtrlModifierActive() {
   return !!ctrlModifierActive;
 }
+function isAltModifierActive() {
+  return !!altModifierActive;
+}
 function shouldPreferCellTargets(event = null) {
-  return !!((event && (event.ctrlKey || event.metaKey)) || ctrlModifierActive);
+  return !!((event && event.altKey) || altModifierActive);
 }
 function normalizeCellRef(cell) {
   if (!cell || !Number.isFinite(Number(cell.r)) || !Number.isFinite(Number(cell.c))) return null;
@@ -713,10 +756,20 @@ function refreshLiftedTableCellConnectorGuides() {
   });
 }
 
-function syncCtrlModifierFromEvent(event) {
-  const next = !!(event && (event.ctrlKey || event.metaKey));
-  if (next === ctrlModifierActive) return;
-  ctrlModifierActive = next;
+function syncModifierKeysFromEvent(event) {
+  const nextCtrl = !!(event && (event.ctrlKey || event.metaKey));
+  const nextAlt = !!(event && event.altKey);
+  if (nextCtrl === ctrlModifierActive && nextAlt === altModifierActive) return;
+  ctrlModifierActive = nextCtrl;
+  altModifierActive = nextAlt;
+  syncConnectorModifierChrome();
+}
+
+function syncConnectorModifierChrome() {
+  document.body.classList.toggle(
+    "ctrl-connector-mode",
+    !!ctrlModifierActive && !isWorkspaceReadOnly() && !guestPublicView
+  );
   updateAllTableCellConnectorGuides();
 }
 
@@ -1044,6 +1097,7 @@ function updateDesktopExtent() {
     viewportEl.scrollTop = keepScrollTop + (dOriginTop * localZoom);
   }
   updateConnectorLayerSize();
+  window.DrawTools?.onDesktopExtentChanged?.();
 }
 function applyZoom() {
   updateDesktopExtent();
@@ -3843,6 +3897,8 @@ function syncGuestPublicUi() {
   setGuestPublicHidden(addWindowBtn, isGuest);
   setGuestPublicHidden(shapeMenuSection, isGuest);
   setGuestPublicHidden(formatToggleLabel, isGuest);
+  setGuestPublicHidden(objectsToggleLabel, isGuest);
+  setGuestPublicHidden(objectsToolbar, isGuest);
   setGuestPublicHidden(profileBtn, isGuest);
   setGuestPublicHidden(fileSubmenuSection, isGuest && !guestAuthed);
 
@@ -3861,6 +3917,7 @@ function syncGuestPublicUi() {
     if (formatPanel) formatPanel.classList.add("hidden");
     closeAllMenus();
   }
+  syncObjectsToolbarVisibility();
 }
 
 function syncWorkspaceAccessMode() {
@@ -3871,6 +3928,7 @@ function syncWorkspaceAccessMode() {
   updateWorkspaceAccessBanner();
   syncGuestPublicUi();
   updateCurrentDocumentCapabilities();
+  syncConnectorModifierChrome();
 }
 
 function updateWorkspaceAccessBanner() {
@@ -3931,6 +3989,8 @@ function updateCurrentDocumentCapabilities() {
   if (undoBtn) undoBtn.disabled = !editable;
   if (redoBtn) redoBtn.disabled = !editable;
   if (formatToggle) formatToggle.disabled = !editable;
+  if (objectsToggle) objectsToggle.disabled = !editable;
+  syncObjectsToolbarVisibility();
 }
 
 function setAuthLocked(locked) {
@@ -5728,6 +5788,10 @@ function setTheme(mode) {
   if (themeDarkToggle) themeDarkToggle.checked = dark;
   localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
   syncViewportDesktopBackground();
+  syncBpProcessesToTheme({ save: false });
+  if (window.BitrixChart?.syncBitrixWidgetsToTheme) {
+    window.BitrixChart.syncBitrixWidgetsToTheme({ save: false });
+  }
 }
 
 function loadDefaultStyles() {
@@ -6105,11 +6169,12 @@ function collectBpProcessIdsFromNodes(nodes) {
 }
 
 function buildBpBaseFactoryStyleData() {
+  const fill = getBpBaseFill();
   return {
     fillEnabled: true,
     gradientEnabled: false,
-    fill: BP_BASE_FILL,
-    fill2: BP_BASE_FILL,
+    fill,
+    fill2: fill,
     borderEnabled: false,
     borderWidth: 0,
     radius: 0,
@@ -6129,9 +6194,10 @@ function buildBpStageFactoryStyleData(stageNode) {
     ? Number(stages[stages.length - 1].dataset.bpStageIndex)
     : stageIndex;
   const isLast = stageIndex === lastIndex;
+  const colors = getBpStageColors();
   const fill = isLast
-    ? BP_STAGE_COLORS[BP_STAGE_COLORS.length - 1]
-    : BP_STAGE_COLORS[Math.min(stageIndex, BP_STAGE_COLORS.length - 2)];
+    ? colors[colors.length - 1]
+    : colors[Math.min(stageIndex, colors.length - 2)];
   return {
     fillEnabled: true,
     gradientEnabled: false,
@@ -6142,7 +6208,7 @@ function buildBpStageFactoryStyleData(stageNode) {
     radius: 0,
     shadow: 0,
     opacity: 1,
-    textColor: isLast ? "#ffffff" : "#111827",
+    textColor: getBpStageTextColor(isLast),
     fontSize: isLast ? 13 : 15,
     bold: isLast,
     hAlign: "center",
@@ -6195,6 +6261,73 @@ function restoreBpProcessFactoryStyles(processId) {
   renderConnectors();
   updateDesktopExtent();
   return true;
+}
+
+function syncBpProcessNodeToTheme(node) {
+  if (!node?.dataset?.bpProcessId) return false;
+  const role = node.dataset.bpRole;
+  if (role === "base") {
+    const nextFill = remapBpFactoryFillForTheme(node.dataset.fillColor || node.style.backgroundColor);
+    if (!nextFill) return false;
+    applyFillStyle(node, {
+      fillEnabled: true,
+      gradientEnabled: false,
+      fill1: nextFill,
+      fill2: nextFill,
+      fillDirection: "horizontal"
+    });
+    return true;
+  }
+  if (role !== "stage") return false;
+  const processId = node.dataset.bpProcessId;
+  const stageIndex = Number(node.dataset.bpStageIndex) || 0;
+  const stages = getBpStages(processId);
+  const lastIndex = stages.length
+    ? Number(stages[stages.length - 1].dataset.bpStageIndex)
+    : stageIndex;
+  const isLast = stageIndex === lastIndex;
+  let changed = false;
+  const nextFill = remapBpFactoryFillForTheme(node.dataset.fillColor || node.style.backgroundColor);
+  if (nextFill) {
+    applyFillStyle(node, {
+      fillEnabled: true,
+      gradientEnabled: false,
+      fill1: nextFill,
+      fill2: nextFill,
+      fillDirection: "horizontal"
+    });
+    changed = true;
+  }
+  const text = node.querySelector(".shape-text");
+  if (text) {
+    const current = normalizeHexColor(text.style.color || getComputedStyle(text).color);
+    const knownNonLast = new Set([
+      normalizeHexColor(BP_STAGE_TEXT_LIGHT),
+      normalizeHexColor(BP_STAGE_TEXT_DARK),
+      "#000000"
+    ]);
+    const shouldUpdateText = isLast
+      ? (!current || current === "#ffffff" || knownNonLast.has(current))
+      : (!current || knownNonLast.has(current));
+    if (shouldUpdateText) {
+      const nextText = getBpStageTextColor(isLast);
+      if (normalizeHexColor(text.style.color) !== normalizeHexColor(nextText)) {
+        text.style.color = nextText;
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+function syncBpProcessesToTheme(opts = {}) {
+  if (!desktop) return false;
+  let changed = false;
+  desktop.querySelectorAll('.shape[data-bp-role="base"], .shape[data-bp-role="stage"]').forEach((node) => {
+    if (syncBpProcessNodeToTheme(node)) changed = true;
+  });
+  if (changed && opts.save !== false) saveLayout();
+  return changed;
 }
 
 function resetCurrentStyleToDefault() {
@@ -7274,6 +7407,7 @@ function beginFrameNameEdit(frame) {
 }
 
 function setFrameToolActive(active) {
+  if (active && window.DrawTools?.deactivateAll) window.DrawTools.deactivateAll();
   frameToolActive = !!active;
   if (desktop) desktop.classList.toggle("frame-tool-active", frameToolActive);
   if (!frameToolActive) {
@@ -7894,20 +8028,169 @@ function scheduleContextSubmenuClose(group, delay = 180) {
   }, Math.max(0, Number(delay) || 0));
 }
 
+function resolveInsertSpawnPoint(spawnPoint) {
+  const resolved = typeof spawnPoint === "function" ? spawnPoint() : spawnPoint;
+  if (resolved && Number.isFinite(Number(resolved.x)) && Number.isFinite(Number(resolved.y))) {
+    return { x: Number(resolved.x), y: Number(resolved.y) };
+  }
+  return lastDesktopPointer || getViewportCenterDesktopPoint();
+}
+
 function getContextShapeMenuItems(spawnPoint) {
   return SHAPE_MENU_ITEMS.map((item) => ({
     label: item.label,
-    iconSvg: item.svg,
+    icon: item.icon,
     iconOnly: true,
-    action: () => createShapeAtContextPoint(item.variant, spawnPoint)
+    action: () => createShapeAtContextPoint(item.variant, resolveInsertSpawnPoint(spawnPoint))
   }));
 }
 
 function getContextBitrixMenuItems(spawnPoint) {
   return BITRIX_MENU_ITEMS.map((item) => ({
     label: item.label,
-    action: () => createShapeAtContextPoint(item.variant, spawnPoint)
+    icon: item.icon,
+    action: () => createShapeAtContextPoint(item.variant, resolveInsertSpawnPoint(spawnPoint))
   }));
+}
+
+function getDesktopInsertMenuItems(spawnPoint) {
+  const point = () => resolveInsertSpawnPoint(spawnPoint);
+  return [
+    {
+      label: "Фигуры",
+      icon: "figures.svg",
+      children: getContextShapeMenuItems(point),
+      submenuClass: "context-shape-palette"
+    },
+    { label: "Линия", icon: "line.svg", action: () => createShapeAtContextPoint("line", point()) },
+    { label: "Заметка", icon: "note.svg", action: () => createShapeAtContextPoint("note", point()) },
+    {
+      label: "Картинка",
+      icon: "image.svg",
+      disabled: !imageImportInput,
+      action: () => promptImageImportAtPoint(point())
+    },
+    { label: "Таблица", icon: "table.svg", action: () => createShapeAtContextPoint("table", point()) },
+    { label: "Фрейм", icon: "frame.svg", action: () => createShapeAtContextPoint("frame", point()) },
+    { label: "Рисование", icon: "draw.svg", tool: "draw", action: () => window.DrawTools?.activateDrawToolFromMenu?.() },
+    { label: "Лазерная указка", icon: "laser-pointer.svg", tool: "laser", action: () => window.DrawTools?.activateLaserToolFromMenu?.() },
+    {
+      label: "Bitrix24",
+      icon: "bitrix24.svg",
+      children: getContextBitrixMenuItems(point),
+      submenuClass: "context-bitrix-submenu"
+    },
+    { label: "Последовательный бизнес-процесс", icon: "sequential-business-process.svg", action: () => createShapeAtContextPoint("bp-process", point()) },
+    {
+      label: "Импорт CSV",
+      icon: "import-csv.svg",
+      disabled: !csvImportInput,
+      action: () => {
+        if (!csvImportInput) {
+          showHint("Импорт CSV недоступен: не найден input для файла.", "error");
+          return;
+        }
+        csvImportInput.value = "";
+        csvImportInput.click();
+      }
+    }
+  ];
+}
+
+function createWhiteboardIcon(file) {
+  const wrap = document.createElement("span");
+  wrap.className = "context-toolbar-icon";
+  const img = document.createElement("img");
+  img.src = `${WB_ICON_BASE}${file}`;
+  img.alt = "";
+  img.setAttribute("aria-hidden", "true");
+  if (file === "bitrix24.svg") img.classList.add("context-toolbar-icon-bitrix");
+  wrap.appendChild(img);
+  return wrap;
+}
+
+function createToolbarLabel(text, hasSubmenu = false) {
+  const label = document.createElement("span");
+  label.className = "context-toolbar-label";
+  if (text.length > 10 || /\s/.test(text)) label.classList.add("context-toolbar-label--wrap");
+  label.appendChild(document.createTextNode(text));
+  if (hasSubmenu) {
+    const caret = document.createElement("span");
+    caret.className = "context-toolbar-caret";
+    caret.setAttribute("aria-hidden", "true");
+    caret.textContent = "▾";
+    label.appendChild(caret);
+  }
+  return label;
+}
+
+function createContextSubmenuButton(child, options = {}) {
+  const { toolbar = false } = options;
+  const childBtn = document.createElement("button");
+  childBtn.type = "button";
+  childBtn.disabled = !!child.disabled;
+  if (toolbar && child.icon && !child.iconOnly) {
+    childBtn.className = "context-submenu-item";
+    childBtn.appendChild(createWhiteboardIcon(child.icon));
+    const childLabel = document.createElement("span");
+    childLabel.className = "context-submenu-label";
+    childLabel.textContent = child.label;
+    childBtn.appendChild(childLabel);
+  } else if (child.icon) {
+    childBtn.classList.add("context-shape-btn");
+    childBtn.title = child.label;
+    childBtn.setAttribute("aria-label", child.label);
+    const img = document.createElement("img");
+    img.src = `${WB_ICON_BASE}${child.icon}`;
+    img.alt = "";
+    img.setAttribute("aria-hidden", "true");
+    childBtn.appendChild(img);
+  } else if (child.iconSvg) {
+    childBtn.innerHTML = child.iconSvg;
+    childBtn.title = child.label;
+    childBtn.setAttribute("aria-label", child.label);
+    if (child.iconOnly) childBtn.classList.add("context-shape-btn");
+  } else {
+    childBtn.textContent = child.label;
+  }
+  childBtn.addEventListener("click", () => {
+    if (!child.disabled && typeof child.action === "function") child.action();
+    hideContextMenu();
+  });
+  return childBtn;
+}
+
+function attachContextSubmenu(group, submenu, item, options = {}) {
+  const { toolbar = false } = options;
+  const openSubmenu = () => openContextSubmenu(group);
+  const closeSubmenu = () => scheduleContextSubmenuClose(group);
+  group.addEventListener("pointerenter", openSubmenu);
+  group.addEventListener("pointerleave", closeSubmenu);
+  group.addEventListener("focusin", openSubmenu);
+  group.addEventListener("focusout", (event) => {
+    if (group.contains(event.relatedTarget)) return;
+    closeSubmenu();
+  });
+  item.children.forEach((child) => {
+    submenu.appendChild(createContextSubmenuButton(child, { toolbar }));
+  });
+}
+
+function positionContextMenu(menu, x, y) {
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  requestAnimationFrame(() => {
+    const rect = menu.getBoundingClientRect();
+    const pad = 8;
+    let left = x;
+    let top = y;
+    if (rect.right > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - rect.width - pad);
+    if (rect.bottom > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - rect.height - pad);
+    if (left < pad) left = pad;
+    if (top < pad) top = pad;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  });
 }
 
 function ensureMarqueeSelectionEl() {
@@ -8131,6 +8414,7 @@ function canStartMarqueeSelectionFromTarget(target, touchMode = false) {
 }
 
 function startMarqueeSelection(event, touchMode = false) {
+  if (window.DrawTools?.isDrawToolEngaged?.()) return;
   if (isWorkspaceReadOnly()) return;
   const pt = getDesktopPoint(event.clientX, event.clientY);
   marqueeSelection = {
@@ -8151,9 +8435,83 @@ function hideContextMenu() {
   if (contextMenuEl) contextMenuEl.classList.add("hidden");
 }
 
-function showContextMenu(x, y, items = []) {
+function populateObjectsToolbar() {
+  if (!objectsToolbar) return;
+  objectsToolbar.innerHTML = "";
+  const items = getDesktopInsertMenuItems(() => lastDesktopPointer || getViewportCenterDesktopPoint());
+  items.forEach((item) => {
+    if (Array.isArray(item.children) && item.children.length) {
+      const group = document.createElement("div");
+      group.className = "context-menu-group";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "objects-toolbar-item";
+      btn.disabled = !!item.disabled;
+      btn.title = item.label;
+      btn.setAttribute("aria-label", item.label);
+      if (item.icon) btn.appendChild(createWhiteboardIcon(item.icon));
+      group.appendChild(btn);
+      const submenu = document.createElement("div");
+      submenu.className = "context-submenu";
+      if (item.submenuClass) submenu.classList.add(item.submenuClass);
+      else if (item.children.every((child) => child.iconOnly)) submenu.classList.add("context-shape-palette");
+      attachContextSubmenu(group, submenu, item, { toolbar: true });
+      group.appendChild(submenu);
+      objectsToolbar.appendChild(group);
+      return;
+    }
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "objects-toolbar-item";
+    btn.disabled = !!item.disabled;
+    btn.title = item.label;
+    btn.setAttribute("aria-label", item.label);
+    if (item.tool) btn.dataset.tool = item.tool;
+    if (item.icon) btn.appendChild(createWhiteboardIcon(item.icon));
+    btn.addEventListener("click", () => {
+      if (!item.disabled && typeof item.action === "function") item.action();
+    });
+    objectsToolbar.appendChild(btn);
+  });
+  window.DrawTools?.syncToolbarState?.();
+}
+
+function syncObjectsToolbarVisibility() {
+  if (!objectsToolbar) return;
+  const show = !!(objectsToggle && objectsToggle.checked && canEditCurrentDocument() && !guestPublicView);
+  objectsToolbar.classList.toggle("hidden", !show);
+  if (show) {
+    objectsToolbar.removeAttribute("hidden");
+    if (!objectsToolbar.childElementCount) populateObjectsToolbar();
+  } else {
+    objectsToolbar.setAttribute("hidden", "");
+    objectsToolbar.querySelectorAll(".context-menu-group.open").forEach((node) => node.classList.remove("open"));
+  }
+}
+
+function setObjectsToolbarPreferred(visible) {
+  const next = !!visible;
+  if (objectsToggle) objectsToggle.checked = next;
+  try {
+    localStorage.setItem(OBJECTS_TOOLBAR_KEY, next ? "1" : "0");
+  } catch {}
+  syncObjectsToolbarVisibility();
+}
+
+function syncObjectsToolbarFromStorage() {
+  let preferred = false;
+  try {
+    preferred = localStorage.getItem(OBJECTS_TOOLBAR_KEY) === "1";
+  } catch {}
+  if (objectsToggle) objectsToggle.checked = preferred;
+  syncObjectsToolbarVisibility();
+}
+
+function showContextMenu(x, y, items = [], options = {}) {
+  const toolbar = options.variant === "toolbar";
   const menu = ensureContextMenu();
   clearContextMenuCloseTimer();
+  menu.className = toolbar ? "context-menu context-menu--toolbar" : "context-menu";
   menu.innerHTML = "";
   items.forEach((item) => {
     if (Array.isArray(item.children) && item.children.length) {
@@ -8161,55 +8519,40 @@ function showContextMenu(x, y, items = []) {
       group.className = "context-menu-group";
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "context-menu-parent";
+      btn.className = toolbar ? "context-toolbar-item" : "context-menu-parent";
       btn.disabled = !!item.disabled;
-      const label = document.createElement("span");
-      label.textContent = item.label;
-      const caret = document.createElement("span");
-      caret.className = "context-menu-caret";
-      caret.textContent = "▸";
-      btn.appendChild(label);
-      btn.appendChild(caret);
+      if (toolbar) {
+        if (item.icon) btn.appendChild(createWhiteboardIcon(item.icon));
+        btn.appendChild(createToolbarLabel(item.label, true));
+      } else {
+        const label = document.createElement("span");
+        label.textContent = item.label;
+        const caret = document.createElement("span");
+        caret.className = "context-menu-caret";
+        caret.textContent = "▸";
+        btn.appendChild(label);
+        btn.appendChild(caret);
+      }
       group.appendChild(btn);
       const submenu = document.createElement("div");
       submenu.className = "context-submenu";
       if (item.submenuClass) submenu.classList.add(item.submenuClass);
-      if (item.children.every((child) => child.iconOnly && child.iconSvg)) submenu.classList.add("context-shape-palette");
-      const openSubmenu = () => openContextSubmenu(group);
-      const closeSubmenu = () => scheduleContextSubmenuClose(group);
-      group.addEventListener("pointerenter", openSubmenu);
-      group.addEventListener("pointerleave", closeSubmenu);
-      group.addEventListener("focusin", openSubmenu);
-      group.addEventListener("focusout", (event) => {
-        if (group.contains(event.relatedTarget)) return;
-        closeSubmenu();
-      });
-      item.children.forEach((child) => {
-        const childBtn = document.createElement("button");
-        childBtn.type = "button";
-        if (child.iconSvg) {
-          childBtn.innerHTML = child.iconSvg;
-          childBtn.title = child.label;
-          childBtn.setAttribute("aria-label", child.label);
-        } else {
-          childBtn.textContent = child.label;
-        }
-        if (child.iconOnly) childBtn.classList.add("context-shape-btn");
-        childBtn.disabled = !!child.disabled;
-        childBtn.addEventListener("click", () => {
-          if (!child.disabled && typeof child.action === "function") child.action();
-          hideContextMenu();
-        });
-        submenu.appendChild(childBtn);
-      });
+      else if (item.children.every((child) => child.iconOnly)) submenu.classList.add("context-shape-palette");
+      attachContextSubmenu(group, submenu, item, { toolbar });
       group.appendChild(submenu);
       menu.appendChild(group);
       return;
     }
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.textContent = item.label;
+    btn.className = toolbar ? "context-toolbar-item" : "";
     btn.disabled = !!item.disabled;
+    if (toolbar) {
+      if (item.icon) btn.appendChild(createWhiteboardIcon(item.icon));
+      btn.appendChild(createToolbarLabel(item.label));
+    } else {
+      btn.textContent = item.label;
+    }
     btn.addEventListener("click", () => {
       if (!item.disabled && typeof item.action === "function") item.action();
       hideContextMenu();
@@ -8217,8 +8560,7 @@ function showContextMenu(x, y, items = []) {
     menu.appendChild(btn);
   });
   menu.classList.remove("hidden");
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
+  positionContextMenu(menu, x, y);
 }
 
 function formatContextSpawnPx(value) {
@@ -9338,6 +9680,7 @@ function createShapeFromData(shapeData, offsetX = 0, offsetY = 0, opts = {}) {
   if (copy.type === "shape-table") return createShapeTable(copy, doSave);
   if (copy.type === "shape-image") return createShapeImage(copy, doSave);
   if (copy.type === "shape-frame") return createShapeFrame(copy, doSave);
+  if (copy.type === "shape-freedraw" && window.DrawTools) return window.DrawTools.restoreShapeFreedraw(copy, doSave);
   if (copy.type === "shape-chart" && window.BitrixChart) return window.BitrixChart.restoreShapeChart(copy, doSave);
   if (copy.type === "shape-bitrix-card" && window.BitrixChart) return window.BitrixChart.restoreShapeCard(copy, doSave);
   if (copy.type === "shape-bitrix-date-filter" && window.BitrixChart) return window.BitrixChart.restoreShapeDateFilter(copy, doSave);
@@ -12264,6 +12607,7 @@ function onChevronShapeResized(node) {
 function createBpProcessStage(opts = {}, doSave = true) {
   const stageIndex = Number(opts.bpStageIndex) || 0;
   const isLast = opts.isLastStage === true;
+  const colors = getBpStageColors();
   return createShapeRectangle({
     ...BP_FACTORY_VISUAL_OPTS,
     shapeVariant: "chevron",
@@ -12275,8 +12619,8 @@ function createBpProcessStage(opts = {}, doSave = true) {
     vAlign: "middle",
     fontSize: isLast ? 13 : 15,
     bold: isLast,
-    fill: opts.fill || BP_STAGE_COLORS[Math.min(stageIndex, BP_STAGE_COLORS.length - 1)],
-    textColor: opts.textColor || (isLast ? "#ffffff" : "#111827"),
+    fill: opts.fill || colors[Math.min(stageIndex, colors.length - 1)],
+    textColor: opts.textColor || getBpStageTextColor(isLast),
     text: opts.text != null ? opts.text : (isLast ? "ПРЕДОПЛАТА ПОЛУЧЕНА" : `Стадия ${stageIndex + 1}`),
     bpProcessId: opts.bpProcessId,
     bpRole: "stage",
@@ -12337,6 +12681,7 @@ function insertBpStageAt(processId, groupId, atIndex, refStageNode = null) {
   bumpBpTaskStageIndicesFrom(processId, atIndex);
   const count = sorted.length + 1;
   const isLast = atIndex === count - 1;
+  const colors = getBpStageColors();
   const newStage = createBpProcessStage({
     bpProcessId: processId,
     groupId,
@@ -12347,8 +12692,8 @@ function insertBpStageAt(processId, groupId, atIndex, refStageNode = null) {
     height: `${stageHeight}px`,
     zIndex: ++zCounter,
     text: isLast ? "ПРЕДОПЛАТА ПОЛУЧЕНА" : `Стадия ${atIndex + 1}`,
-    fill: isLast ? BP_STAGE_COLORS[BP_STAGE_COLORS.length - 1] : BP_STAGE_COLORS[Math.min(atIndex, BP_STAGE_COLORS.length - 2)],
-    textColor: isLast ? "#ffffff" : "#111827"
+    fill: isLast ? colors[colors.length - 1] : colors[Math.min(atIndex, colors.length - 2)],
+    textColor: getBpStageTextColor(isLast)
   }, false);
   syncBpProcessStageHeights(heightRef);
   layoutBpProcessBase(processId);
@@ -12467,7 +12812,7 @@ function createSequentialBusinessProcess(opts = {}, doSave = true) {
     height: `${BP_STAGE_HEIGHT + BP_BASE_PAD_Y * 2}px`,
     shapeVariant: "chevron",
     shapeInsetDepthPx: BP_CHEVRON_INSET_PX,
-    fill: BP_BASE_FILL,
+    fill: getBpBaseFill(),
     borderEnabled: false,
     text: "",
     groupId,
@@ -13635,12 +13980,12 @@ function createShapeTable(opts = {}, doSave = true) {
       && node.__tableSelectionScope === "cells"
       && !!activeCell
       && !editingCell;
-    if (canShowSource && isCtrlModifierActive()) cellConnectorGuidesLatched = true;
+    if (canShowSource && isAltModifierActive()) cellConnectorGuidesLatched = true;
     const canShowDraft = !!draftTd
       && !!connectorDraft
       && (connectorDraft.preferCells || connectorDraft.fromCell);
     const shouldShow = canShowDraft
-      || (canShowSource && (isCtrlModifierActive() || cellConnectorGuidesLatched));
+      || (canShowSource && (isAltModifierActive() || cellConnectorGuidesLatched));
     const liftedHandles = interactionControlsLayer?.querySelector(`.shape-handles[data-lifted-from-shape="${node.dataset.shapeId}"]`);
     node.classList.toggle("table-cell-connector-guides-active", shouldShow);
     if (liftedHandles) liftedHandles.classList.toggle("table-cell-connector-guides-active", shouldShow);
@@ -13724,7 +14069,7 @@ function createShapeTable(opts = {}, doSave = true) {
     } else {
       clearCellSelection();
     }
-    if (!isCtrlModifierActive()) cellConnectorGuidesLatched = false;
+    if (!isAltModifierActive()) cellConnectorGuidesLatched = false;
     activeCell = td;
     selectedCells = [td];
     rangeAnchor = td;
@@ -13764,7 +14109,7 @@ function createShapeTable(opts = {}, doSave = true) {
     td.contentEditable = "false";
     td.classList.remove("cell-editing");
     editingCell = null;
-    if (!isCtrlModifierActive()) cellConnectorGuidesLatched = false;
+    if (!isAltModifierActive()) cellConnectorGuidesLatched = false;
     clearActiveFormulaEditor(td);
     if (typeof td.focus === "function") td.focus({ preventScroll: true });
     updateCellConnectorGuides();
@@ -15125,7 +15470,7 @@ function createShapeTable(opts = {}, doSave = true) {
     ["contextmenu", "mousedown", "mouseup", "click", "auxclick"].forEach((eventName) => {
       arrow.addEventListener(eventName, (event) => {
         if (eventName === "mousedown" || eventName === "mouseup" || eventName === "click" || eventName === "auxclick") {
-          if (!(event.ctrlKey || event.metaKey || event.button === 2)) return;
+          if (!(event.altKey || event.button === 2)) return;
         }
         suppressCellConnectorArrowBrowserMenu(event);
       });
@@ -15143,7 +15488,7 @@ function createShapeTable(opts = {}, doSave = true) {
     cellConnectorGuides.addEventListener(eventName, (event) => {
       if (!event.target.closest(".table-cell-conn-arrow")) {
         if (eventName !== "contextmenu") return;
-      } else if (eventName !== "contextmenu" && !(event.ctrlKey || event.metaKey || event.button === 2)) {
+      } else if (eventName !== "contextmenu" && !(event.altKey || event.button === 2)) {
         return;
       }
       suppressCellConnectorArrowBrowserMenu(event);
@@ -15424,6 +15769,9 @@ function readShapeData(node) {
       return window.BitrixChart.readBitrixShapeExtras(node, base);
     }
   }
+  if (node.dataset.shapeType === "shape-freedraw" && window.DrawTools?.readShapeExtras) {
+    return window.DrawTools.readShapeExtras(node, base);
+  }
   return base;
 }
 
@@ -15546,6 +15894,7 @@ function applyLayout(data) {
       else if (s.type === "shape-chart" && window.BitrixChart) window.BitrixChart.restoreShapeChart(s, false);
       else if (s.type === "shape-bitrix-card" && window.BitrixChart) window.BitrixChart.restoreShapeCard(s, false);
       else if (s.type === "shape-bitrix-date-filter" && window.BitrixChart) window.BitrixChart.restoreShapeDateFilter(s, false);
+      else if (s.type === "shape-freedraw" && window.DrawTools) window.DrawTools.restoreShapeFreedraw(s, false);
     } catch (err) {
       console.error("Failed to restore shape:", s, err);
     }
@@ -15570,6 +15919,12 @@ function applyLayout(data) {
     });
   } else if (window.BitrixChart && window.BitrixChart.rebuildAllBitrixWidgets) {
     window.BitrixChart.rebuildAllBitrixWidgets();
+  }
+  if (window.BitrixChart?.syncBitrixWidgetsToTheme && isDarkThemeActive()) {
+    window.BitrixChart.syncBitrixWidgetsToTheme({ save: false });
+  }
+  if (isDarkThemeActive()) {
+    syncBpProcessesToTheme({ save: false });
   }
   return true;
 }
@@ -16550,6 +16905,7 @@ safeOn(shareEmailInput, "keydown", (e) => {
 
 desktop.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
+  if (window.DrawTools?.isDrawToolEngaged?.()) return;
   if (isDesktopBackgroundPointerTarget(e.target) && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
     clearSelection();
   }
@@ -16582,26 +16938,28 @@ document.addEventListener("pointerdown", (e) => {
 document.addEventListener("pointerup", finalizePendingGroupMemberSelect);
 document.addEventListener("pointercancel", finalizePendingGroupMemberSelect);
 document.addEventListener("keydown", (e) => {
-  syncCtrlModifierFromEvent(e);
+  syncModifierKeysFromEvent(e);
 }, true);
 document.addEventListener("keyup", (e) => {
-  syncCtrlModifierFromEvent(e);
+  syncModifierKeysFromEvent(e);
 }, true);
 document.addEventListener("pointerdown", (e) => {
-  syncCtrlModifierFromEvent(e);
+  syncModifierKeysFromEvent(e);
 }, true);
 document.addEventListener("pointerup", (e) => {
-  syncCtrlModifierFromEvent(e);
+  syncModifierKeysFromEvent(e);
 }, true);
 window.addEventListener("blur", () => {
-  if (!ctrlModifierActive) return;
+  if (!ctrlModifierActive && !altModifierActive) return;
   ctrlModifierActive = false;
-  updateAllTableCellConnectorGuides();
+  altModifierActive = false;
+  syncConnectorModifierChrome();
 });
 window.addEventListener("beforeunload", () => {
   flushPendingLayoutSave();
 });
 document.addEventListener("pointermove", (e) => {
+  if (window.DrawTools?.handlePointerMove?.(e)) return;
   if (frameDrawSelection && e.pointerId === frameDrawSelection.pointerId) {
     const pt = getDesktopPoint(e.clientX, e.clientY);
     frameDrawSelection.x2 = pt.x;
@@ -16618,6 +16976,7 @@ document.addEventListener("pointermove", (e) => {
   }
 });
 document.addEventListener("pointerup", (e) => {
+  if (window.DrawTools?.handlePointerUp?.(e)) return;
   if (frameDrawSelection && e.pointerId === frameDrawSelection.pointerId) {
     try { desktop.releasePointerCapture(e.pointerId); } catch {}
     finishFrameDraw();
@@ -16631,8 +16990,19 @@ document.addEventListener("pointerup", (e) => {
 });
 
 safeOn(formatToggle, "change", () => {
-  if (formatToggle.checked) { showFormatPanel(); clampPanelIntoViewport(); syncFormatPanel(); }
-  else formatPanel.classList.add("hidden");
+  if (formatToggle.checked) {
+    ensureFormatPanelEnabledCollapsed();
+    syncFormatPanel();
+  } else if (formatPanel) {
+    formatPanel.classList.add("hidden");
+    savePanelState();
+  }
+});
+safeOn(formatToggleLabel, "click", (e) => e.stopPropagation());
+safeOn(objectsToggleLabel, "click", (e) => e.stopPropagation());
+safeOn(themeDarkToggle && themeDarkToggle.closest("label"), "click", (e) => e.stopPropagation());
+safeOn(objectsToggle, "change", () => {
+  setObjectsToolbarPreferred(!!objectsToggle.checked);
 });
 function bindRangeAndNumber(rangeEl, numEl) {
   if (!rangeEl || !numEl) return;
@@ -17065,6 +17435,27 @@ safeOn(shapeButton && shapeButton.closest(".app-menu-nested"), "focusin", () => 
   });
 });
 
+(shapeDropdown ? shapeDropdown.querySelectorAll("button[data-tool]") : []).forEach((btn) => {
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const tool = btn.dataset.tool;
+    try {
+      if (tool === "draw") {
+        if (!canEditCurrentDocument()) return;
+        if (window.DrawTools?.activateDrawToolFromMenu) window.DrawTools.activateDrawToolFromMenu();
+        return;
+      }
+      if (tool === "laser") {
+        if (window.DrawTools?.activateLaserToolFromMenu) window.DrawTools.activateLaserToolFromMenu();
+        return;
+      }
+    } catch (err) {
+      console.error("Failed to activate draw tool:", tool, err);
+    }
+    closeAllMenus();
+  });
+});
+
 (shapeDropdown ? shapeDropdown.querySelectorAll("button[data-action]") : []).forEach((btn) => {
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -17122,13 +17513,17 @@ document.addEventListener("click", (e) => {
   toggleShapeMenu(false);
 });
 document.addEventListener("click", () => hideContextMenu());
+document.addEventListener("click", (e) => {
+  if (!objectsToolbar || e.target.closest("#objectsToolbar")) return;
+  objectsToolbar.querySelectorAll(".context-menu-group.open").forEach((node) => node.classList.remove("open"));
+});
 document.addEventListener("mousedown", (e) => {
-  if (e.target.closest && e.target.closest(".table-cell-conn-arrow") && (e.ctrlKey || e.metaKey || e.button === 2)) {
+  if (e.target.closest && e.target.closest(".table-cell-conn-arrow") && (e.altKey || e.button === 2)) {
     suppressCellConnectorArrowBrowserMenu(e);
   }
 }, true);
 document.addEventListener("click", (e) => {
-  if (e.target.closest && e.target.closest(".table-cell-conn-arrow") && (e.ctrlKey || e.metaKey || e.button === 2)) {
+  if (e.target.closest && e.target.closest(".table-cell-conn-arrow") && (e.altKey || e.button === 2)) {
     suppressCellConnectorArrowBrowserMenu(e);
   }
 }, true);
@@ -17146,39 +17541,7 @@ document.addEventListener("contextmenu", (e) => {
     if (!canEditCurrentDocument()) return;
     e.preventDefault();
     const spawnPoint = getDesktopPoint(e.clientX, e.clientY);
-    showContextMenu(e.clientX, e.clientY, [
-      {
-        label: "Фигуры",
-        children: getContextShapeMenuItems(spawnPoint)
-      },
-      { label: "Линия", action: () => createShapeAtContextPoint("line", spawnPoint) },
-      { label: "Заметка", action: () => createShapeAtContextPoint("note", spawnPoint) },
-      {
-        label: "Картинка",
-        disabled: !imageImportInput,
-        action: () => promptImageImportAtPoint(spawnPoint)
-      },
-      { label: "Таблица", action: () => createShapeAtContextPoint("table", spawnPoint) },
-      { label: "Фрейм", action: () => createShapeAtContextPoint("frame", spawnPoint) },
-      {
-        label: "Bitrix24",
-        submenuClass: "context-bitrix-submenu",
-        children: getContextBitrixMenuItems(spawnPoint)
-      },
-      { label: "Последовательный бизнес-процесс", action: () => createShapeAtContextPoint("bp-process", spawnPoint) },
-      {
-        label: "Импорт CSV",
-        disabled: !csvImportInput,
-        action: () => {
-          if (!csvImportInput) {
-            showHint("Импорт CSV недоступен: не найден input для файла.", "error");
-            return;
-          }
-          csvImportInput.value = "";
-          csvImportInput.click();
-        }
-      }
-    ]);
+    showContextMenu(e.clientX, e.clientY, getDesktopInsertMenuItems(spawnPoint), { variant: "toolbar" });
     return;
   }
   if (!canEditCurrentDocument()) return;
@@ -17257,6 +17620,7 @@ document.addEventListener("selectionchange", () => {
 
 document.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
+  if (window.DrawTools?.isDrawToolEngaged?.()) return;
   if (!isActiveFormulaEditing() && e.shiftKey && canStartMarqueeSelectionFromTarget(e.target, true)) {
     startMarqueeSelection(e, true);
     e.preventDefault();
@@ -17321,6 +17685,11 @@ document.addEventListener("keydown", (e) => {
   }
   if (!typing && key === "Escape" && frameToolActive) {
     setFrameToolActive(false);
+    return;
+  }
+  if (!typing && key === "Escape" && window.DrawTools?.isDrawToolEngaged?.()) {
+    window.DrawTools.deactivateAll();
+    showHint("Инструмент рисования/лазера выключен", "warning", 1400);
     return;
   }
   if (!typing && !tableCellMode && mod && key === "c") {
@@ -17787,6 +18156,7 @@ viewportEl.addEventListener("scroll", () => {
 
 async function finishWorkspaceInit() {
   ensureFormatPanelEnabledCollapsed();
+  syncObjectsToolbarFromStorage();
   const vpState = readViewportState();
   restoreViewportState(vpState, { repeat: 10 });
   startViewportStabilizer(vpState, 1400);
@@ -17920,5 +18290,40 @@ window.addEventListener("popstate", async () => {
   setTheme(localStorage.getItem(THEME_KEY) || "light");
   setAutosaveEnabled(localStorage.getItem(AUTOSAVE_KEY) !== "0");
   updateAutosaveIndicator();
+  initDrawToolsModule();
   await bootstrapWorkspace();
 })();
+
+function initDrawToolsModule() {
+  if (!window.DrawTools?.init) return;
+  window.DrawTools.init({
+    getDesktop: () => desktop,
+    getDesktopSurface: () => getDesktopSurface(),
+    getDesktopContentRoot: () => getDesktopContentRoot(),
+    getDesktopPoint,
+    getDesktopExtent: () => {
+      const surface = getDesktopSurface() || desktop;
+      return {
+        width: parseFloat(surface?.style.width) || 4000,
+        height: parseFloat(surface?.style.height) || 3000
+      };
+    },
+    appendToDesktop,
+    saveLayout,
+    createShapeBase,
+    formatPositionPx,
+    canEdit: () => canEditCurrentDocument(),
+    isReadOnly: () => isWorkspaceReadOnly(),
+    showHint,
+    selectShape,
+    clearSelection,
+    addShapeHandles,
+    attachResize,
+    attachConnectorPoints,
+    layoutConnectorPoints,
+    renderConnectors,
+    updateDesktopExtent,
+    setFrameToolActive,
+    closeAllMenus
+  });
+}

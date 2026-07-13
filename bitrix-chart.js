@@ -354,11 +354,15 @@
     const cardEl = getChartContainerEl(node);
     if (!cardEl) return;
     const cfg = normalizeChartConfig(config);
-    const cardStyle = cfg.cardStyle ? normalizeCardStyle(cfg.cardStyle) : defaultCardStyle();
+    const cardStyle = cfg.cardStyle ? adaptCardStyleToTheme(cfg.cardStyle) : defaultCardStyle();
     applyCardContainerStyle(cardEl, cardStyle);
     const titleEl = node.__chartApi?.titleEl || cardEl.querySelector(".bitrix-chart-title");
-    if (cfg.titleStyle && titleEl) {
-      applyTextStyleToElement(titleEl, cfg.titleStyle);
+    if (titleEl) {
+      const titleStyle = cfg.titleStyle
+        ? adaptTextStyleToTheme(cfg.titleStyle, defaultCardValueStyle)
+        : null;
+      if (titleStyle) applyTextStyleToElement(titleEl, titleStyle, defaultCardValueStyle);
+      else titleEl.style.color = "";
     }
   }
 
@@ -758,15 +762,104 @@
     });
   }
 
+  function isDarkTheme() {
+    return !!(document.body && document.body.classList.contains("dark"));
+  }
+
+  function normalizeThemeColor(color) {
+    return String(color || "").trim().toLowerCase();
+  }
+
+  function bitrixThemePalette() {
+    if (isDarkTheme()) {
+      return {
+        cardFill: "#0f172a",
+        cardFill2: "#0f172a",
+        cardBorder: "#334155",
+        valueText: "#f8fafc",
+        labelText: "#94a3b8",
+        titleText: "#f8fafc",
+        chartGrid: "#334155",
+        chartAxis: "#94a3b8",
+        chartValue: "#e2e8f0"
+      };
+    }
+    return {
+      cardFill: "#ffffff",
+      cardFill2: "#ffffff",
+      cardBorder: "#dbe4f0",
+      valueText: "#334155",
+      labelText: "#94a3b8",
+      titleText: "#0f172a",
+      chartGrid: "#dbe4f0",
+      chartAxis: "#64748b",
+      chartValue: "#0f172a"
+    };
+  }
+
+  const BITRIX_LIGHT_CARD = { fill: "#ffffff", fill2: "#ffffff", border: "#dbe4f0" };
+  const BITRIX_DARK_CARD = { fill: "#0f172a", fill2: "#0f172a", border: "#334155" };
+
+  function cardStyleMatchesPalette(style, palette) {
+    const normalized = normalizeCardStyle(style);
+    return normalizeThemeColor(normalized.fill) === normalizeThemeColor(palette.fill)
+      && normalizeThemeColor(normalized.fill2) === normalizeThemeColor(palette.fill2)
+      && normalizeThemeColor(normalized.border) === normalizeThemeColor(palette.border);
+  }
+
+  function adaptCardStyleToTheme(cardStyle) {
+    const style = normalizeCardStyle(cardStyle);
+    const palette = bitrixThemePalette();
+    if (isDarkTheme() && cardStyleMatchesPalette(style, BITRIX_LIGHT_CARD)) {
+      return Object.assign({}, style, {
+        fill: palette.cardFill,
+        fill2: palette.cardFill2,
+        border: palette.cardBorder
+      });
+    }
+    if (!isDarkTheme() && cardStyleMatchesPalette(style, BITRIX_DARK_CARD)) {
+      return Object.assign({}, style, {
+        fill: palette.cardFill,
+        fill2: palette.cardFill2,
+        border: palette.cardBorder
+      });
+    }
+    return style;
+  }
+
+  function adaptTextStyleToTheme(textStyle, fallbackFactory) {
+    const style = normalizeCardTextStyle(textStyle, fallbackFactory);
+    const color = normalizeThemeColor(style.textColor);
+    const palette = bitrixThemePalette();
+    if (isDarkTheme()) {
+      if (color === normalizeThemeColor("#334155")) return Object.assign({}, style, { textColor: palette.valueText });
+      if (color === normalizeThemeColor("#0f172a")) return Object.assign({}, style, { textColor: palette.titleText });
+    } else {
+      if (color === normalizeThemeColor("#f8fafc")) return Object.assign({}, style, { textColor: palette.valueText });
+    }
+    return style;
+  }
+
+  function migrateBitrixVisualConfig(config) {
+    if (!config || typeof config !== "object") return config;
+    const next = Object.assign({}, config);
+    if (next.cardStyle) next.cardStyle = adaptCardStyleToTheme(next.cardStyle);
+    if (next.valueStyle) next.valueStyle = adaptTextStyleToTheme(next.valueStyle, defaultCardValueStyle);
+    if (next.labelStyle) next.labelStyle = adaptTextStyleToTheme(next.labelStyle, defaultCardLabelStyle);
+    if (next.titleStyle) next.titleStyle = adaptTextStyleToTheme(next.titleStyle, defaultCardValueStyle);
+    return next;
+  }
+
   function defaultCardStyle() {
+    const palette = bitrixThemePalette();
     return {
       fillEnabled: true,
       gradientEnabled: false,
-      fill: "#ffffff",
-      fill2: "#ffffff",
+      fill: palette.cardFill,
+      fill2: palette.cardFill2,
       fillDirection: "horizontal",
       borderEnabled: true,
-      border: "#dbe4f0",
+      border: palette.cardBorder,
       borderWidth: 1,
       borderStyle: "solid",
       radius: 14,
@@ -776,10 +869,11 @@
   }
 
   function defaultCardValueStyle() {
+    const palette = bitrixThemePalette();
     return {
       fontFamily: "Arial",
       fontSize: 42,
-      textColor: "#334155",
+      textColor: palette.valueText,
       bold: true,
       italic: false,
       strike: false,
@@ -790,10 +884,11 @@
   }
 
   function defaultCardLabelStyle() {
+    const palette = bitrixThemePalette();
     return {
       fontFamily: "Arial",
       fontSize: 11,
-      textColor: "#94a3b8",
+      textColor: palette.labelText,
       bold: true,
       italic: false,
       strike: false,
@@ -952,20 +1047,21 @@
     };
   }
 
-  function applyTextStyleToElement(el, style) {
+  function applyTextStyleToElement(el, style, fallbackFactory) {
     if (!el || !style) return;
+    const adapted = adaptTextStyleToTheme(style, fallbackFactory || defaultCardLabelStyle);
     el.style.fontFamily = window.fontCssFromKey
-      ? window.fontCssFromKey(style.fontFamily || "Arial")
-      : (style.fontFamily || "Arial");
-    el.style.color = style.textColor || "#334155";
-    el.style.fontSize = `${Math.max(8, Number(style.fontSize) || 11)}px`;
-    el.style.fontWeight = style.bold ? "700" : "400";
-    el.style.fontStyle = style.italic ? "italic" : "normal";
+      ? window.fontCssFromKey(adapted.fontFamily || "Arial")
+      : (adapted.fontFamily || "Arial");
+    el.style.color = adapted.textColor || bitrixThemePalette().labelText;
+    el.style.fontSize = `${Math.max(8, Number(adapted.fontSize) || 11)}px`;
+    el.style.fontWeight = adapted.bold ? "700" : "400";
+    el.style.fontStyle = adapted.italic ? "italic" : "normal";
     const deco = [];
-    if (style.strike) deco.push("line-through");
-    if (style.underline) deco.push("underline");
+    if (adapted.strike) deco.push("line-through");
+    if (adapted.underline) deco.push("underline");
     el.style.textDecoration = deco.length ? deco.join(" ") : "none";
-    el.style.textAlign = style.hAlign || "center";
+    el.style.textAlign = adapted.hAlign || "center";
   }
 
   function readCardStyleFromElement(cardEl) {
@@ -996,7 +1092,7 @@
 
   function applyCardContainerStyle(cardEl, cardStyle) {
     if (!cardEl) return;
-    const style = normalizeCardStyle(cardStyle);
+    const style = adaptCardStyleToTheme(cardStyle);
     if (window.applyFillStyle) {
       window.applyFillStyle(cardEl, {
         fillEnabled: style.fillEnabled,
@@ -1117,7 +1213,7 @@
     let changed = false;
     const applyPart = (key, el, fallback) => {
       cfg[key] = normalizeCardTextStyle(Object.assign({}, cfg[key], { hAlign: h, vAlign: v }), fallback);
-      applyTextStyleToElement(el, cfg[key]);
+      applyTextStyleToElement(el, cfg[key], fallback);
       changed = true;
     };
     if (groupMode || part === "value") applyPart("valueStyle", node.__cardApi.valueEl, defaultCardValueStyle);
@@ -1464,7 +1560,7 @@
       hAlign: titleStyle.hAlign,
       vAlign: titleStyle.vAlign
     }, defaultCardValueStyle);
-    applyTextStyleToElement(titleEl, nextTitleStyle);
+    applyTextStyleToElement(titleEl, nextTitleStyle, defaultCardValueStyle);
     cfg.titleStyle = nextTitleStyle;
     if (node.__chartApi) node.__chartApi.config = cfg;
     node.dataset.chartConfig = JSON.stringify(cfg);
@@ -1489,7 +1585,7 @@
     if (!step) return false;
     const titleStyle = readTextStyleFromElement(titleEl);
     titleStyle.fontSize = Math.max(8, Math.min(144, titleStyle.fontSize + step));
-    applyTextStyleToElement(titleEl, titleStyle);
+    applyTextStyleToElement(titleEl, titleStyle, defaultCardValueStyle);
     const cfg = normalizeChartConfig(node.__chartApi?.config || {});
     cfg.titleStyle = titleStyle;
     if (node.__chartApi) node.__chartApi.config = cfg;
@@ -1650,7 +1746,7 @@
           underline: isPanelControlMixed(fpUnderline) ? current.underline : textPatch.underline
         }), fallback);
         cfg[key] = next;
-        applyTextStyleToElement(el, next);
+        applyTextStyleToElement(el, next, fallback);
       };
       if (groupMode || part === "value") applyTextPart("valueStyle", api.valueEl, defaultCardValueStyle);
       if (groupMode || part === "label") applyTextPart("labelStyle", api.labelEl, defaultCardLabelStyle);
@@ -1673,7 +1769,7 @@
       const next = normalizeCardTextStyle(cfg[key], fallback);
       next.fontSize = Math.max(8, Math.min(144, next.fontSize + step));
       cfg[key] = next;
-      applyTextStyleToElement(el, next);
+      applyTextStyleToElement(el, next, fallback);
       changed = true;
     };
     if (groupMode || part === "value") bumpPart("valueStyle", node.__cardApi.valueEl, defaultCardValueStyle);
@@ -2165,8 +2261,9 @@
     const plotH = height - pad.top - pad.bottom;
     const values = points.map((p) => Number(p.value) || 0);
     const maxValue = Math.max(1, ...values, 1);
+    const palette = bitrixThemePalette();
 
-    ctx.strokeStyle = "#dbe4f0";
+    ctx.strokeStyle = palette.chartGrid;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(pad.left, pad.top + plotH);
@@ -2204,12 +2301,12 @@
       ctx.beginPath();
       ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#0f172a";
+      ctx.fillStyle = palette.chartValue;
       ctx.font = "11px Inter, system-ui, sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(formatCardValue(pt.value, config && config.metric === "sum" ? "sum" : "count"), pt.x, pt.y - 8);
       if (labelIndices.has(index)) {
-        ctx.fillStyle = "#64748b";
+        ctx.fillStyle = palette.chartAxis;
         ctx.font = `${axisFontSize}px Inter, system-ui, sans-serif`;
         const axisLabel = formatChartAxisLabel(pt.label, granularity);
         drawChartAxisLabel(ctx, axisLabel, pt.x, pad.top + plotH);
@@ -2410,8 +2507,8 @@
     node.appendChild(card);
 
     applyCardContainerStyle(card, cfg.cardStyle);
-    applyTextStyleToElement(valueEl, cfg.valueStyle);
-    applyTextStyleToElement(labelEl, cfg.labelStyle);
+    applyTextStyleToElement(valueEl, cfg.valueStyle, defaultCardValueStyle);
+    applyTextStyleToElement(labelEl, cfg.labelStyle, defaultCardLabelStyle);
 
     const activePart = getCardActiveTextPart(node);
     valueEl.classList.toggle("bitrix-kpi-text-active", activePart === "value");
@@ -2685,8 +2782,54 @@
     const cardEl = getFilterContainerEl(node);
     if (!cardEl) return;
     const cfg = normalizeFilterConfig(config);
-    const cardStyle = cfg.cardStyle ? normalizeCardStyle(cfg.cardStyle) : defaultCardStyle();
+    const cardStyle = cfg.cardStyle ? adaptCardStyleToTheme(cfg.cardStyle) : defaultCardStyle();
     applyCardContainerStyle(cardEl, cardStyle);
+  }
+
+  function syncBitrixWidgetsToTheme(opts = {}) {
+    document.querySelectorAll('.shape[data-shape-type="shape-chart"]').forEach((node) => {
+      if (node.__bitrixPlaceholder) return;
+      let config;
+      try {
+        config = normalizeChartConfig(JSON.parse(node.dataset.chartConfig || "{}"));
+      } catch {
+        return;
+      }
+      config = migrateBitrixVisualConfig(config);
+      node.dataset.chartConfig = JSON.stringify(config);
+      if (node.__chartApi) node.__chartApi.config = config;
+      applyChartVisualStyles(node, config);
+      refreshShapeChart(node);
+    });
+    document.querySelectorAll('.shape[data-shape-type="shape-bitrix-card"]').forEach((node) => {
+      if (node.__bitrixPlaceholder || !node.__cardApi) return;
+      let config;
+      try {
+        config = normalizeCardConfig(JSON.parse(node.dataset.cardConfig || "{}"));
+      } catch {
+        return;
+      }
+      config = migrateBitrixVisualConfig(config);
+      node.dataset.cardConfig = JSON.stringify(config);
+      node.__cardApi.config = config;
+      applyCardContainerStyle(node.__cardApi.cardEl, config.cardStyle);
+      applyTextStyleToElement(node.__cardApi.valueEl, config.valueStyle, defaultCardValueStyle);
+      applyTextStyleToElement(node.__cardApi.labelEl, config.labelStyle, defaultCardLabelStyle);
+    });
+    document.querySelectorAll('.shape[data-shape-type="shape-bitrix-date-filter"]').forEach((node) => {
+      if (!node.__filterApi) return;
+      let config;
+      try {
+        config = normalizeFilterConfig(JSON.parse(node.dataset.filterConfig || "{}"));
+      } catch {
+        return;
+      }
+      config = migrateBitrixVisualConfig(config);
+      node.dataset.filterConfig = JSON.stringify(config);
+      node.__filterApi.config = config;
+      applyFilterVisualStyles(node, config);
+    });
+    if (opts.save && window.saveLayout) window.saveLayout();
   }
 
   function applyFilterFormatPanel(node) {
@@ -3781,6 +3924,7 @@
     refreshAllBitrixWidgets,
     rebuildAllBitrixWidgets,
     refreshBitrixConnectionState,
+    syncBitrixWidgetsToTheme,
     isBitrixWebhookConfigured,
     refreshFilterTargets,
     getEffectiveDateFilterForShape,
