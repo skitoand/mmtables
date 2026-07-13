@@ -10,7 +10,25 @@
 
 ---
 
-## 2026-07-13 — запись в REVIEW о коммите журнала
+## 2026-07-13 — docs-only коммиты не запускают автодеплой
+
+**Commit:** `e30db0c` — Skip GitHub deploy on documentation-only commits.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-093247-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29239512985](https://github.com/skitoand/mmtables/actions/runs/29239512985) — success  
+**Статус:** OK (runtime без изменений)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `.github/workflows/deploy.yml` | `paths-ignore`: `REVIEW.md`, `DEPLOY.md`, `AGENTS.md` — правки документации не дергают прод |
+
+### Проверка на проде
+
+- [x] GitHub Actions завершился успешно
+- [x] последующие push только с REVIEW.md не запускают workflow
+
+---
 
 **Commit:** `81a3180` — Add REVIEW.md entry for the deploy journal documentation commit.  
 **Бэкап:** `mmtable-PROD-BACKUP-20260713-093145-before-deploy.tar.gz`  
