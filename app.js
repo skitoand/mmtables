@@ -275,6 +275,7 @@ const SHAPE_MENU_ITEMS = [
   { variant: "arrow-right", label: "Стрелка вправо", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="10,16 34,16 34,8 54,22 34,36 34,28 10,28"/></svg>' },
   { variant: "hexagon", label: "Шестиугольник", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="18,8 46,8 56,22 46,36 18,36 8,22"/></svg>' }
 ];
+const SHAPE_SELECTION_PAD = 4;
 const DEFAULT_CHEVRON_INSET_DEPTH = 18;
 const MIN_CHEVRON_INSET_DEPTH = 6;
 const MAX_CHEVRON_INSET_DEPTH = 40;
@@ -614,10 +615,10 @@ function syncLiftedControlsPosition(node) {
   interactionControlsLayer.querySelectorAll(`[data-lifted-from-shape="${shapeId}"]`).forEach((el) => {
     if (el.classList.contains("shape-handles")) {
       el.style.inset = "auto";
-      el.style.left = `${left - 11}px`;
-      el.style.top = `${top - 11}px`;
-      el.style.width = `${w + 22}px`;
-      el.style.height = `${h + 22}px`;
+      el.style.left = `${left - SHAPE_SELECTION_PAD}px`;
+      el.style.top = `${top - SHAPE_SELECTION_PAD}px`;
+      el.style.width = `${w + SHAPE_SELECTION_PAD * 2}px`;
+      el.style.height = `${h + SHAPE_SELECTION_PAD * 2}px`;
     } else if (el.classList.contains("bp-stage-controls")) {
       el.style.inset = "auto";
       el.style.left = `${left}px`;
@@ -6986,10 +6987,10 @@ function updateGroupSelectionBox() {
     return;
   }
   box.classList.remove("hidden");
-  box.style.left = `${bounds.left - 11}px`;
-  box.style.top = `${bounds.top - 11}px`;
-  box.style.width = `${bounds.width + 22}px`;
-  box.style.height = `${bounds.height + 22}px`;
+  box.style.left = `${bounds.left - SHAPE_SELECTION_PAD}px`;
+  box.style.top = `${bounds.top - SHAPE_SELECTION_PAD}px`;
+  box.style.width = `${bounds.width + SHAPE_SELECTION_PAD * 2}px`;
+  box.style.height = `${bounds.height + SHAPE_SELECTION_PAD * 2}px`;
 }
 
 function clearMultiSelection() {
