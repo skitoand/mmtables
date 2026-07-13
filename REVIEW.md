@@ -10,6 +10,36 @@
 
 ---
 
+## 2026-07-13 — объекты, рисование/лазер, Ctrl/Alt коннекторы, тёмный БП
+
+**Commit:** `9bc333c` — Add objects toolbar, draw/laser tools, and BP dark theme.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-192226-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29278196011](https://github.com/skitoand/mmtables/actions/runs/29278196011) — success  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | тулбар «Объекты»; голубые стрелки по Ctrl, жёлтые ячеек по Alt; тёмные цвета base/стадий БП при смене темы |
+| `draw-tools.js` | рисование (7) и лазерная указка (K) |
+| `vendor/perfect-freehand.js`, `vendor/laser-pointer.js` | библиотеки freehand/лазера |
+| `assets/whiteboard-icons/` | иконки меню объектов и палитры |
+| `styles.css` | стили objects-toolbar, ctrl-connector-mode, тёмная тема задач БП |
+| `index.html` | переключатели Форматирование/Объекты; cache-buster `bp-dark-stages-v1` |
+| `bitrix-chart.js` | мелкие правки под текущий runtime |
+| `scripts/deploy_prod.sh` | деплой draw-tools, vendor и whiteboard-icons |
+
+### Проверка на проде
+
+- [x] GitHub Actions завершился успешно
+- [x] gunicorn healthcheck → 200 (в workflow)
+- [ ] hard refresh → тулбар «Объекты», рисование/лазер
+- [ ] Ctrl → голубые стрелки; Alt у ячейки → жёлтые
+- [ ] тёмная тема: фон и стадии БП не остаются светлыми
+
+---
+
 ## 2026-07-13 — Bitrix24: тень, автообновление, загрузка, расширенный фильтр, фреймы
 
 **Commit:** `2640ff2` — Improve Bitrix24 widgets: shadow format, refresh, loading, and filters.  
