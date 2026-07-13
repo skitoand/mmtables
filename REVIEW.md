@@ -10,6 +10,32 @@
 
 ---
 
+## 2026-07-13 — виджеты Bitrix24: график, карточка, фильтр дат
+
+**Commit:** `560fc2f` — Add Bitrix24 charts, KPI cards, and date filter widgets to the workspace.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-121539-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29249187010](https://github.com/skitoand/mmtables/actions/runs/29249187010) — success  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `bitrix-chart.js` | график, KPI-карточка и фильтр дат Bitrix24; формат дат на оси `dd.mm` под 45°; кэш справочников и мгновенное открытие настроек |
+| `server.py` | API Bitrix24: воронки, стадии, поля, chart-data, card-data; карточка и график считают входы на стадию через stage history |
+| `app.js` | контекстное меню Bitrix24, формулы по карточкам, форматирование KPI, интеграция с профилем |
+| `index.html` | модалки настроек графика/карточки/фильтра, блок webhook в профиле |
+| `styles.css` | стили виджетов Bitrix24 |
+
+### Проверка на проде
+
+- [x] GitHub Actions завершился успешно
+- [x] gunicorn healthcheck → 200 (в workflow)
+- [ ] `curl -I https://mmtable.crystalsystems.ru/` — не проверено с локальной машины (SSL timeout)
+- [x] локально проверено: карточка и график совпадают по сумме за период; настройки карточки открываются сразу
+
+---
+
 ## 2026-07-13 — поля «Поля» задают отступ текста, а не позицию фигуры
 
 **Commit:** `473e54d` — Fix text margin controls to adjust padding inside shapes, not shape bounds.  
