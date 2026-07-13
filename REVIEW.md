@@ -10,6 +10,29 @@
 
 ---
 
+## 2026-07-13 — поля «Поля» задают отступ текста, а не позицию фигуры
+
+**Commit:** `473e54d` — Fix text margin controls to adjust padding inside shapes, not shape bounds.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-103258-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29243130622](https://github.com/skitoand/mmtables/actions/runs/29243130622) — success  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | поля «Поля» управляют `padding` текста в px (сверху/снизу/слева/справа/общие), значения сохраняются в документе |
+| `index.html` | добавлен `fpR` (справа), дефолт отступов 10 px |
+
+### Проверка на проде
+
+- [x] GitHub Actions завершился успешно
+- [x] gunicorn healthcheck → 200
+- [x] `curl -I https://mmtable.crystalsystems.ru/` → 200
+- [x] локально проверено: отступы двигают текст внутри фигуры, рамка выделения не съезжает
+
+---
+
 ## 2026-07-13 — выделение не масштабируется с zoom
 
 **Commit:** `286ea9c` — Keep shape selection chrome at a constant screen size across zoom levels.  
