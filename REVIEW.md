@@ -10,6 +10,29 @@
 
 ---
 
+## 2026-07-13 — аккуратное выделение фигур
+
+**Commit:** `1aa2c6c` — Refine shape selection frame and resize handles for a cleaner look.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-094637-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29240360268](https://github.com/skitoand/mmtables/actions/runs/29240360268) — success  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `styles.css` | тонкая фиолетовая рамка выделения `#6965db`, квадратные маркеры 8×8 px вместо зелёных кругов 22 px |
+| `app.js` | константа `SHAPE_SELECTION_PAD = 4` для позиционирования рамки и group selection box |
+
+### Проверка на проде
+
+- [x] GitHub Actions завершился успешно
+- [x] gunicorn healthcheck → 200
+- [x] `curl -I https://mmtable.crystalsystems.ru/` → 200
+- [x] локально проверено: ресайз за углы/стороны и голубые стрелки соединителей работают
+
+---
+
 ## 2026-07-13 — docs-only коммиты не запускают автодеплой
 
 **Commit:** `e30db0c` — Skip GitHub deploy on documentation-only commits.  
