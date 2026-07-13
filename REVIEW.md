@@ -10,6 +10,33 @@
 
 ---
 
+## 2026-07-13 — Bitrix24: тень, автообновление, загрузка, расширенный фильтр, фреймы
+
+**Commit:** `2640ff2` — Improve Bitrix24 widgets: shadow format, refresh, loading, and filters.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-154505-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29263535744](https://github.com/skitoand/mmtables/actions/runs/29263535744) — success  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `bitrix-chart.js` | тень через панель формата; автообновление графиков/карточек при смене фильтра; кэш GET (45 с) и серверный кэш stage history/fields; индикаторы загрузки; фильтр по любому полю (дата и списки) |
+| `app.js` | формат тени для графика/фильтра; геометрическая привязка к фрейму; инструмент «Фрейм»; refresh вместо rebuild при загрузке layout |
+| `server.py` | кэш stage history и fields meta (60 с) |
+| `index.html` | фрейм в палитре; настройки расширенного фильтра; подсказка webhook |
+| `styles.css` | убраны жёсткие тени у Bitrix-карточек; стили оверлея загрузки |
+
+### Проверка на проде
+
+- [x] GitHub Actions завершился успешно
+- [x] gunicorn healthcheck → 200 (в workflow)
+- [ ] hard refresh → тень в панели формата у графика/фильтра/карточки
+- [ ] смена фильтра обновляет график без перезагрузки страницы
+- [ ] при загрузке данных виден спиннер/статус
+
+---
+
 ## 2026-07-13 — фикс: Bitrix webhook на проде (bitrix-chart.js не деплоился)
 
 **Commit:** `a5d1cc1` — Fix deploy backup when bitrix-chart.js is not yet on the server. (включает `c2da5ee` — добавление файла в deploy)  
