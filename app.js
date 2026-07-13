@@ -276,6 +276,18 @@ const SHAPE_MENU_ITEMS = [
   { variant: "hexagon", label: "Шестиугольник", svg: '<svg viewBox="0 0 64 44" aria-hidden="true"><polygon points="18,8 46,8 56,22 46,36 18,36 8,22"/></svg>' }
 ];
 const SHAPE_SELECTION_PAD = 4;
+const CONN_ARROW_OFFSET = 22;
+const BP_CONN_ARROW_OFFSET = 38;
+function getDesktopZoom() {
+  return Math.max(0.001, Number(zoom) || 1);
+}
+function getShapeSelectionPadWorld() {
+  return SHAPE_SELECTION_PAD / getDesktopZoom();
+}
+function getConnArrowOffsetWorld(node) {
+  const screenOffset = node && isBpProcessStage(node) ? BP_CONN_ARROW_OFFSET : CONN_ARROW_OFFSET;
+  return screenOffset / getDesktopZoom();
+}
 const DEFAULT_CHEVRON_INSET_DEPTH = 18;
 const MIN_CHEVRON_INSET_DEPTH = 6;
 const MAX_CHEVRON_INSET_DEPTH = 40;
@@ -614,11 +626,12 @@ function syncLiftedControlsPosition(node) {
   const h = node.offsetHeight;
   interactionControlsLayer.querySelectorAll(`[data-lifted-from-shape="${shapeId}"]`).forEach((el) => {
     if (el.classList.contains("shape-handles")) {
+      const pad = getShapeSelectionPadWorld();
       el.style.inset = "auto";
-      el.style.left = `${left - SHAPE_SELECTION_PAD}px`;
-      el.style.top = `${top - SHAPE_SELECTION_PAD}px`;
-      el.style.width = `${w + SHAPE_SELECTION_PAD * 2}px`;
-      el.style.height = `${h + SHAPE_SELECTION_PAD * 2}px`;
+      el.style.left = `${left - pad}px`;
+      el.style.top = `${top - pad}px`;
+      el.style.width = `${w + pad * 2}px`;
+      el.style.height = `${h + pad * 2}px`;
     } else if (el.classList.contains("bp-stage-controls")) {
       el.style.inset = "auto";
       el.style.left = `${left}px`;
@@ -1002,11 +1015,14 @@ function updateDesktopExtent() {
     desktop.style.transform = "none";
     surface.style.transform = `scale(${localZoom})`;
     surface.style.transformOrigin = "top left";
+    surface.style.setProperty("--desktop-zoom", String(localZoom));
+    desktop.style.setProperty("--desktop-zoom", String(localZoom));
   } else {
     desktop.style.width = `${Math.ceil(contentWidth)}px`;
     desktop.style.height = `${Math.ceil(contentHeight)}px`;
     desktop.style.transform = `scale(${localZoom})`;
     desktop.style.transformOrigin = "top left";
+    desktop.style.setProperty("--desktop-zoom", String(localZoom));
   }
 
   if (viewportEl) {
@@ -1023,6 +1039,14 @@ function applyZoom() {
   syncViewportDesktopBackground();
   relayoutAllBpProcesses();
   syncAllLiftedControlsPositions();
+  updateGroupSelectionBox();
+  relayoutAllConnectorPoints();
+}
+function relayoutAllConnectorPoints() {
+  if (!desktop) return;
+  desktop.querySelectorAll(".shape, .sheet-window").forEach((node) => {
+    if (node.querySelector(":scope > .conn-points")) layoutConnectorPoints(node);
+  });
 }
 function normalizeSheetUrl(raw) { return (raw || "").trim() || DEFAULT_SHEET_URL; }
 
@@ -6987,10 +7011,11 @@ function updateGroupSelectionBox() {
     return;
   }
   box.classList.remove("hidden");
-  box.style.left = `${bounds.left - SHAPE_SELECTION_PAD}px`;
-  box.style.top = `${bounds.top - SHAPE_SELECTION_PAD}px`;
-  box.style.width = `${bounds.width + SHAPE_SELECTION_PAD * 2}px`;
-  box.style.height = `${bounds.height + SHAPE_SELECTION_PAD * 2}px`;
+  const pad = getShapeSelectionPadWorld();
+  box.style.left = `${bounds.left - pad}px`;
+  box.style.top = `${bounds.top - pad}px`;
+  box.style.width = `${bounds.width + pad * 2}px`;
+  box.style.height = `${bounds.height + pad * 2}px`;
 }
 
 function clearMultiSelection() {
@@ -10210,7 +10235,7 @@ function layoutConnectorPoints(node) {
   if (!box) return;
   const w = node.offsetWidth;
   const h = node.offsetHeight;
-  const arrowOffset = isBpProcessStage(node) ? 38 : 22;
+  const arrowOffset = getConnArrowOffsetWorld(node);
   const pts = {
     n: [w / 2, 0], ne: [w, 0], e: [w, h / 2], se: [w, h],
     s: [w / 2, h], sw: [0, h], w: [0, h / 2], nw: [0, 0]
