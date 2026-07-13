@@ -15566,10 +15566,10 @@ function applyLayout(data) {
   purgeOrphanedInteractionControls();
   if (window.BitrixChart && window.BitrixChart.refreshBitrixConnectionState) {
     window.BitrixChart.refreshBitrixConnectionState().then(() => {
-      if (window.BitrixChart.refreshAllBitrixWidgets) window.BitrixChart.refreshAllBitrixWidgets();
+      if (window.BitrixChart.rebuildAllBitrixWidgets) window.BitrixChart.rebuildAllBitrixWidgets();
     });
-  } else if (window.BitrixChart && window.BitrixChart.refreshAllBitrixWidgets) {
-    window.BitrixChart.refreshAllBitrixWidgets();
+  } else if (window.BitrixChart && window.BitrixChart.rebuildAllBitrixWidgets) {
+    window.BitrixChart.rebuildAllBitrixWidgets();
   }
   return true;
 }
@@ -15617,6 +15617,7 @@ async function initAuth() {
   updateCurrentDocumentCapabilities();
   updateProfileMenuState();
   syncGuestPublicUi();
+  window.dispatchEvent(new CustomEvent("mmtable:auth-ready"));
   authBtn.onclick = async () => {
     if (!currentUser) { openAuthModal("login"); return; }
     await fetch("/auth/logout", { method: "POST" }); window.location.reload();

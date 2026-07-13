@@ -393,6 +393,9 @@
     try {
       const status = await loadBitrixStatus();
       bitrixConnectionState = { checked: true, connected: !!status.connected };
+      if (bitrixConnectionState.connected && document.querySelector(".bitrix-connect-placeholder")) {
+        rebuildAllBitrixWidgets();
+      }
       return bitrixConnectionState.connected;
     } catch {
       bitrixConnectionState = { checked: true, connected: false };
@@ -499,8 +502,17 @@
   const bitrixGetInflight = new Map();
 
   function bitrixFetchCacheKey(path) {
+    const userKey = window.currentUser?.email || "";
     const guest = !window.currentUser ? getGuestWebhook() : "";
-    return `${guest}|${path}`;
+    return `${userKey}|${guest}|${path}`;
+  }
+
+  function bustBitrixIntegrationStatusCache() {
+    for (const key of bitrixGetResponseCache.keys()) {
+      if (key.includes("/api/integrations/bitrix")) {
+        bitrixGetResponseCache.delete(key);
+      }
+    }
   }
 
   function bustBitrixDataCache() {
@@ -593,6 +605,7 @@
       throw err;
     }
     if (window.currentUser) {
+      bustBitrixIntegrationStatusCache();
       return bitrixFetch("/api/integrations/bitrix", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -601,14 +614,17 @@
     }
     await validateBitrixWebhook(normalized);
     setGuestWebhook(normalized);
+    bustBitrixIntegrationStatusCache();
     return { connected: true, domain: tryParseDomain(normalized), webhookMasked: maskWebhook(normalized), webhookUrl: normalized };
   }
 
   async function disconnectBitrix() {
     if (window.currentUser) {
+      bustBitrixIntegrationStatusCache();
       return bitrixFetch("/api/integrations/bitrix", { method: "DELETE" });
     }
     setGuestWebhook("");
+    bustBitrixIntegrationStatusCache();
     return { connected: false };
   }
 
@@ -3806,12 +3822,15 @@
         setTimeout(() => syncBitrixProfileUi(), 0);
       });
     }
-    if (getGuestWebhook() || window.currentUser) {
+    const initBitrixAfterAuth = () => {
+      if (!getGuestWebhook() && !window.currentUser) return;
       refreshBitrixConnectionState().then(() => {
         rebuildAllBitrixWidgets();
         prefetchBitrixMeta("deal");
       });
-    }
+    };
+    initBitrixAfterAuth();
+    window.addEventListener("mmtable:auth-ready", initBitrixAfterAuth);
   });
 
   window.addEventListener("resize", () => {
