@@ -65,12 +65,13 @@
                       <button type="button" data-shape="note">Заметка</button>
                       <button type="button" data-action="import-image">Картинка</button>
                       <button type="button" data-shape="table">Таблица</button>
+                      <button type="button" data-shape="frame" title="Фрейм (F)">Фрейм</button>
                       <div class="shape-submenu bitrix-submenu">
                         <button type="button" class="shape-submenu-trigger">Bitrix24 <span>▸</span></button>
                         <div class="shape-palette bitrix-submenu-panel">
                           <button type="button" data-shape="chart">График</button>
                           <button type="button" data-shape="bitrix-card">Карточка</button>
-                          <button type="button" data-shape="bitrix-date-filter">Фильтр дат</button>
+                          <button type="button" data-shape="bitrix-date-filter">Фильтр</button>
                         </div>
                       </div>
                       <button type="button" data-shape="bp-process">Последовательный бизнес-процесс</button>
@@ -602,7 +603,7 @@
           <div id="profileErrorText" class="auth-error hidden" role="alert" aria-live="polite"></div>
           <div class="bitrix-integration-block">
             <h4>Bitrix24</h4>
-            <p class="bitrix-integration-hint">Вставьте URL входящего webhook из Bitrix24 (CRM → Настройки → Входящий webhook).</p>
+            <p class="bitrix-integration-hint">Вставьте полный URL входящего webhook из Bitrix24 (CRM → Настройки → Входящий webhook), например <code>https://company.bitrix24.ru/rest/1/xxxxxxxx/</code>, и нажмите «Подключить».</p>
             <label for="bitrixWebhookInput">Webhook URL</label>
             <input id="bitrixWebhookInput" type="url" placeholder="https://company.bitrix24.ru/rest/1/..." autocomplete="off" />
             <div id="bitrixIntegrationStatus" class="bitrix-integration-status">Bitrix24 не подключён</div>
@@ -769,7 +770,29 @@
 
     <div id="bitrixDateFilterConfigModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="bitrixDateFilterConfigTitle">
       <div class="modal-card bitrix-chart-config-card">
-        <h3 id="bitrixDateFilterConfigTitle">Настройки фильтра дат</h3>
+        <h3 id="bitrixDateFilterConfigTitle">Настройки фильтра</h3>
+        <div class="bitrix-chart-config-grid">
+          <label for="bitrixDateFilterEntity">Тип</label>
+          <select id="bitrixDateFilterEntity">
+            <option value="deal">Сделки</option>
+            <option value="lead">Лиды</option>
+          </select>
+          <label for="bitrixDateFilterFieldSearch">Поле фильтра</label>
+          <div class="bitrix-filter-field-picker">
+            <input id="bitrixDateFilterFieldSearch" type="search" placeholder="Начните вводить название…" autocomplete="off" />
+            <select id="bitrixDateFilterField" size="7"></select>
+          </div>
+        </div>
+        <div id="bitrixDateFilterDateBounds" class="bitrix-date-filter-date-bounds">
+          <div class="bitrix-chart-config-grid bitrix-date-filter-range-grid">
+            <label for="bitrixDateFilterSliderMin">Граница с</label>
+            <input id="bitrixDateFilterSliderMin" type="date" />
+            <label for="bitrixDateFilterSliderMax">Граница по</label>
+            <input id="bitrixDateFilterSliderMax" type="date" />
+          </div>
+          <p class="bitrix-date-filter-config-note">Для поля «Дата» задайте интервал, внутри которого на виджете можно двигать ползунок.</p>
+        </div>
+        <p class="bitrix-date-filter-config-note">Для списковых полей на виджете появится выбор значений с галочками, как в фильтре таблицы.</p>
         <p class="bitrix-date-filter-config-note">По умолчанию фильтр применяется ко всем элементам Bitrix24 на рабочем столе, включая новые. Снимите галочку, чтобы исключить элемент.</p>
         <div id="bitrixDateFilterTargetList" class="bitrix-date-filter-target-list"></div>
         <div class="modal-actions">
@@ -780,6 +803,6 @@
     </div>
 
     <script src="app.js?v=20260713-bitrix-chart-filter"></script>
-    <script src="bitrix-chart.js?v=20260713-bitrix-chart-filter"></script>
+    <script src="bitrix-chart.js?v=20260713-bitrix-placeholder"></script>
   </body>
 </html>

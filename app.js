@@ -230,8 +230,14 @@ let connectorDraftPointerUp = null;
 let activeConnectorLabelEditId = null;
 let ctrlModifierActive = false;
 let groupCounter = 1;
+let frameCounter = 1;
 let bpProcessCounter = 1;
 let groupSelectionBox = null;
+let frameToolActive = false;
+let frameDrawSelection = null;
+const FRAME_MIN_SIZE = 40;
+const FRAME_DEFAULT_NAME = "Фрейм";
+const FRAME_WRAP_PADDING = 16;
 let pendingGroupMemberSelect = null;
 let contextMenuEl = null;
 let contextMenuCloseTimer = null;
@@ -279,7 +285,7 @@ const SHAPE_MENU_ITEMS = [
 const BITRIX_MENU_ITEMS = [
   { variant: "chart", label: "График" },
   { variant: "bitrix-card", label: "Карточка" },
-  { variant: "bitrix-date-filter", label: "Фильтр дат" }
+  { variant: "bitrix-date-filter", label: "Фильтр" }
 ];
 const SHAPE_SELECTION_PAD = 4;
 const CONN_ARROW_OFFSET = 22;
@@ -1295,6 +1301,7 @@ function setRangeMixedState(rangeEl, numEl, mixed, value = 0) {
 function isControlMixed(el) {
   return !!el && (el.dataset.mixed === "1" || el.classList.contains("fp-mixed") || el.indeterminate === true);
 }
+window.isControlMixed = isControlMixed;
 function clearControlMixedState(el) {
   if (!el) return;
   if (el.dataset.mixed !== "1") return;
@@ -3160,6 +3167,33 @@ function applyTableShapeVisualState(node, tableState = null) {
     tableWrap.style.borderBottomLeftRadius = radius > 0 ? `${innerRadius}px` : "";
     tableWrap.style.borderBottomRightRadius = radius > 0 ? `${innerRadius}px` : "";
   }
+}
+
+function refreshTableShapeFormatPanelState(node) {
+  if (!node || node.dataset.shapeType !== "shape-table" || !node.__tableState) return;
+  const state = node.__tableState;
+  const titleBar = node.querySelector(".table-titlebar");
+  const titleText = node.querySelector(".table-title-text");
+  if (titleText) {
+    titleText.style.fontFamily = fontCssFromKey(state.headerText.fontFamily || "Arial");
+    titleText.style.color = state.headerText.color || "#334155";
+    titleText.style.fontSize = `${Math.max(8, Number(state.headerText.fontSize) || 18)}px`;
+    titleText.style.fontWeight = state.headerText.bold ? "700" : "600";
+    titleText.style.fontStyle = state.headerText.italic ? "italic" : "normal";
+    titleText.style.textDecoration = state.headerText.strike ? "line-through" : "none";
+    titleText.style.whiteSpace = state.headerText.wrap ? "normal" : "nowrap";
+    applyTableTitleAlign(titleBar, titleText, state.headerText.hAlign, state.headerText.vAlign);
+  }
+  if (titleBar) {
+    applyFillStyle(titleBar, {
+      fillEnabled: state.style.headerFillEnabled,
+      gradientEnabled: state.style.headerGradientEnabled,
+      fill1: state.style.headerFill,
+      fill2: state.style.headerFill2,
+      fillDirection: state.style.headerFillDirection
+    });
+  }
+  applyTableShapeVisualState(node, state);
 }
 function setViewportScrollLock(locked) {
   if (!viewportEl) return;
@@ -7061,6 +7095,302 @@ function getShapeGroupId(node) {
   return node && node.dataset ? String(node.dataset.groupId || "").trim() : "";
 }
 
+function isFrameShape(node) {
+  return !!(node && node.dataset && node.dataset.shapeType === "shape-frame");
+}
+
+function getShapeFrameId(node) {
+  return node && node.dataset ? String(node.dataset.frameId || "").trim() : "";
+}
+
+function setShapeFrameId(node, frameId) {
+  if (!node?.dataset) return;
+  const next = String(frameId || "").trim();
+  if (next) node.dataset.frameId = next;
+  else delete node.dataset.frameId;
+}
+
+function getFrameShapeById(frameId) {
+  const target = String(frameId || "").trim();
+  if (!target) return null;
+  return Array.from(desktop.querySelectorAll('.shape[data-shape-type="shape-frame"]')).find((node) => node.dataset.shapeId === target) || null;
+}
+
+function getFrameChildren(frameId) {
+  const target = String(frameId || "").trim();
+  if (!target) return [];
+  return Array.from(desktop.querySelectorAll(".shape")).filter((node) => !isFrameShape(node) && getShapeFrameId(node) === target);
+}
+
+function isShapeInsideFrameById(shapeNode, frameId) {
+  const frame = getFrameShapeById(frameId);
+  if (!frame || !shapeNode) return false;
+  return boundsContainShape(getElementLogicalBox(frame), getElementLogicalBox(shapeNode));
+}
+window.isShapeInsideFrameById = isShapeInsideFrameById;
+
+function boundsContainShape(outer, inner) {
+  return outer.left <= inner.left
+    && outer.top <= inner.top
+    && outer.right >= inner.right
+    && outer.bottom >= inner.bottom;
+}
+
+function boundsOverlap(a, b) {
+  return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+}
+
+function getEligibleFrameChildCandidates(frame) {
+  const frameId = frame?.dataset?.shapeId || "";
+  return Array.from(desktop.querySelectorAll(".shape")).filter((node) => {
+    if (!node || node === frame || isFrameShape(node)) return false;
+    const existingFrameId = getShapeFrameId(node);
+    if (existingFrameId && existingFrameId !== frameId) {
+      const existingFrame = getFrameShapeById(existingFrameId);
+      if (existingFrame) return false;
+    }
+    return true;
+  });
+}
+
+function getElementsCompletelyInFrame(frame) {
+  const frameBounds = getElementLogicalBox(frame);
+  return getEligibleFrameChildCandidates(frame).filter((node) => boundsContainShape(frameBounds, getElementLogicalBox(node)));
+}
+
+function reorderFrameBehindChildren(frame) {
+  if (!frame) return;
+  const children = getFrameChildren(frame.dataset.shapeId);
+  if (!children.length) return;
+  const minZ = Math.min(...children.map((child) => Number(child.style.zIndex) || 0));
+  frame.style.zIndex = String(Math.max(1, minZ - 1));
+  const origin = getDesktopContentRoot();
+  if (!origin) return;
+  const firstChild = children.reduce((min, child) => {
+    if (!min) return child;
+    return (Number(child.style.zIndex) || 0) < (Number(min.style.zIndex) || 0) ? child : min;
+  }, null);
+  if (firstChild && firstChild.parentElement === origin) origin.insertBefore(frame, firstChild);
+}
+
+function addElementsToFrame(frame, elements) {
+  if (!frame || !isFrameShape(frame) || !elements?.length) return;
+  const frameId = frame.dataset.shapeId;
+  elements.forEach((node) => {
+    if (!node || isFrameShape(node)) return;
+    setShapeFrameId(node, frameId);
+  });
+  reorderFrameBehindChildren(frame);
+}
+
+function removeAllElementsFromFrame(frame) {
+  if (!frame) return;
+  getFrameChildren(frame.dataset.shapeId).forEach((node) => setShapeFrameId(node, null));
+}
+
+function updateFrameMembership(frame) {
+  if (!frame || !isFrameShape(frame)) return;
+  const frameBounds = getElementLogicalBox(frame);
+  const frameId = frame.dataset.shapeId;
+  getFrameChildren(frameId).forEach((node) => {
+    const shapeBounds = getElementLogicalBox(node);
+    if (!boundsOverlap(frameBounds, shapeBounds) || !boundsContainShape(frameBounds, shapeBounds)) {
+      setShapeFrameId(node, null);
+    }
+  });
+  getEligibleFrameChildCandidates(frame).forEach((node) => {
+    const shapeBounds = getElementLogicalBox(node);
+    if (boundsContainShape(frameBounds, shapeBounds)) setShapeFrameId(node, frameId);
+  });
+  reorderFrameBehindChildren(frame);
+}
+
+function updateShapeFrameMembershipAfterMove(node) {
+  if (!node || isFrameShape(node)) return;
+  const shapeBounds = getElementLogicalBox(node);
+  const currentFrameId = getShapeFrameId(node);
+  if (currentFrameId) {
+    const frame = getFrameShapeById(currentFrameId);
+    if (frame) {
+      const frameBounds = getElementLogicalBox(frame);
+      if (!boundsOverlap(frameBounds, shapeBounds) || !boundsContainShape(frameBounds, shapeBounds)) {
+        setShapeFrameId(node, null);
+      } else {
+        reorderFrameBehindChildren(frame);
+      }
+      return;
+    }
+    setShapeFrameId(node, null);
+  }
+  Array.from(desktop.querySelectorAll('.shape[data-shape-type="shape-frame"]')).some((frame) => {
+    const frameBounds = getElementLogicalBox(frame);
+    if (boundsContainShape(frameBounds, shapeBounds)) {
+      setShapeFrameId(node, frame.dataset.shapeId);
+      reorderFrameBehindChildren(frame);
+      return true;
+    }
+    return false;
+  });
+}
+
+function getDefaultFrameName() {
+  return FRAME_DEFAULT_NAME;
+}
+
+function syncFrameNameLabel(frame) {
+  const label = frame?.querySelector?.(".frame-name");
+  if (!label || label.querySelector("input")) return;
+  label.textContent = String(frame.dataset.frameName || "").trim() || getDefaultFrameName();
+}
+
+function beginFrameNameEdit(frame) {
+  if (!frame || !canEditCurrentDocument()) return;
+  const label = frame.querySelector(".frame-name");
+  if (!label || label.querySelector("input")) return;
+  const current = String(frame.dataset.frameName || "").trim() || getDefaultFrameName();
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "frame-name-input";
+  input.value = current;
+  label.textContent = "";
+  label.appendChild(input);
+  input.focus();
+  input.select();
+  const finish = (save) => {
+    if (save) frame.dataset.frameName = String(input.value || "").trim() || getDefaultFrameName();
+    label.textContent = "";
+    syncFrameNameLabel(frame);
+    saveLayout();
+  };
+  input.addEventListener("blur", () => finish(true));
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      frame.dataset.frameName = current;
+      input.blur();
+    }
+  });
+}
+
+function setFrameToolActive(active) {
+  frameToolActive = !!active;
+  if (desktop) desktop.classList.toggle("frame-tool-active", frameToolActive);
+  if (!frameToolActive) {
+    frameDrawSelection = null;
+    hideFrameDrawPreview();
+  }
+}
+
+function ensureFrameDrawPreviewEl() {
+  let el = desktop.querySelector(".frame-draw-preview");
+  if (el) return el;
+  el = document.createElement("div");
+  el.className = "frame-draw-preview hidden";
+  appendToDesktop(el);
+  return el;
+}
+
+function hideFrameDrawPreview() {
+  const el = ensureFrameDrawPreviewEl();
+  el.classList.add("hidden");
+}
+
+function updateFrameDrawPreview() {
+  if (!frameDrawSelection) return;
+  const el = ensureFrameDrawPreviewEl();
+  const left = Math.min(frameDrawSelection.x1, frameDrawSelection.x2);
+  const top = Math.min(frameDrawSelection.y1, frameDrawSelection.y2);
+  const width = Math.abs(frameDrawSelection.x2 - frameDrawSelection.x1);
+  const height = Math.abs(frameDrawSelection.y2 - frameDrawSelection.y1);
+  el.classList.remove("hidden");
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+  el.style.width = `${width}px`;
+  el.style.height = `${height}px`;
+}
+
+function startFrameDraw(event) {
+  if (isWorkspaceReadOnly() || !frameToolActive) return false;
+  const pt = getDesktopPoint(event.clientX, event.clientY);
+  frameDrawSelection = {
+    pointerId: event.pointerId,
+    x1: pt.x,
+    y1: pt.y,
+    x2: pt.x,
+    y2: pt.y
+  };
+  updateFrameDrawPreview();
+  desktop.setPointerCapture(event.pointerId);
+  clearSelection();
+  return true;
+}
+
+function finishFrameDraw() {
+  if (!frameDrawSelection) return;
+  const bounds = {
+    left: Math.min(frameDrawSelection.x1, frameDrawSelection.x2),
+    top: Math.min(frameDrawSelection.y1, frameDrawSelection.y2),
+    right: Math.max(frameDrawSelection.x1, frameDrawSelection.x2),
+    bottom: Math.max(frameDrawSelection.y1, frameDrawSelection.y2)
+  };
+  frameDrawSelection = null;
+  hideFrameDrawPreview();
+  setFrameToolActive(false);
+  const width = bounds.right - bounds.left;
+  const height = bounds.bottom - bounds.top;
+  if (width < 8 && height < 8) {
+    createShapeFrame({
+      left: formatPositionPx(bounds.left - 160),
+      top: formatPositionPx(bounds.top - 120),
+      width: "320px",
+      height: "240px"
+    });
+    return;
+  }
+  createShapeFrame({
+    left: formatPositionPx(bounds.left),
+    top: formatPositionPx(bounds.top),
+    width: `${Math.max(FRAME_MIN_SIZE, width)}px`,
+    height: `${Math.max(FRAME_MIN_SIZE, height)}px`
+  });
+}
+
+function wrapSelectionInFrame() {
+  const shapes = getWrapSelectionTargets();
+  if (!shapes.length) return;
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  shapes.forEach((node) => {
+    const box = getElementLogicalBox(node);
+    left = Math.min(left, box.left);
+    top = Math.min(top, box.top);
+    right = Math.max(right, box.right);
+    bottom = Math.max(bottom, box.bottom);
+  });
+  const frame = createShapeFrame({
+    left: formatPositionPx(left - FRAME_WRAP_PADDING),
+    top: formatPositionPx(top - FRAME_WRAP_PADDING),
+    width: `${Math.max(FRAME_MIN_SIZE, right - left + FRAME_WRAP_PADDING * 2)}px`,
+    height: `${Math.max(FRAME_MIN_SIZE, bottom - top + FRAME_WRAP_PADDING * 2)}px`,
+    collectChildren: false
+  }, false);
+  addElementsToFrame(frame, shapes);
+  clearMultiSelection();
+  selectShape(frame);
+  saveLayout();
+}
+
+function getWrapSelectionTargets() {
+  if (multiSelectedShapeIds.size) {
+    return getMultiSelectedShapes().filter((node) => !isFrameShape(node));
+  }
+  if (selectedShape && !isFrameShape(selectedShape)) return [selectedShape];
+  return [];
+}
+
 function getGroupBounds(groupId) {
   const members = getGroupMembers(groupId);
   if (!members.length) return null;
@@ -7180,12 +7510,14 @@ function collectConnectorsForShapeClipboard(shapes) {
 function buildClipboardPasteRemaps(payload) {
   const groupMap = new Map();
   const processMap = new Map();
+  const frameMap = new Map();
   const shapes = payload?.shapes || [];
   shapes.forEach((item) => {
     const oldGroupId = String(item?.groupId || "").trim();
     if (oldGroupId && !groupMap.has(oldGroupId)) groupMap.set(oldGroupId, `g${groupCounter++}`);
     const oldProcessId = String(item?.bpProcessId || "").trim();
     if (oldProcessId && !processMap.has(oldProcessId)) processMap.set(oldProcessId, `bp${bpProcessCounter++}`);
+    if (item?.type === "shape-frame" && item?.id) frameMap.set(String(item.id), "");
   });
   const ungroupedCount = shapes.filter((item) => !String(item?.groupId || "").trim()).length;
   if (!groupMap.size && shapes.length >= 2 && ungroupedCount === shapes.length) {
@@ -7195,7 +7527,26 @@ function buildClipboardPasteRemaps(payload) {
       if (!String(item?.groupId || "").trim()) item.groupId = syntheticId;
     });
   }
-  return { groupMap, processMap };
+  return { groupMap, processMap, frameMap };
+}
+
+function finalizePastedFrameMembership(createdEntries, remaps) {
+  if (!remaps?.frameMap?.size || !createdEntries?.length) return;
+  createdEntries.forEach(({ source, node }) => {
+    if (source?.type === "shape-frame" && source?.id) {
+      remaps.frameMap.set(String(source.id), node.dataset.shapeId || "");
+    }
+  });
+  createdEntries.forEach(({ source, node }) => {
+    const oldFrameId = String(source?.frameId || "").trim();
+    if (!oldFrameId || !remaps.frameMap.has(oldFrameId)) return;
+    const nextFrameId = remaps.frameMap.get(oldFrameId);
+    if (nextFrameId) setShapeFrameId(node, nextFrameId);
+  });
+  remaps.frameMap.forEach((frameId) => {
+    const frame = getFrameShapeById(frameId);
+    if (frame) reorderFrameBehindChildren(frame);
+  });
 }
 
 function finalizePastedShapeGroups(createdEntries, remaps) {
@@ -8007,6 +8358,10 @@ function createShapeAtContextPoint(shape, point) {
     createSequentialBusinessProcess({ left: formatContextSpawnPx(x), top: formatContextSpawnPx(y) });
     return;
   }
+  if (shape === "frame") {
+    setFrameToolActive(true);
+    return;
+  }
   if (shape === "image") {
     promptImageImportAtPoint(point);
     return;
@@ -8268,7 +8623,13 @@ function attachDrag(node, handle, opts = {}) {
         bpTaskReassign,
         bpTaskDropTarget: null
       };
-      if (raiseOnDrag && !bpTaskReassign) bringToFront(node);
+      if (isFrameShape(node)) {
+        drag.frameChildren = getFrameChildren(node.dataset.shapeId).map((child) => {
+          const box = getElementLogicalBox(child);
+          return { node: child, left: box.left, top: box.top };
+        });
+      }
+      if (raiseOnDrag && !bpTaskReassign && !isFrameShape(node)) bringToFront(node);
     }
     handle.setPointerCapture(event.pointerId);
   });
@@ -8280,6 +8641,12 @@ function attachDrag(node, handle, opts = {}) {
       applyBulkSelectionDragMove(drag, event);
     } else {
       setNodePosition(node, drag.l + dx, drag.t + dy);
+      if (drag.frameChildren?.length) {
+        drag.frameChildren.forEach((entry) => {
+          setNodePosition(entry.node, entry.left + dx, entry.top + dy);
+          layoutConnectorPoints(entry.node);
+        });
+      }
       if (drag.bpTaskReassign) {
         const target = findBpProcessStageAtClientPoint(event.clientX, event.clientY, node.dataset.bpProcessId, {
           ignoreNode: node,
@@ -8323,6 +8690,8 @@ function attachDrag(node, handle, opts = {}) {
       }
     }
     if (draggedBpProcessId) syncAllBpTasksInProcess(draggedBpProcessId);
+    if (isFrameShape(node)) updateFrameMembership(node);
+    else updateShapeFrameMembershipAfterMove(node);
     updateDesktopExtent();
     saveLayout();
   };
@@ -8548,6 +8917,7 @@ function addShapeHandles(node, isLine = false, opts = {}) {
         node.dataset.tablePixelHeight = String(Math.round(node.offsetHeight || parseFloat(node.style.height || "0") || 0));
       }
       finalizeBpTaskManualResize(node, rs);
+      if (isFrameShape(node)) updateFrameMembership(node);
       saveLayout();
     };
     h.addEventListener("pointerup", stop);
@@ -8729,6 +9099,9 @@ function deleteSelected() {
       changed = true;
     }
   } else if (selectedShape) {
+    if (isFrameShape(selectedShape)) {
+      getFrameChildren(selectedShape.dataset.shapeId).forEach((node) => setShapeFrameId(node, null));
+    }
     const shapeId = selectedShape.dataset.shapeId;
     const connId = selectedShape.dataset.connId;
     restoreLiftedShapeControls(shapeId);
@@ -8769,6 +9142,9 @@ function deleteSelected() {
     const shapeIds = new Set(Array.from(multiSelectedShapeIds));
     const connectorIds = new Set(Array.from(multiSelectedConnectorIds));
     if (shapeIds.size) getMultiSelectedShapes().forEach((node) => {
+      if (isFrameShape(node)) {
+        getFrameChildren(node.dataset.shapeId).forEach((child) => setShapeFrameId(child, null));
+      }
       restoreLiftedShapeControls(node.dataset.shapeId);
       node.remove();
     });
@@ -8936,6 +9312,7 @@ function createShapeFromData(shapeData, offsetX = 0, offsetY = 0, opts = {}) {
   } else {
     delete copy.groupId;
   }
+  delete copy.frameId;
   const oldProcessId = String(copy.bpProcessId || "").trim();
   if (remaps?.processMap && oldProcessId) {
     copy.bpProcessId = remaps.processMap.get(oldProcessId) || oldProcessId;
@@ -8960,6 +9337,7 @@ function createShapeFromData(shapeData, offsetX = 0, offsetY = 0, opts = {}) {
   if (copy.type === "shape-line") return createShapeLine(copy, doSave);
   if (copy.type === "shape-table") return createShapeTable(copy, doSave);
   if (copy.type === "shape-image") return createShapeImage(copy, doSave);
+  if (copy.type === "shape-frame") return createShapeFrame(copy, doSave);
   if (copy.type === "shape-chart" && window.BitrixChart) return window.BitrixChart.restoreShapeChart(copy, doSave);
   if (copy.type === "shape-bitrix-card" && window.BitrixChart) return window.BitrixChart.restoreShapeCard(copy, doSave);
   if (copy.type === "shape-bitrix-date-filter" && window.BitrixChart) return window.BitrixChart.restoreShapeDateFilter(copy, doSave);
@@ -9121,6 +9499,7 @@ function pasteShapeClipboard(offsetX = 24, offsetY = 24, sourcePayload = null) {
       }
     });
     finalizePastedShapeGroups(createdEntries, remaps);
+    finalizePastedFrameMembership(createdEntries, remaps);
     stripSyntheticPasteGroupIds(createdEntries, remaps);
     finalizePastedTableCopies(createdEntries);
     finalizePastedBpProcessCopies(remaps.processMap);
@@ -9204,6 +9583,7 @@ function createShapeBase(type, opts = {}) {
   node.dataset.shapeId = opts.id || `shape_${shapeCounter++}`;
   node.dataset.connId = opts.connId || node.dataset.shapeId;
   if (opts.groupId) node.dataset.groupId = String(opts.groupId);
+  if (opts.frameId) node.dataset.frameId = String(opts.frameId);
   node.dataset.borderWidth = String(Math.max(0, Number(opts.borderWidth ?? 1) || 0));
   node.dataset.borderEnabled = opts.borderEnabled === false ? "0" : "1";
   const defaultWidth = opts.width || (type === "shape-note" ? "260px" : type === "shape-image" ? "240px" : type === "shape-line" ? "180px" : "220px");
@@ -12123,6 +12503,45 @@ function createSequentialBusinessProcess(opts = {}, doSave = true) {
   return { processId, groupId, stages };
 }
 
+function createShapeFrame(opts = {}, doSave = true) {
+  const width = opts.width || "320px";
+  const height = opts.height || "240px";
+  const node = createShapeBase("shape-frame", {
+    ...opts,
+    width,
+    height
+  });
+  node.dataset.frameName = String(opts.frameName || "").trim() || getDefaultFrameName();
+  node.style.background = "transparent";
+  node.style.border = "2px solid #bbbbbb";
+  node.style.borderRadius = "8px";
+  node.style.boxShadow = "none";
+  node.dataset.borderColor = "#bbbbbb";
+  node.dataset.borderEnabled = "1";
+  node.dataset.borderWidth = "2";
+  const label = document.createElement("div");
+  label.className = "frame-name";
+  label.addEventListener("pointerdown", (e) => e.stopPropagation());
+  label.addEventListener("dblclick", (e) => {
+    e.stopPropagation();
+    beginFrameNameEdit(node);
+  });
+  node.appendChild(label);
+  syncFrameNameLabel(node);
+  addShapeHandles(node, false, { minWidth: FRAME_MIN_SIZE, minHeight: FRAME_MIN_SIZE });
+  appendToDesktop(node);
+  if (opts.collectChildren !== false) {
+    const children = Array.isArray(opts.children) ? opts.children : getElementsCompletelyInFrame(node);
+    addElementsToFrame(node, children);
+  } else {
+    reorderFrameBehindChildren(node);
+  }
+  updateDesktopExtent();
+  selectShape(node);
+  if (doSave) saveLayout();
+  return node;
+}
+
 function createShapeRectangle(opts = {}, doSave = true) {
   if (opts.bpRole !== "base" && opts.bpRole !== "stage") {
     opts = applyCreationStylePreset("shape-rect", opts);
@@ -14916,6 +15335,8 @@ function readShapeData(node) {
     id: node.dataset.shapeId,
     connId: node.dataset.connId || node.dataset.shapeId,
     groupId: node.dataset.groupId || undefined,
+    frameId: node.dataset.frameId || undefined,
+    frameName: node.dataset.shapeType === "shape-frame" ? (node.dataset.frameName || getDefaultFrameName()) : undefined,
     type: node.dataset.shapeType,
     shapeVariant: node.dataset.shapeType === "shape-rect" ? normalizeShapeVariant(node.dataset.shapeVariant) : undefined,
     shapeInsetDepth: node.dataset.shapeType === "shape-rect" && getVariantDepthConfig(normalizeShapeVariant(node.dataset.shapeVariant)) && normalizeShapeVariant(node.dataset.shapeVariant) !== "chevron" ? getShapeVariantDepth(node) : undefined,
@@ -15009,7 +15430,7 @@ function readShapeData(node) {
 function getCurrentLayout() {
   return {
     schemaVersion: LAYOUT_SCHEMA_VERSION,
-    zoom, zCounter, windowCounter, shapeCounter, groupCounter, bpProcessCounter,
+    zoom, zCounter, windowCounter, shapeCounter, groupCounter, frameCounter, bpProcessCounter,
     desktopStyle: { ...desktopStyleState },
     windows: Array.from(desktop.querySelectorAll(".sheet-window")).map(readWindowData),
     shapes: Array.from(desktop.querySelectorAll(".shape")).map(readShapeData),
@@ -15104,6 +15525,7 @@ function applyLayout(data) {
   windowCounter = Number(layout.windowCounter) || 1;
   shapeCounter = Number(layout.shapeCounter) || 1;
   groupCounter = Number(layout.groupCounter) || 1;
+  frameCounter = Number(layout.frameCounter) || 1;
   bpProcessCounter = Number(layout.bpProcessCounter) || 1;
   connectors.length = 0;
   (layout.windows || []).forEach((w) => {
@@ -15120,6 +15542,7 @@ function applyLayout(data) {
       else if (s.type === "shape-line") createShapeLine(s, false);
       else if (s.type === "shape-table") createShapeTable(s, false);
       else if (s.type === "shape-image") createShapeImage(s, false);
+      else if (s.type === "shape-frame") createShapeFrame(s, false);
       else if (s.type === "shape-chart" && window.BitrixChart) window.BitrixChart.restoreShapeChart(s, false);
       else if (s.type === "shape-bitrix-card" && window.BitrixChart) window.BitrixChart.restoreShapeCard(s, false);
       else if (s.type === "shape-bitrix-date-filter" && window.BitrixChart) window.BitrixChart.restoreShapeDateFilter(s, false);
@@ -15127,6 +15550,7 @@ function applyLayout(data) {
       console.error("Failed to restore shape:", s, err);
     }
   });
+  desktop.querySelectorAll('.shape[data-shape-type="shape-frame"]').forEach(reorderFrameBehindChildren);
   (layout.connectors || []).forEach((c) => connectors.push(c));
   ensureUniqueConnectorIds();
   desktop.querySelectorAll("[data-bp-process-id]").forEach((node) => {
@@ -15140,7 +15564,13 @@ function applyLayout(data) {
   refreshAllFormulaDisplays();
   syncWorkspaceAccessMode();
   purgeOrphanedInteractionControls();
-  if (window.BitrixChart && window.BitrixChart.refreshAllBitrixWidgets) window.BitrixChart.refreshAllBitrixWidgets();
+  if (window.BitrixChart && window.BitrixChart.refreshBitrixConnectionState) {
+    window.BitrixChart.refreshBitrixConnectionState().then(() => {
+      if (window.BitrixChart.refreshAllBitrixWidgets) window.BitrixChart.refreshAllBitrixWidgets();
+    });
+  } else if (window.BitrixChart && window.BitrixChart.refreshAllBitrixWidgets) {
+    window.BitrixChart.refreshAllBitrixWidgets();
+  }
   return true;
 }
 
@@ -15278,6 +15708,181 @@ async function handleFileOpen() {
   }
 }
 
+function getFormatPanelTargets() {
+  if (selectedShape) return [selectedShape];
+  const multi = getMultiSelectedShapes();
+  if (multi.length) return multi;
+  if (selectedGroupId) {
+    return getGroupMembers(selectedGroupId).filter((node) => node && node.dataset.shapeType !== "shape-line");
+  }
+  return [];
+}
+
+function isGroupFormatSelection() {
+  return !selectedShape && (multiSelectedShapeIds.size > 0 || !!selectedGroupId);
+}
+
+function readShapeFormatPanelSnapshot(node) {
+  const snapshot = readShapeData(node);
+  const text = node.querySelector(".shape-text");
+  let result = snapshot;
+  if (text) {
+    const tc = getComputedStyle(text);
+    result = Object.assign({}, snapshot, {
+      fontFamily: fontKeyFromCss(tc.fontFamily || "Arial"),
+      italic: tc.fontStyle === "italic",
+      strike: (tc.textDecoration || "none").includes("line-through"),
+      underline: (tc.textDecoration || "none").includes("underline"),
+      wrap: (tc.whiteSpace || "pre-wrap") !== "nowrap"
+    });
+  }
+  const opacity = Number(result.opacity);
+  result = Object.assign({}, result, {
+    opacity: opacity > 1 ? opacity / 100 : opacity
+  });
+  if (window.BitrixChart && window.BitrixChart.readShapeFormatPanelSnapshot) {
+    return window.BitrixChart.readShapeFormatPanelSnapshot(node, result);
+  }
+  return result;
+}
+
+function applyFormatPanelToShape(node, opts = {}) {
+  if (!node) return false;
+  const formatSource = opts.source || null;
+  const shapeType = node.dataset.shapeType;
+  const groupMode = !!opts.groupMode;
+
+  if (shapeType === "shape-bitrix-card") {
+    const applyFn = node.__cardApi?.applyFromFormatPanel
+      || (window.BitrixChart && window.BitrixChart.applyCardFormatPanel
+        ? (target, nextOpts) => window.BitrixChart.applyCardFormatPanel(target, nextOpts)
+        : null);
+    return applyFn ? !!applyFn(node, { ...opts, groupMode: true }) : false;
+  }
+  if (shapeType === "shape-chart" && window.BitrixChart && window.BitrixChart.applyChartFormatPanel) {
+    return !!window.BitrixChart.applyChartFormatPanel(node, { ...opts, groupMode: true });
+  }
+  if (shapeType === "shape-bitrix-date-filter" && window.BitrixChart && window.BitrixChart.applyFilterFormatPanel) {
+    return !!window.BitrixChart.applyFilterFormatPanel(node, { ...opts, groupMode: true });
+  }
+
+  const text = node.querySelector(".shape-text");
+  const tableState = shapeType === "shape-table" ? node.__tableState : null;
+  const steppedBpFill = opts.steppedBpFill || null;
+  const steppedBpStageSet = steppedBpFill ? new Set(steppedBpFill.stages) : null;
+
+  if (!steppedBpStageSet?.has(node)) {
+    if (fpFillEnabled && !isControlMixed(fpFillEnabled)) {
+      const fillEnabled = fpFillEnabled.checked;
+      const gradientEnabled = fillEnabled && fpGradientEnabled && !isControlMixed(fpGradientEnabled) ? fpGradientEnabled.checked : (node.dataset.gradientEnabled === "1");
+      applyFillStyle(node, {
+        fillEnabled,
+        gradientEnabled,
+        fill1: !isControlMixed(fpFill) ? fpFill.value : (node.dataset.fillColor || "#ffffff"),
+        fill2: fpFill2 && !isControlMixed(fpFill2) ? fpFill2.value : (node.dataset.fillColor2 || node.dataset.fillColor || "#ffffff"),
+        fillDirection: fpFillType && !isControlMixed(fpFillType) ? fpFillType.value : (node.dataset.fillDirection || "horizontal")
+      });
+    } else if (fpGradientEnabled && !isControlMixed(fpGradientEnabled) && fpFill && !isControlMixed(fpFill)) {
+      applyFillStyle(node, {
+        fillEnabled: node.dataset.fillEnabled !== "0",
+        gradientEnabled: fpGradientEnabled.checked,
+        fill1: fpFill.value,
+        fill2: fpFill2 && !isControlMixed(fpFill2) ? fpFill2.value : (node.dataset.fillColor2 || fpFill.value),
+        fillDirection: fpFillType && !isControlMixed(fpFillType) ? fpFillType.value : (node.dataset.fillDirection || "horizontal")
+      });
+    }
+  }
+  if (fpBorderEnabled && !isControlMixed(fpBorderEnabled)) {
+    node.dataset.borderEnabled = fpBorderEnabled.checked ? "1" : "0";
+    if (tableState) tableState.style.borderEnabled = fpBorderEnabled.checked;
+  }
+  if (fpBorder && !isControlMixed(fpBorder)) {
+    node.style.borderColor = fpBorder.value;
+    if (tableState) tableState.style.border = fpBorder.value;
+  }
+  if (fpLineStyle && !isControlMixed(fpLineStyle)) {
+    node.dataset.borderStyle = normalizeBorderLineStyle(fpLineStyle.value);
+    node.style.borderStyle = node.dataset.borderStyle;
+    if (tableState) tableState.style.borderStyle = node.dataset.borderStyle;
+  }
+  if (fpBorderWidth && !isControlMixed(fpBorderWidth)) {
+    const borderWidth = Math.max(0, Number(fpBorderWidth.value) || 0);
+    node.dataset.borderWidth = String(borderWidth);
+    node.style.borderWidth = node.dataset.borderEnabled === "1" ? `${Math.max(1, borderWidth)}px` : "0px";
+    if (tableState) tableState.style.borderWidth = node.dataset.borderEnabled === "1" ? Math.max(1, borderWidth) : 0;
+  }
+  if (fpRadius && !isControlMixed(fpRadius)) {
+    if (shapeType === "shape-rect") node.dataset.cornerRadius = String(Number(fpRadius.value) || 0);
+    node.style.borderRadius = `${fpRadius.value}px`;
+    if (tableState) tableState.style.radius = Math.max(0, Number(fpRadius.value) || 0);
+  }
+  if (fpOpacity && !isControlMixed(fpOpacity)) {
+    node.style.opacity = `${Number(fpOpacity.value) / 100}`;
+    if (tableState) tableState.style.opacity = Number(fpOpacity.value) / 100;
+  }
+  if (fpShadow && !isControlMixed(fpShadow)) {
+    applyNodeShadow(node, fpShadow.value);
+    if (tableState) tableState.style.shadow = Math.max(0, Number(fpShadow.value) || 0);
+  }
+  if (tableState) {
+    if (fpFillEnabled && !isControlMixed(fpFillEnabled)) tableState.style.headerFillEnabled = fpFillEnabled.checked;
+    if (fpGradientEnabled && !isControlMixed(fpGradientEnabled)) tableState.style.headerGradientEnabled = fpFillEnabled?.checked !== false && fpGradientEnabled.checked;
+    if (fpFill && !isControlMixed(fpFill)) tableState.style.headerFill = fpFill.value;
+    if (fpFill2 && !isControlMixed(fpFill2)) tableState.style.headerFill2 = fpFill2.value;
+    if (fpFillType && !isControlMixed(fpFillType)) tableState.style.headerFillDirection = fpFillType.value;
+    if (fpFontFamily && !isControlMixed(fpFontFamily)) tableState.headerText.fontFamily = fontKeyFromCss(fpFontFamily.value);
+    if (fpTextColor && !isControlMixed(fpTextColor)) tableState.headerText.color = fpTextColor.value;
+    if (fpFontSize && !isControlMixed(fpFontSize)) tableState.headerText.fontSize = Math.max(8, Number(fpFontSize.value) || 8);
+    if (fpBold && !isControlMixed(fpBold)) tableState.headerText.bold = fpBold.checked;
+    if (fpItalic && !isControlMixed(fpItalic)) tableState.headerText.italic = fpItalic.checked;
+    if (fpStrike && !isControlMixed(fpStrike)) tableState.headerText.strike = fpStrike.checked;
+    if (fpWrap && !isControlMixed(fpWrap)) tableState.headerText.wrap = fpWrap.checked;
+  }
+  if (text) {
+    if (fpTextColor && !isControlMixed(fpTextColor)) text.style.color = fpTextColor.value;
+    if (fpFontFamily && !isControlMixed(fpFontFamily)) text.style.fontFamily = fontCssFromKey(fpFontFamily.value);
+    if (fpFontSize && !isControlMixed(fpFontSize)) text.style.fontSize = `${Math.max(8, Number(fpFontSize.value) || 8)}px`;
+    if (fpBold && !isControlMixed(fpBold)) text.style.fontWeight = fpBold.checked ? "700" : "400";
+    if (fpItalic && !isControlMixed(fpItalic)) text.style.fontStyle = fpItalic.checked ? "italic" : "normal";
+    if (fpStrike || fpUnderline) {
+      const textDeco = [];
+      if (fpStrike && !isControlMixed(fpStrike) && fpStrike.checked) textDeco.push("line-through");
+      if (fpUnderline && !isControlMixed(fpUnderline) && fpUnderline.checked) textDeco.push("underline");
+      if ((fpStrike && !isControlMixed(fpStrike)) || (fpUnderline && !isControlMixed(fpUnderline))) {
+        text.style.textDecoration = textDeco.length ? textDeco.join(" ") : "none";
+      }
+    }
+    if (fpNumberFormat && !isControlMixed(fpNumberFormat)) setNumberFormat(text, getNumberFormatButtonsValue(fpNumberFormat));
+    if (fpFormulaDecimals && !isControlMixed(fpFormulaDecimals)) setFormulaDecimalPlaces(text, fpFormulaDecimals.value);
+    if (fpWrap && !isControlMixed(fpWrap)) text.style.whiteSpace = fpWrap.checked ? "pre-wrap" : "nowrap";
+    if (fpScroll && !isControlMixed(fpScroll) && (shapeType === "shape-rect" || shapeType === "shape-table")) {
+      node.dataset.scrollEnabled = fpScroll.checked ? "1" : "0";
+      if (shapeType === "shape-rect") applyShapeScrollState(node);
+      if (shapeType === "shape-table") applyTableScrollState(node.__tableWrapEl, fpScroll.checked);
+    }
+    if (!formatSource || isTextPaddingFormatControl(formatSource)) {
+      applyShapeTextPaddingValues(text, readTextPaddingFromFormatPanel(formatSource));
+    }
+    renderShapeText(text);
+  }
+  if (shapeType === "shape-table" && fpScroll && !isControlMixed(fpScroll)) {
+    node.dataset.scrollEnabled = fpScroll.checked ? "1" : "0";
+    applyTableScrollState(node.__tableWrapEl, fpScroll.checked);
+  }
+  if (shapeType === "shape-line") {
+    const lineEnabled = fpBorderEnabled ? fpBorderEnabled.checked : true;
+    if (fpBorder && !isControlMixed(fpBorder)) node.style.background = lineEnabled ? fpBorder.value : "transparent";
+    if (fpBorderWidth && !isControlMixed(fpBorderWidth)) node.style.height = `${Math.max(1, Number(fpBorderWidth.value) || 1)}px`;
+  }
+  if (tableState) refreshTableShapeFormatPanelState(node);
+  renderShapeVisual(node);
+  syncShapeVisualStyle(node);
+  if (isBpProcessStage(node)) onChevronShapeResized(node);
+  else if (isBpProcessTask(node)) onBpTaskResized(node);
+  layoutConnectorPoints(node);
+  return true;
+}
+
 let syncFormatPanelRaf = 0;
 function scheduleSyncFormatPanel() {
   if (!formatToggle.checked) return;
@@ -15291,7 +15896,7 @@ function scheduleSyncFormatPanel() {
 function syncFormatPanel() {
   if (!formatToggle.checked) return;
   const bitrixHint = $("bitrixCardFormatHint");
-  if (bitrixHint && (!selectedShape || selectedShape.dataset.shapeType !== "shape-bitrix-card")) {
+  if (bitrixHint && (!selectedShape || selectedShape.dataset.shapeType !== "shape-bitrix-card" || multiSelectedShapeIds.size || selectedGroupId)) {
     bitrixHint.classList.add("hidden");
   }
   setControlVisibilityByMode(getSelectionMode());
@@ -15348,10 +15953,10 @@ function syncFormatPanel() {
     || ((!multiSelectedShapeIds.size && selectedGroupId)
       ? getGroupMembers(selectedGroupId).find((node) => node.dataset.shapeType !== "shape-line")
       : null);
-  if (!selectedShape && multiSelectedShapeIds.size) {
-    const shapes = getMultiSelectedShapes();
+  if (!selectedShape && (multiSelectedShapeIds.size || selectedGroupId)) {
+    const shapes = getFormatPanelTargets();
     if (!shapes.length) return;
-    const data = shapes.map(readShapeData);
+    const data = shapes.map(readShapeFormatPanelSnapshot);
     const mixed = (key) => data.some((item) => item[key] !== data[0][key]);
     const first = data[0];
     if (fpFillEnabled) setCheckboxMixedState(fpFillEnabled, mixed("fillEnabled"), first.fillEnabled);
@@ -15378,6 +15983,10 @@ function syncFormatPanel() {
     if (fpRadius && fpRadiusNum) setRangeMixedState(fpRadius, fpRadiusNum, mixed("radius"), first.radius || 0);
     if (fpOpacity && fpOpacityNum) setRangeMixedState(fpOpacity, fpOpacityNum, mixed("opacity"), Math.round(Number(first.opacity || 1) * 100));
     if (fpShadow && fpShadowNum) setRangeMixedState(fpShadow, fpShadowNum, mixed("shadow"), first.shadow || 0);
+    if (fpFontFamily) {
+      setFontSelectValue(fpFontFamily, first.fontFamily || "Arial");
+      setControlMixedFlag(fpFontFamily, mixed("fontFamily"));
+    }
     if (fpTextColor) {
       fpTextColor.value = rgbToHex(first.textColor || "#000000");
       setControlMixedFlag(fpTextColor, mixed("textColor"));
@@ -15392,6 +16001,10 @@ function syncFormatPanel() {
     }
     if (fpNumberFormat) setNumberFormatButtons(fpNumberFormat, first.numberFormat || NUMBER_FORMAT_NUMBER, mixed("numberFormat"));
     if (fpBold) setCheckboxMixedState(fpBold, mixed("bold"), first.bold);
+    if (fpItalic) setCheckboxMixedState(fpItalic, mixed("italic"), first.italic);
+    if (fpStrike) setCheckboxMixedState(fpStrike, mixed("strike"), first.strike);
+    if (fpUnderline) setCheckboxMixedState(fpUnderline, mixed("underline"), first.underline);
+    if (fpWrap) setCheckboxMixedState(fpWrap, mixed("wrap"), first.wrap);
     if (fpScroll) setCheckboxMixedState(fpScroll, mixed("scrollEnabled"), first.scrollEnabled);
     if (fpX) setTextMixedState(fpX, mixed("textPaddingTop"), first.textPaddingTop ?? DEFAULT_SHAPE_TEXT_PADDING);
     if (fpW) setTextMixedState(fpW, mixed("textPaddingLeft"), first.textPaddingLeft ?? DEFAULT_SHAPE_TEXT_PADDING);
@@ -15420,6 +16033,18 @@ function syncFormatPanel() {
       panelShape.__cardApi.syncToFormatPanel();
     } else if (window.BitrixChart && window.BitrixChart.syncCardFormatPanel) {
       window.BitrixChart.syncCardFormatPanel(panelShape);
+    }
+    return;
+  }
+  if (panelShape.dataset.shapeType === "shape-chart") {
+    if (window.BitrixChart && window.BitrixChart.syncChartFormatPanel) {
+      window.BitrixChart.syncChartFormatPanel(panelShape);
+    }
+    return;
+  }
+  if (panelShape.dataset.shapeType === "shape-bitrix-date-filter") {
+    if (window.BitrixChart && window.BitrixChart.syncFilterFormatPanel) {
+      window.BitrixChart.syncFilterFormatPanel(panelShape);
     }
     return;
   }
@@ -15509,10 +16134,11 @@ function adjustShapeTextFontSizesBy(delta) {
     saveLayout();
     return true;
   }
-  const shapes = !selectedShape && multiSelectedShapeIds.size
-    ? getMultiSelectedShapes()
+  const shapes = !selectedShape && (multiSelectedShapeIds.size || selectedGroupId)
+    ? getFormatPanelTargets()
     : (selectedShape ? [selectedShape] : []);
   if (!shapes.length) return false;
+  const groupMode = shapes.length > 1;
   const bpProcessIds = new Set();
   let changed = false;
 
@@ -15523,7 +16149,11 @@ function adjustShapeTextFontSizesBy(delta) {
       return;
     }
     if (node.dataset.shapeType === "shape-bitrix-card" && window.BitrixChart?.adjustCardFontSize) {
-      changed = window.BitrixChart.adjustCardFontSize(node, step) || changed;
+      changed = window.BitrixChart.adjustCardFontSize(node, step, { groupMode }) || changed;
+      return;
+    }
+    if (node.dataset.shapeType === "shape-chart" && window.BitrixChart?.adjustChartFontSize) {
+      changed = window.BitrixChart.adjustChartFontSize(node, step) || changed;
       return;
     }
     if (isBpProcessTask(node)) {
@@ -15601,100 +16231,26 @@ function applyFormat(opts = {}) {
     if (!opts.preview) saveLayout();
     return;
   }
-  if (!selectedShape && multiSelectedShapeIds.size) {
-    const shapes = getMultiSelectedShapes();
+  if (!selectedShape && (multiSelectedShapeIds.size || selectedGroupId)) {
+    const shapes = getFormatPanelTargets();
     if (!shapes.length) return;
     const steppedBpFill = shouldApplyBpStagesSteppedGradient(shapes);
-    const steppedBpStageSet = steppedBpFill ? new Set(steppedBpFill.stages) : null;
     if (steppedBpFill) {
       applyBpStagesSteppedFill(steppedBpFill.stages, steppedBpFill.fill1, steppedBpFill.fill2);
     }
     shapes.forEach((node) => {
-      const text = node.querySelector(".shape-text");
-      const tableState = node.dataset.shapeType === "shape-table" ? node.__tableState : null;
-      if (!steppedBpStageSet?.has(node)) {
-        if (fpFillEnabled && !isControlMixed(fpFillEnabled)) {
-          const fillEnabled = fpFillEnabled.checked;
-          const gradientEnabled = fillEnabled && fpGradientEnabled && !isControlMixed(fpGradientEnabled) ? fpGradientEnabled.checked : (node.dataset.gradientEnabled === "1");
-          applyFillStyle(node, {
-            fillEnabled,
-            gradientEnabled,
-            fill1: !isControlMixed(fpFill) ? fpFill.value : (node.dataset.fillColor || "#ffffff"),
-            fill2: fpFill2 && !isControlMixed(fpFill2) ? fpFill2.value : (node.dataset.fillColor2 || node.dataset.fillColor || "#ffffff"),
-            fillDirection: fpFillType && !isControlMixed(fpFillType) ? fpFillType.value : (node.dataset.fillDirection || "horizontal")
-          });
-        } else if (fpGradientEnabled && !isControlMixed(fpGradientEnabled) && fpFill && !isControlMixed(fpFill)) {
-          applyFillStyle(node, {
-            fillEnabled: node.dataset.fillEnabled !== "0",
-            gradientEnabled: fpGradientEnabled.checked,
-            fill1: fpFill.value,
-            fill2: fpFill2 && !isControlMixed(fpFill2) ? fpFill2.value : (node.dataset.fillColor2 || fpFill.value),
-            fillDirection: fpFillType && !isControlMixed(fpFillType) ? fpFillType.value : (node.dataset.fillDirection || "horizontal")
-          });
-        }
-      }
-      if (fpBorderEnabled && !isControlMixed(fpBorderEnabled)) {
-        node.dataset.borderEnabled = fpBorderEnabled.checked ? "1" : "0";
-        if (tableState) tableState.style.borderEnabled = fpBorderEnabled.checked;
-      }
-      if (fpBorder && !isControlMixed(fpBorder)) {
-        node.style.borderColor = fpBorder.value;
-        if (tableState) tableState.style.border = fpBorder.value;
-      }
-      if (fpLineStyle && !isControlMixed(fpLineStyle)) {
-        node.dataset.borderStyle = normalizeBorderLineStyle(fpLineStyle.value);
-        node.style.borderStyle = node.dataset.borderStyle;
-        if (tableState) tableState.style.borderStyle = node.dataset.borderStyle;
-      }
-      if (fpBorderWidth && !isControlMixed(fpBorderWidth)) {
-        const borderWidth = Math.max(0, Number(fpBorderWidth.value) || 0);
-        node.dataset.borderWidth = String(borderWidth);
-        node.style.borderWidth = node.dataset.borderEnabled === "1" ? `${Math.max(1, borderWidth)}px` : "0px";
-        if (tableState) tableState.style.borderWidth = node.dataset.borderEnabled === "1" ? Math.max(1, borderWidth) : 0;
-      }
-      if (fpRadius && !isControlMixed(fpRadius)) {
-        if (node.dataset.shapeType === "shape-rect") node.dataset.cornerRadius = String(Number(fpRadius.value) || 0);
-        node.style.borderRadius = `${fpRadius.value}px`;
-        if (tableState) tableState.style.radius = Math.max(0, Number(fpRadius.value) || 0);
-      }
-      if (fpOpacity && !isControlMixed(fpOpacity)) {
-        node.style.opacity = `${Number(fpOpacity.value) / 100}`;
-        if (tableState) tableState.style.opacity = Number(fpOpacity.value) / 100;
-      }
-      if (fpShadow && !isControlMixed(fpShadow)) {
-        applyNodeShadow(node, fpShadow.value);
-        if (tableState) tableState.style.shadow = Math.max(0, Number(fpShadow.value) || 0);
-      }
-      if (text) {
-        if (fpTextColor && !isControlMixed(fpTextColor)) text.style.color = fpTextColor.value;
-        if (fpFontSize && !isControlMixed(fpFontSize)) text.style.fontSize = `${Math.max(8, Number(fpFontSize.value) || 8)}px`;
-        if (fpBold && !isControlMixed(fpBold)) text.style.fontWeight = fpBold.checked ? "700" : "400";
-        if (fpNumberFormat && !isControlMixed(fpNumberFormat)) setNumberFormat(text, getNumberFormatButtonsValue(fpNumberFormat));
-        if (fpFormulaDecimals && !isControlMixed(fpFormulaDecimals)) setFormulaDecimalPlaces(text, fpFormulaDecimals.value);
-        if (fpScroll && !isControlMixed(fpScroll) && (node.dataset.shapeType === "shape-rect" || node.dataset.shapeType === "shape-table")) {
-          node.dataset.scrollEnabled = fpScroll.checked ? "1" : "0";
-          if (node.dataset.shapeType === "shape-rect") applyShapeScrollState(node);
-          if (node.dataset.shapeType === "shape-table") applyTableScrollState(node.__tableWrapEl, fpScroll.checked);
-        }
-        if (!formatSource || isTextPaddingFormatControl(formatSource)) {
-          applyShapeTextPaddingValues(text, readTextPaddingFromFormatPanel(formatSource));
-        }
-        renderShapeText(text);
-      }
-      if (node.dataset.shapeType === "shape-table" && fpScroll && !isControlMixed(fpScroll)) {
-        node.dataset.scrollEnabled = fpScroll.checked ? "1" : "0";
-        applyTableScrollState(node.__tableWrapEl, fpScroll.checked);
-      }
-      if (tableState) applyTableShapeVisualState(node, tableState);
-      syncShapeVisualStyle(node);
-      layoutConnectorPoints(node);
+      applyFormatPanelToShape(node, { ...opts, steppedBpFill, groupMode: true });
     });
     if (formatSource && isTextPaddingFormatControl(formatSource)) {
       const firstText = shapes.map((node) => node.querySelector(".shape-text")).find(Boolean);
       if (firstText) syncTextPaddingControlsFromText(firstText);
     }
     renderConnectors();
-    if (!opts.preview) saveLayout();
+    updateDesktopExtent();
+    if (!opts.preview) {
+      syncFormatPanel();
+      saveLayout();
+    }
     return;
   }
   if (!selectedShape) return;
@@ -15719,6 +16275,28 @@ function applyFormat(opts = {}) {
       if (!opts.preview) {
         syncFormatPanel();
         saveLayout();
+      }
+    }
+    return;
+  }
+  if (selectedShape.dataset.shapeType === "shape-chart") {
+    if (window.BitrixChart && window.BitrixChart.applyChartFormatPanel) {
+      if (window.BitrixChart.applyChartFormatPanel(selectedShape, opts)) {
+        if (!opts.preview) {
+          syncFormatPanel();
+          saveLayout();
+        }
+      }
+    }
+    return;
+  }
+  if (selectedShape.dataset.shapeType === "shape-bitrix-date-filter") {
+    if (window.BitrixChart && window.BitrixChart.applyFilterFormatPanel) {
+      if (window.BitrixChart.applyFilterFormatPanel(selectedShape, opts)) {
+        if (!opts.preview) {
+          syncFormatPanel();
+          saveLayout();
+        }
       }
     }
     return;
@@ -15974,6 +16552,9 @@ desktop.addEventListener("pointerdown", (e) => {
   if (isDesktopBackgroundPointerTarget(e.target) && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
     clearSelection();
   }
+  if (frameToolActive && canStartMarqueeSelectionFromTarget(e.target)) {
+    if (startFrameDraw(e)) return;
+  }
   if (!canStartMarqueeSelectionFromTarget(e.target, e.shiftKey)) return;
   startMarqueeSelection(e, e.shiftKey);
 });
@@ -16020,6 +16601,13 @@ window.addEventListener("beforeunload", () => {
   flushPendingLayoutSave();
 });
 document.addEventListener("pointermove", (e) => {
+  if (frameDrawSelection && e.pointerId === frameDrawSelection.pointerId) {
+    const pt = getDesktopPoint(e.clientX, e.clientY);
+    frameDrawSelection.x2 = pt.x;
+    frameDrawSelection.y2 = pt.y;
+    updateFrameDrawPreview();
+    return;
+  }
   if (marqueeSelection && e.pointerId === marqueeSelection.pointerId) {
     const pt = getDesktopPoint(e.clientX, e.clientY);
     marqueeSelection.x2 = pt.x;
@@ -16029,6 +16617,11 @@ document.addEventListener("pointermove", (e) => {
   }
 });
 document.addEventListener("pointerup", (e) => {
+  if (frameDrawSelection && e.pointerId === frameDrawSelection.pointerId) {
+    try { desktop.releasePointerCapture(e.pointerId); } catch {}
+    finishFrameDraw();
+    return;
+  }
   if (marqueeSelection && e.pointerId === marqueeSelection.pointerId) {
     marqueeSelection.touchMode = marqueeSelection.touchMode || !!e.shiftKey;
     try { desktop.releasePointerCapture(e.pointerId); } catch {}
@@ -16388,30 +16981,33 @@ function applyAlignButtonsForCurrentSelection(h, v) {
     saveLayout();
     return;
   }
-  if (!selectedShape) return;
-  if (selectedShape.dataset.shapeType === "shape-bitrix-card" && window.BitrixChart) {
-    setAlignButtons(h, v);
-    window.BitrixChart.applyCardTextAlign(selectedShape, h, v);
-    syncFormatPanel();
-    return;
-  }
-  if (selectedShape.dataset.shapeType === "shape-table" && selectedShape.__tableApi) {
-    setAlignButtons(h, v);
-    const changed = selectedShape.__tableApi.applyFromFormatPanel();
-    if (changed) saveLayout();
-    syncFormatPanel();
-    return;
-  }
-  const t = selectedShape.querySelector(".shape-text");
-  if (!t) return;
-  applyTextAlign(t, h, v);
+  const shapes = getFormatPanelTargets();
+  if (!shapes.length) return;
   setAlignButtons(h, v);
-  saveLayout();
+  let changed = false;
+  shapes.forEach((node) => {
+    if (node.dataset.shapeType === "shape-bitrix-card" && window.BitrixChart?.applyCardTextAlign) {
+      changed = window.BitrixChart.applyCardTextAlign(node, h, v, { groupMode: shapes.length > 1 }) || changed;
+      return;
+    }
+    if (node.dataset.shapeType === "shape-table" && node.__tableApi?.applyFromFormatPanel) {
+      changed = node.__tableApi.applyFromFormatPanel() || changed;
+      return;
+    }
+    const text = node.querySelector(".shape-text");
+    if (!text) return;
+    applyTextAlign(text, h, v);
+    changed = true;
+  });
+  if (changed) {
+    saveLayout();
+    syncFormatPanel();
+  }
 }
 function applyNumberFormatForCurrentSelection(numberFormat) {
   if (!fpNumberFormat) return;
   setNumberFormatButtons(fpNumberFormat, numberFormat);
-  if (!selectedShape && !multiSelectedShapeIds.size) return;
+  if (!getFormatPanelTargets().length) return;
   applyFormat();
   syncFormatPanel();
 }
@@ -16427,7 +17023,7 @@ fpNumberFormat?.querySelectorAll("[data-number-format]").forEach((btn) => {
 
 document.querySelectorAll(".swatch").forEach((sw) => {
   sw.addEventListener("click", () => {
-    if (!selectedShape) return;
+    if (!getFormatPanelTargets().length) return;
     const fill = sw.getAttribute("data-fill");
     const border = sw.getAttribute("data-border");
     if (fill && fpFill) fpFill.value = fill;
@@ -16459,6 +17055,7 @@ safeOn(shapeButton && shapeButton.closest(".app-menu-nested"), "focusin", () => 
       else if (k === "bitrix-card" && window.BitrixChart) window.BitrixChart.createShapeCard();
       else if (k === "bitrix-date-filter" && window.BitrixChart) window.BitrixChart.createShapeDateFilter();
       else if (k === "bp-process") createSequentialBusinessProcess();
+      else if (k === "frame") setFrameToolActive(true);
     } catch (err) {
       console.error("Failed to create shape:", k, err);
       showHint("Не удалось создать фигуру. Открой Console и пришли ошибку.", "error");
@@ -16561,6 +17158,7 @@ document.addEventListener("contextmenu", (e) => {
         action: () => promptImageImportAtPoint(spawnPoint)
       },
       { label: "Таблица", action: () => createShapeAtContextPoint("table", spawnPoint) },
+      { label: "Фрейм", action: () => createShapeAtContextPoint("frame", spawnPoint) },
       {
         label: "Bitrix24",
         submenuClass: "context-bitrix-submenu",
@@ -16590,11 +17188,43 @@ document.addEventListener("contextmenu", (e) => {
   }
   const multiCount = getMultiSelectedShapes().length;
   const groupId = getShapeGroupId(shape);
+  const frameMenuItems = [];
+  if (isFrameShape(shape)) {
+    frameMenuItems.push(
+      {
+        label: "Выбрать всё во фрейме",
+        disabled: !getFrameChildren(shape.dataset.shapeId).length,
+        action: () => {
+          const children = getFrameChildren(shape.dataset.shapeId);
+          clearSelection();
+          children.forEach((node) => multiSelectedShapeIds.add(node.dataset.shapeId));
+          syncMultiSelectionClasses();
+          if (formatToggle.checked) {
+            showFormatPanel();
+            syncFormatPanel();
+          }
+        }
+      },
+      {
+        label: "Убрать элементы из фрейма",
+        disabled: !getFrameChildren(shape.dataset.shapeId).length,
+        action: () => {
+          removeAllElementsFromFrame(shape);
+          saveLayout();
+        }
+      }
+    );
+  }
   showContextMenu(e.clientX, e.clientY, [
     {
       label: "Сгруппировать",
       disabled: multiCount < 2,
       action: () => { createGroupFromSelection(); }
+    },
+    {
+      label: "Поместить в фрейм",
+      disabled: !getWrapSelectionTargets().length,
+      action: () => { wrapSelectionInFrame(); }
     },
     {
       label: "Снять группировку",
@@ -16603,7 +17233,8 @@ document.addEventListener("contextmenu", (e) => {
         if (!selectedGroupId && groupId) selectGroup(groupId);
         ungroupSelectedGroup();
       }
-    }
+    },
+    ...frameMenuItems
   ]);
 });
 safeOn(themeLightBtn, "click", () => setTheme("light"));
@@ -16678,6 +17309,17 @@ document.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
     redoAction();
+    return;
+  }
+  if (!typing && !mod && !e.shiftKey && !e.altKey && key === "f") {
+    if (!editable) return;
+    e.preventDefault();
+    setFrameToolActive(!frameToolActive);
+    showHint(frameToolActive ? "Инструмент «Фрейм»: нарисуйте область на столе" : "Инструмент «Фрейм» выключен", "warning", 1800);
+    return;
+  }
+  if (!typing && key === "Escape" && frameToolActive) {
+    setFrameToolActive(false);
     return;
   }
   if (!typing && !tableCellMode && mod && key === "c") {

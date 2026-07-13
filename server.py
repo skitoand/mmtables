@@ -1690,13 +1690,32 @@ def _extract_title(html_text):
 
 
 BITRIX_WEBHOOK_RE = re.compile(
-    r"^https://[a-z0-9.-]+\.bitrix24\.[a-z.]+/rest/\d+/[a-z0-9]+/?$",
+    r"^https://[^/?#\s]+/rest/\d+/[a-zA-Z0-9_-]+/?$",
     re.IGNORECASE,
 )
 
 
+def _normalize_bitrix_webhook(url):
+    text = str(url or "").strip()
+    if not text:
+        return ""
+    text = text.split("#")[0].split("?")[0].strip()
+    if not text.lower().startswith("https://"):
+        return ""
+    return text.rstrip("/") + "/"
+
+
 def _is_valid_bitrix_webhook(url):
-    return bool(BITRIX_WEBHOOK_RE.match(str(url or "").strip()))
+    normalized = _normalize_bitrix_webhook(url)
+    return bool(normalized and BITRIX_WEBHOOK_RE.match(normalized))
+
+
+def _verify_bitrix_webhook(webhook):
+    normalized = _normalize_bitrix_webhook(webhook)
+    if not _is_valid_bitrix_webhook(normalized):
+        raise ValueError("invalid_webhook_url")
+    _bitrix_call(normalized, "app.info")
+    return normalized
 
 
 def _mask_bitrix_webhook(url):
@@ -1739,10 +1758,10 @@ def _resolve_bitrix_webhook():
             return stored
     header_url = str(request.headers.get("X-Bitrix-Webhook") or "").strip()
     if header_url and _is_valid_bitrix_webhook(header_url):
-        return header_url.rstrip("/") + "/"
+        return _normalize_bitrix_webhook(header_url)
     env_url = os.getenv("BITRIX_WEBHOOK_URL", "").strip()
     if env_url and _is_valid_bitrix_webhook(env_url):
-        return env_url.rstrip("/") + "/"
+        return _normalize_bitrix_webhook(env_url)
     return ""
 
 
@@ -1876,6 +1895,10 @@ def _bitrix_fetch_stage_history(webhook, entity, category_id, stage_id, date_fro
         date_from = (datetime.utcnow() - timedelta(days=120)).strftime("%Y-%m-%d")
     if not date_to:
         date_to = datetime.utcnow().strftime("%Y-%m-%d")
+    cache_key = (webhook, entity, int(category_id or 0), str(stage_id or ""), date_from, date_to)
+    cached = _BITRIX_STAGE_HISTORY_CACHE.get(cache_key)
+    if cached and (time.time() - cached[0]) < BITRIX_STAGE_HISTORY_CACHE_TTL_SEC:
+        return cached[1]
     stage_filter = {
         "STAGE_ID": stage_id,
         ">=CREATED_TIME": date_from,
@@ -1891,7 +1914,9 @@ def _bitrix_fetch_stage_history(webhook, entity, category_id, stage_id, date_fro
     }
     if entity == "deal":
         params["categoryId"] = category_id
-    return _bitrix_list_all(webhook, "crm.stagehistory.list", params)
+    history = _bitrix_list_all(webhook, "crm.stagehistory.list", params)
+    _BITRIX_STAGE_HISTORY_CACHE[cache_key] = (time.time(), history)
+    return history
 
 
 def _bucket_stage_history(items, granularity, date_from, date_to, value_by_owner=None):
@@ -1960,6 +1985,7 @@ def bitrix_integration():
         connected = False
         domain = ""
         masked = ""
+        webhook_url = ""
         if email:
             conn = _db()
             try:
@@ -1968,9 +1994,10 @@ def bitrix_integration():
                 conn.close()
             if webhook:
                 connected = True
+                webhook_url = webhook
                 domain = _bitrix_domain_from_webhook(webhook)
                 masked = _mask_bitrix_webhook(webhook)
-        return jsonify({"connected": connected, "domain": domain, "webhookMasked": masked})
+        return jsonify({"connected": connected, "domain": domain, "webhookMasked": masked, "webhookUrl": webhook_url})
     if not email:
         return jsonify({"error": "unauthorized"}), 401
     if request.method == "DELETE":
@@ -1980,11 +2007,10 @@ def bitrix_integration():
         conn.close()
         return jsonify({"ok": True, "connected": False})
     payload = request.get_json(force=True, silent=True) or {}
-    webhook = str(payload.get("webhookUrl") or "").strip().rstrip("/") + "/"
-    if not _is_valid_bitrix_webhook(webhook):
-        return jsonify({"error": "invalid_webhook_url"}), 400
     try:
-        _bitrix_call(webhook, "app.info")
+        webhook = _verify_bitrix_webhook(payload.get("webhookUrl") or "")
+    except ValueError:
+        return jsonify({"error": "invalid_webhook_url"}), 400
     except Exception as err:
         return jsonify({"error": "bitrix_connection_failed", "details": str(err)}), 400
     conn = _db()
@@ -1999,6 +2025,24 @@ def bitrix_integration():
         {
             "ok": True,
             "connected": True,
+            "domain": _bitrix_domain_from_webhook(webhook),
+            "webhookMasked": _mask_bitrix_webhook(webhook),
+        }
+    )
+
+
+@app.route("/api/integrations/bitrix/validate", methods=["POST"])
+def bitrix_validate_webhook():
+    payload = request.get_json(force=True, silent=True) or {}
+    try:
+        webhook = _verify_bitrix_webhook(payload.get("webhookUrl") or "")
+    except ValueError:
+        return jsonify({"error": "invalid_webhook_url"}), 400
+    except Exception as err:
+        return jsonify({"error": "bitrix_connection_failed", "details": str(err)}), 400
+    return jsonify(
+        {
+            "ok": True,
             "domain": _bitrix_domain_from_webhook(webhook),
             "webhookMasked": _mask_bitrix_webhook(webhook),
         }
@@ -2082,6 +2126,8 @@ def bitrix_chart_data():
         granularity = "week"
     metric = str(request.args.get("metric") or "count").strip().lower()
     sum_field = str(request.args.get("sumField") or "OPPORTUNITY").strip() or "OPPORTUNITY"
+    filter_field = str(request.args.get("filterField") or "").strip()
+    filter_hidden_values = _bitrix_parse_hidden_values(request.args.get("filterHiddenValues") or "")
     if not stage_id:
         return jsonify({"error": "stage_required"}), 400
     if not date_from:
@@ -2090,6 +2136,7 @@ def bitrix_chart_data():
         date_to = datetime.utcnow().strftime("%Y-%m-%d")
     try:
         history = _bitrix_fetch_stage_history(webhook, entity, category_id, stage_id, date_from, date_to)
+        history = _bitrix_filter_history_by_field(webhook, entity, history, filter_field, filter_hidden_values)
         if metric == "sum":
             owner_ids = [item.get("OWNER_ID") for item in history if item.get("OWNER_ID") is not None]
             value_by_owner = _bitrix_fetch_entity_field_values(webhook, entity, owner_ids, sum_field)
@@ -2118,9 +2165,489 @@ def bitrix_chart_data():
 
 
 NUMERIC_FIELD_TYPES = {"integer", "double", "money", "float", "number"}
+BITRIX_FILTER_DATE_FIELD = "__DATE__"
+DATE_FIELD_TYPES = {"date", "datetime"}
+LIST_FIELD_TYPES = {"enumeration", "crm_status", "crm_category", "crm_currency", "char", "string"}
+REFERENCE_FIELD_TYPES = {"user", "employee"}
+BITRIX_FIELD_EMPTY_VALUE = "__EMPTY__"
+BITRIX_DISTINCT_FIELD_VALUES_LIMIT = 120
+BITRIX_DISTINCT_FIELD_MAX_PAGES = 8
+BITRIX_STAGE_HISTORY_CACHE_TTL_SEC = 60
+_BITRIX_STAGE_HISTORY_CACHE = {}
+_BITRIX_FIELDS_META_CACHE = {}
+CRM_STATUS_ENTITY_BY_FIELD = {
+    "SOURCE_ID": "SOURCE",
+    "STATUS_ID": "STATUS",
+    "TYPE_ID": "DEAL_TYPE",
+}
 
 
-def _bitrix_build_entity_filter(entity, category_id, stage_id, date_from="", date_to=""):
+def _bitrix_fetch_fields_meta(webhook, entity):
+    cache_key = (webhook, entity)
+    cached = _BITRIX_FIELDS_META_CACHE.get(cache_key)
+    if cached and (time.time() - cached[0]) < BITRIX_STAGE_HISTORY_CACHE_TTL_SEC:
+        return cached[1]
+    method = "crm.lead.fields" if entity == "lead" else "crm.deal.fields"
+    data = _bitrix_call(webhook, method, {})
+    result = data.get("result") or {}
+    meta = result if isinstance(result, dict) else {}
+    _BITRIX_FIELDS_META_CACHE[cache_key] = (time.time(), meta)
+    return meta
+
+
+def _bitrix_normalize_field_filter_value(value):
+    if value is None:
+        return BITRIX_FIELD_EMPTY_VALUE
+    if isinstance(value, dict):
+        for key in ("VALUE", "value", "name", "NAME", "ID", "id"):
+            if value.get(key) not in (None, ""):
+                return str(value.get(key))
+        return BITRIX_FIELD_EMPTY_VALUE
+    if isinstance(value, list):
+        parts = [_bitrix_normalize_field_filter_value(item) for item in value]
+        cleaned = [part for part in parts if part and part != BITRIX_FIELD_EMPTY_VALUE]
+        return ",".join(cleaned) if cleaned else BITRIX_FIELD_EMPTY_VALUE
+    text = str(value).strip()
+    return text if text else BITRIX_FIELD_EMPTY_VALUE
+
+
+def _bitrix_parse_hidden_values(raw):
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [str(item) for item in parsed]
+        except json.JSONDecodeError:
+            pass
+    return [part for part in text.split(",") if part != ""]
+
+
+def _bitrix_fetch_filter_fields(webhook, entity):
+    result = _bitrix_fetch_fields_meta(webhook, entity)
+    fields = [{"id": BITRIX_FILTER_DATE_FIELD, "name": "Дата", "type": "date", "mode": "date"}]
+    seen = {BITRIX_FILTER_DATE_FIELD}
+    for field_id, meta in result.items():
+        if field_id in seen or not isinstance(meta, dict):
+            continue
+        ftype = str(meta.get("type") or "").lower()
+        title = str(meta.get("title") or meta.get("listLabel") or field_id)
+        if ftype in DATE_FIELD_TYPES:
+            fields.append({"id": field_id, "name": title, "type": ftype, "mode": "list"})
+            seen.add(field_id)
+            continue
+        if ftype in LIST_FIELD_TYPES or ftype in REFERENCE_FIELD_TYPES or meta.get("items"):
+            fields.append({"id": field_id, "name": title, "type": ftype, "mode": "list"})
+            seen.add(field_id)
+    fields.sort(key=lambda row: (0 if row["id"] == BITRIX_FILTER_DATE_FIELD else 1, row["name"].lower()))
+    return fields
+
+
+def _bitrix_field_options_from_meta(meta):
+    options = []
+    items = meta.get("items") if isinstance(meta, dict) else None
+    if isinstance(items, dict):
+        items = list(items.values())
+    if isinstance(items, list):
+        for item in items:
+            if isinstance(item, dict):
+                value = _bitrix_normalize_field_filter_value(item.get("ID", item.get("id", item.get("VALUE", item.get("value")))))
+                label = str(item.get("VALUE") or item.get("value") or item.get("NAME") or item.get("name") or value)
+            else:
+                value = _bitrix_normalize_field_filter_value(item)
+                label = str(item)
+            if not value or value == BITRIX_FIELD_EMPTY_VALUE:
+                value = BITRIX_FIELD_EMPTY_VALUE
+                label = "(Пустые)"
+            options.append({"value": value, "label": label})
+    deduped = []
+    seen = set()
+    for option in options:
+        if option["value"] in seen:
+            continue
+        seen.add(option["value"])
+        deduped.append(option)
+    return deduped
+
+
+def _bitrix_resolve_crm_status_entity(field_id, meta):
+    for key in ("statusType", "STATUS_ENTITY_ID", "status_entity_id"):
+        val = str(meta.get(key) or "").strip()
+        if val:
+            return val
+    return CRM_STATUS_ENTITY_BY_FIELD.get(field_id, "")
+
+
+def _bitrix_fetch_crm_status_map(webhook, status_entity):
+    if not status_entity:
+        return {}
+    statuses = _bitrix_list_all(
+        webhook,
+        "crm.status.list",
+        {"filter": {"ENTITY_ID": status_entity}, "order": {"SORT": "ASC"}},
+    )
+    mapping = {}
+    for item in statuses:
+        value = _bitrix_pick_status_id(item)
+        if not value:
+            continue
+        mapping[value] = _bitrix_pick_name(item, value)
+    return mapping
+
+
+def _bitrix_label_for_crm_status_value(value, status_map):
+    if value == BITRIX_FIELD_EMPTY_VALUE:
+        return "(Пустые)"
+    if value in status_map:
+        return status_map[value]
+    if "|" in value:
+        suffix = value.split("|", 1)[-1]
+        if suffix in status_map:
+            return f"{status_map[suffix]} ({value})"
+    return value
+
+
+def _bitrix_merge_field_options(primary, secondary):
+    by_value = {}
+    for opt in primary:
+        by_value[str(opt["value"])] = dict(opt)
+    for opt in secondary:
+        key = str(opt["value"])
+        if key not in by_value:
+            by_value[key] = dict(opt)
+        elif not by_value[key].get("count") and opt.get("count"):
+            by_value[key]["count"] = opt["count"]
+    return sorted(by_value.values(), key=lambda row: str(row.get("label") or row["value"]).lower())
+
+
+def _bitrix_parse_scope_filters(raw):
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    result = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        field = str(item.get("field") or "").strip()
+        if not field:
+            continue
+        hidden = item.get("hiddenValues") or []
+        if not isinstance(hidden, list):
+            hidden = []
+        result.append(
+            {
+                "field": field,
+                "hiddenValues": [str(value) for value in hidden if str(value) != ""],
+            }
+        )
+    return result
+
+
+def _bitrix_enrich_field_option_labels(webhook, entity, field_id, meta, options):
+    if not options:
+        return options
+    ftype = str(meta.get("type") or "").lower()
+    if ftype == "crm_status":
+        status_entity = _bitrix_resolve_crm_status_entity(field_id, meta)
+        status_map = _bitrix_fetch_crm_status_map(webhook, status_entity)
+        for opt in options:
+            opt["label"] = _bitrix_label_for_crm_status_value(opt["value"], status_map)
+        return options
+    if ftype in REFERENCE_FIELD_TYPES:
+        try:
+            user_map = _bitrix_fetch_users_map(webhook, [opt["value"] for opt in options])
+            for opt in options:
+                label = user_map.get(str(opt.get("value") or ""))
+                if label:
+                    opt["label"] = label
+        except Exception:
+            pass
+    return options
+
+
+def _bitrix_distinct_field_values_from_history(
+    webhook,
+    entity,
+    field_id,
+    category_id,
+    stage_id,
+    date_from,
+    date_to,
+    scope_filters,
+    meta,
+):
+    history = _bitrix_fetch_stage_history(webhook, entity, category_id, stage_id, date_from, date_to)
+    for scope_filter in scope_filters or []:
+        history = _bitrix_filter_history_by_field(
+            webhook,
+            entity,
+            history,
+            scope_filter.get("field"),
+            scope_filter.get("hiddenValues") or [],
+        )
+    if not history:
+        return []
+    owner_ids = [item.get("OWNER_ID") for item in history if item.get("OWNER_ID") is not None]
+    field_map = _bitrix_fetch_entity_field_raw_map(webhook, entity, owner_ids, field_id)
+    counts = defaultdict(int)
+    for item in history:
+        owner_id = str(item.get("OWNER_ID") or "")
+        value = field_map.get(owner_id, BITRIX_FIELD_EMPTY_VALUE)
+        counts[value] += 1
+    options = []
+    for value, count in sorted(counts.items(), key=lambda row: row[0].lower()):
+        label = "(Пустые)" if value == BITRIX_FIELD_EMPTY_VALUE else value
+        options.append({"value": value, "label": label, "count": count})
+    return _bitrix_enrich_field_option_labels(webhook, entity, field_id, meta, options)
+
+
+def _bitrix_distinct_field_values(
+    webhook,
+    entity,
+    field_id,
+    limit=BITRIX_DISTINCT_FIELD_VALUES_LIMIT,
+    max_pages=BITRIX_DISTINCT_FIELD_MAX_PAGES,
+):
+    method = "crm.lead.list" if entity == "lead" else "crm.deal.list"
+    counts = defaultdict(int)
+    start = 0
+    pages = 0
+    while len(counts) < limit and pages < max_pages:
+        data = _bitrix_call(
+            webhook,
+            method,
+            {"filter": {}, "select": ["ID", field_id], "start": start, "order": {"ID": "DESC"}},
+        )
+        items = data.get("result") or []
+        if not isinstance(items, list) or not items:
+            break
+        for item in items:
+            value = _bitrix_normalize_field_filter_value(item.get(field_id))
+            counts[value] += 1
+            if len(counts) >= limit:
+                break
+        pages += 1
+        next_start = data.get("next")
+        if next_start is None:
+            break
+        start = int(next_start)
+    options = []
+    for value, count in sorted(counts.items(), key=lambda row: row[0].lower()):
+        label = "(Пустые)" if value == BITRIX_FIELD_EMPTY_VALUE else value
+        options.append({"value": value, "label": label, "count": count})
+    return options
+
+
+def _bitrix_fetch_field_options(webhook, entity, field_id, meta):
+    options = _bitrix_field_options_from_meta(meta)
+    if options:
+        return options
+    ftype = str(meta.get("type") or "").lower()
+    if ftype == "crm_status":
+        status_entity = _bitrix_resolve_crm_status_entity(field_id, meta)
+        status_map = _bitrix_fetch_crm_status_map(webhook, status_entity)
+        distinct = _bitrix_distinct_field_values(webhook, entity, field_id)
+        for opt in distinct:
+            opt["label"] = _bitrix_label_for_crm_status_value(opt["value"], status_map)
+        catalog = [
+            {"value": value, "label": label, "count": 0}
+            for value, label in status_map.items()
+        ]
+        return _bitrix_merge_field_options(distinct, catalog)
+    if ftype in REFERENCE_FIELD_TYPES:
+        distinct = _bitrix_distinct_field_values(webhook, entity, field_id)
+        try:
+            user_map = _bitrix_fetch_users_map(webhook, [opt["value"] for opt in distinct])
+            for opt in distinct:
+                label = user_map.get(str(opt.get("value") or ""))
+                if label:
+                    opt["label"] = label
+        except Exception:
+            pass
+        return distinct
+    return _bitrix_distinct_field_values(webhook, entity, field_id)
+
+
+def _bitrix_pick_user_item(data):
+    result = data.get("result") if isinstance(data, dict) else None
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, list) and result:
+        first = result[0]
+        return first if isinstance(first, dict) else None
+    return None
+
+
+def _bitrix_user_label_from_item(item, fallback=""):
+    if not isinstance(item, dict):
+        return fallback
+    name = " ".join(
+        part for part in (item.get("NAME"), item.get("LAST_NAME")) if part
+    ).strip()
+    if name:
+        return name
+    return str(item.get("LOGIN") or item.get("EMAIL") or fallback)
+
+
+def _bitrix_fetch_users_map(webhook, user_ids):
+    unique = []
+    seen = set()
+    for uid in user_ids:
+        text = str(uid or "").strip()
+        if not text or text == BITRIX_FIELD_EMPTY_VALUE or text in seen:
+            continue
+        seen.add(text)
+        unique.append(text)
+    if not unique:
+        return {}
+    result = {}
+    for uid in unique[:40]:
+        try:
+            lookup_id = int(uid) if uid.isdigit() else uid
+            data = _bitrix_call(webhook, "user.get", {"ID": lookup_id})
+            item = _bitrix_pick_user_item(data)
+            if not item:
+                continue
+            label = _bitrix_user_label_from_item(item, uid)
+            resolved_id = str(item.get("ID") or uid).strip()
+            result[resolved_id] = label
+            if uid != resolved_id:
+                result[uid] = label
+        except Exception:
+            continue
+    remaining = {uid for uid in unique if uid not in result and str(uid) not in result}
+    if not remaining:
+        return result
+    start = 0
+    pages = 0
+    while remaining and pages < 6:
+        try:
+            data = _bitrix_call(
+                webhook,
+                "user.search",
+                {"FILTER": {"ACTIVE": "Y"}, "start": start},
+            )
+        except Exception:
+            break
+        items = data.get("result") or []
+        if not isinstance(items, list) or not items:
+            break
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            uid = str(item.get("ID") or "").strip()
+            if uid in remaining:
+                result[uid] = _bitrix_user_label_from_item(item, uid)
+                remaining.discard(uid)
+        pages += 1
+        next_start = data.get("next")
+        if next_start is None:
+            break
+        start = int(next_start)
+    return result
+
+
+def _bitrix_fetch_entity_field_raw_map(webhook, entity, owner_ids, field_id):
+    method = "crm.lead.list" if entity == "lead" else "crm.deal.list"
+    values = {}
+    ids = [str(owner_id) for owner_id in owner_ids if owner_id is not None and str(owner_id).strip()]
+    if not ids or not field_id:
+        return values
+    chunk_size = 50
+    for offset in range(0, len(ids), chunk_size):
+        chunk = ids[offset : offset + chunk_size]
+        data = _bitrix_call(
+            webhook,
+            method,
+            {"filter": {"ID": chunk}, "select": ["ID", field_id]},
+        )
+        items = data.get("result") or []
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            item_id = str(item.get("ID") or "")
+            if item_id:
+                values[item_id] = _bitrix_normalize_field_filter_value(item.get(field_id))
+    return values
+
+
+def _bitrix_filter_history_by_field(webhook, entity, history, field_id, hidden_values):
+    hidden = [str(item) for item in (hidden_values or []) if str(item) != ""]
+    if not field_id or field_id == BITRIX_FILTER_DATE_FIELD or not hidden:
+        return history
+    owner_ids = [item.get("OWNER_ID") for item in history if item.get("OWNER_ID") is not None]
+    field_map = _bitrix_fetch_entity_field_raw_map(webhook, entity, owner_ids, field_id)
+    filtered = []
+    for item in history:
+        owner_id = str(item.get("OWNER_ID") or "")
+        value = field_map.get(owner_id, BITRIX_FIELD_EMPTY_VALUE)
+        if value in hidden:
+            continue
+        filtered.append(item)
+    return filtered
+
+
+@app.route("/api/integrations/bitrix/filter-fields")
+def bitrix_filter_fields():
+    webhook = _resolve_bitrix_webhook()
+    if not webhook:
+        return jsonify({"error": "bitrix_not_configured"}), 400
+    entity = str(request.args.get("entity") or "deal").strip().lower()
+    if entity not in ("lead", "deal"):
+        entity = "deal"
+    try:
+        fields = _bitrix_fetch_filter_fields(webhook, entity)
+        return jsonify({"entity": entity, "fields": fields})
+    except Exception as err:
+        return jsonify({"error": "bitrix_request_failed", "details": str(err)}), 502
+
+
+@app.route("/api/integrations/bitrix/field-options")
+def bitrix_field_options():
+    webhook = _resolve_bitrix_webhook()
+    if not webhook:
+        return jsonify({"error": "bitrix_not_configured"}), 400
+    entity = str(request.args.get("entity") or "deal").strip().lower()
+    if entity not in ("lead", "deal"):
+        entity = "deal"
+    field_id = str(request.args.get("field") or "").strip()
+    if not field_id or field_id == BITRIX_FILTER_DATE_FIELD:
+        return jsonify({"entity": entity, "field": field_id, "options": []})
+    category_id = int(request.args.get("categoryId") or 0)
+    stage_id = str(request.args.get("stageId") or "").strip()
+    date_from = str(request.args.get("dateFrom") or "").strip()
+    date_to = str(request.args.get("dateTo") or "").strip()
+    scope_filters = _bitrix_parse_scope_filters(request.args.get("scopeFilters") or "")
+    try:
+        meta = _bitrix_fetch_fields_meta(webhook, entity).get(field_id) or {}
+        if stage_id:
+            options = _bitrix_distinct_field_values_from_history(
+                webhook,
+                entity,
+                field_id,
+                category_id,
+                stage_id,
+                date_from,
+                date_to,
+                scope_filters,
+                meta,
+            )
+        else:
+            options = _bitrix_fetch_field_options(webhook, entity, field_id, meta)
+        return jsonify({"entity": entity, "field": field_id, "options": options})
+    except Exception as err:
+        return jsonify({"error": "bitrix_request_failed", "details": str(err)}), 502
+
+
+def _bitrix_build_entity_filter(entity, category_id, stage_id, date_from, date_to):
     entity = "lead" if entity == "lead" else "deal"
     entity_filter = {}
     if stage_id:
@@ -2223,6 +2750,34 @@ def bitrix_fields():
         return jsonify({"error": "bitrix_request_failed", "details": str(err)}), 502
 
 
+def _bitrix_stage_history_metric(
+    webhook,
+    entity,
+    category_id,
+    stage_id,
+    date_from,
+    date_to,
+    metric="count",
+    sum_field="OPPORTUNITY",
+    filter_field="",
+    filter_hidden_values=None,
+):
+    history = _bitrix_fetch_stage_history(webhook, entity, category_id, stage_id, date_from, date_to)
+    history = _bitrix_filter_history_by_field(webhook, entity, history, filter_field, filter_hidden_values or [])
+    if metric == "sum":
+        owner_ids = [item.get("OWNER_ID") for item in history if item.get("OWNER_ID") is not None]
+        value_by_owner = _bitrix_fetch_entity_field_values(webhook, entity, owner_ids, sum_field)
+        total = 0.0
+        for item in history:
+            owner_id = str(item.get("OWNER_ID") or "")
+            try:
+                total += float(value_by_owner.get(owner_id, 0) or 0)
+            except (TypeError, ValueError):
+                continue
+        return total
+    return len(history)
+
+
 @app.route("/api/integrations/bitrix/card-data")
 def bitrix_card_data():
     webhook = _resolve_bitrix_webhook()
@@ -2237,13 +2792,30 @@ def bitrix_card_data():
     date_to = str(request.args.get("dateTo") or "").strip()
     metric = str(request.args.get("metric") or "count").strip().lower()
     sum_field = str(request.args.get("sumField") or "OPPORTUNITY").strip() or "OPPORTUNITY"
+    filter_field = str(request.args.get("filterField") or "").strip()
+    filter_hidden_values = _bitrix_parse_hidden_values(request.args.get("filterHiddenValues") or "")
+    if not date_from:
+        date_from = (datetime.utcnow() - timedelta(days=120)).strftime("%Y-%m-%d")
+    if not date_to:
+        date_to = datetime.utcnow().strftime("%Y-%m-%d")
     entity_filter = _bitrix_build_entity_filter(entity, category_id, stage_id, date_from, date_to)
     try:
-        if metric == "sum":
+        if stage_id:
+            if metric == "sum":
+                value = _bitrix_stage_history_metric(
+                    webhook, entity, category_id, stage_id, date_from, date_to,
+                    metric="sum", sum_field=sum_field,
+                    filter_field=filter_field, filter_hidden_values=filter_hidden_values,
+                )
+            else:
+                metric = "count"
+                value = _bitrix_stage_history_metric(
+                    webhook, entity, category_id, stage_id, date_from, date_to,
+                    metric="count",
+                    filter_field=filter_field, filter_hidden_values=filter_hidden_values,
+                )
+        elif metric == "sum":
             value = _bitrix_entity_sum(webhook, entity, entity_filter, sum_field)
-        elif metric == "count" and date_from and date_to and stage_id:
-            history = _bitrix_fetch_stage_history(webhook, entity, category_id, stage_id, date_from, date_to)
-            value = len(history)
         else:
             metric = "count"
             value = _bitrix_entity_count(webhook, entity, entity_filter)
