@@ -10,7 +10,24 @@
 
 ---
 
-## 2026-07-13 — журнал выкладок за сегодня + правило обновления REVIEW.md
+## 2026-07-13 — запись в REVIEW о коммите журнала
+
+**Commit:** `81a3180` — Add REVIEW.md entry for the deploy journal documentation commit.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260713-093145-before-deploy.tar.gz`  
+**GitHub Actions:** [run #29239449123](https://github.com/skitoand/mmtables/actions/runs/29239449123)  
+**Статус:** OK (runtime без изменений; последний автодеплой только из‑за правки REVIEW.md)
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `REVIEW.md` | дополнена запись о `27c0a78` |
+
+### Проверка на проде
+
+- [x] gunicorn и публичный URL → 200
+
+---
 
 **Commit:** `27c0a78` — Document today's deploys in REVIEW.md and formalize post-deploy journal updates.  
 **Бэкап:** `mmtable-PROD-BACKUP-20260713-093041-before-deploy.tar.gz`  

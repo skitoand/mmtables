@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'REVIEW.md'
+      - 'DEPLOY.md'
+      - 'AGENTS.md'
   workflow_dispatch:
 
 concurrency:
