@@ -10,6 +10,27 @@
 
 ---
 
+## 2026-07-14 — прокрутка текста фигур по наведению
+
+**Commit:** `6df3727` — Scroll shape text on hover like tables, without entering edit mode.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260714-143322-before-deploy.tar.gz`  
+**Деплой:** ручной `scripts/deploy_prod.sh`  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | `findScrollableWheelTarget` находит `.shape-text` под курсором (даже с `pointer-events:none`) |
+| `index.html` | cache-buster `shape-text-hover-scroll-v1` |
+
+### Проверка на проде
+
+- [x] публичный URL → 200
+- [ ] hard refresh → колесо над заметкой/фигурой с длинным текстом скроллит без входа в редактирование
+
+---
+
 ## 2026-07-14 — без браузерного меню при Ctrl-соединителях
 
 **Commit:** `251c049` — Suppress browser context menu during Ctrl connector pulls.  
