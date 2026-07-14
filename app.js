@@ -13623,7 +13623,7 @@ function collapseAllAttachedNotes(opts = {}) {
 }
 
 function expandAttachedNoteForOwner(owner) {
-  if (!owner || !canEditCurrentDocument()) return null;
+  if (!owner) return null;
   const note = getAttachedNoteForOwner(owner);
   if (!note) return null;
   if (expandedAttachedNoteId && expandedAttachedNoteId !== note.dataset.shapeId) {
@@ -13707,40 +13707,39 @@ function attachOrExpandNoteForSelection() {
 function syncAttachedNoteBadge() {
   const layer = interactionControlsLayer?.isConnected ? interactionControlsLayer : null;
   if (layer) layer.querySelectorAll(".shape-note-badge").forEach((el) => el.remove());
-  if (!desktop || isWorkspaceReadOnly()) return;
-  let owner = null;
-  if (selectedShape) {
-    if (isAttachedAnnotationNote(selectedShape)) owner = getNoteOwnerShape(selectedShape);
-    else if (selectedShape.dataset.attachedNoteId) owner = selectedShape;
-  }
-  if (!owner && expandedAttachedNoteId) {
-    owner = getNoteOwnerShape(getShapeById(expandedAttachedNoteId));
-  }
-  const note = owner ? getAttachedNoteForOwner(owner) : null;
-  if (!owner || !note) return;
-  // Hide icon while the note panel is expanded — it should "become" the note.
-  if (!isAttachedNoteCollapsed(note)) return;
+  if (!desktop) return;
+  const owners = [];
+  desktop.querySelectorAll(".shape[data-attached-note-id]").forEach((owner) => {
+    if (!owner?.dataset?.shapeId) return;
+    const note = getAttachedNoteForOwner(owner);
+    if (!note) return;
+    // Hide icon while the note panel is expanded — it should "become" the note.
+    if (!isAttachedNoteCollapsed(note)) return;
+    owners.push(owner);
+  });
+  if (!owners.length) return;
   const useLayer = ensureInteractionControlsLayer();
-  const badge = document.createElement("button");
-  badge.type = "button";
-  badge.className = "shape-note-badge";
-  badge.dataset.liftedFromShape = owner.dataset.shapeId || "";
-  badge.dataset.noteOwnerId = owner.dataset.shapeId || "";
-  badge.setAttribute("aria-label", "Открыть заметку");
-  badge.title = "Заметка";
-  badge.appendChild(createWhiteboardIcon("note.svg"));
-  badge.addEventListener("pointerdown", (event) => {
-    event.stopPropagation();
-    if (event.button === 0) event.preventDefault();
+  owners.forEach((owner) => {
+    const badge = document.createElement("button");
+    badge.type = "button";
+    badge.className = "shape-note-badge";
+    badge.dataset.liftedFromShape = owner.dataset.shapeId || "";
+    badge.dataset.noteOwnerId = owner.dataset.shapeId || "";
+    badge.setAttribute("aria-label", "Открыть заметку");
+    badge.title = "Заметка";
+    badge.appendChild(createWhiteboardIcon("note.svg"));
+    badge.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      if (event.button === 0) event.preventDefault();
+    });
+    badge.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      expandAttachedNoteForOwner(owner);
+    });
+    useLayer.appendChild(badge);
+    syncLiftedControlsPosition(owner);
   });
-  badge.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!canEditCurrentDocument()) return;
-    expandAttachedNoteForOwner(owner);
-  });
-  useLayer.appendChild(badge);
-  syncLiftedControlsPosition(owner);
 }
 
 function finalizePastedAttachedNotes(createdEntries, maps) {
@@ -16756,6 +16755,7 @@ function applyLayout(data) {
     setAttachedNoteCollapsed(note, true);
   });
   expandedAttachedNoteId = null;
+  syncAttachedNoteBadge();
   return true;
 }
 
