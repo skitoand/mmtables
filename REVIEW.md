@@ -10,6 +10,34 @@
 
 ---
 
+## 2026-07-14 — инструмент «Текст» (A) на рабочем столе
+
+**Commit:** `46f6182` — Add text tool that places caret-first labels without fill or border.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260714-114400-before-deploy.tar.gz`  
+**Деплой:** ручной `scripts/deploy_prod.sh` (push в GitHub временно недоступен из‑за SOCKS/proxy)  
+**GitHub Actions:** не запускался  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | инструмент «Текст»: клик → мигающий курсор; Enter/клик вне — фигура без заливки и обводки; без рамки во время ввода; автовыход из инструмента после сохранения |
+| `draw-tools.js` | сброс shape-place tool при переключении на рисование/лазер |
+| `styles.css` | `text-tool-active`, `shape-text-tool`, скрытие selection chrome в режиме `is-text-placing` |
+| `index.html` | cache-buster `text-tool-v3` |
+| `assets/whiteboard-icons/text.svg` | иконка A в тулбаре объектов |
+
+### Проверка на проде
+
+- [x] gunicorn / публичный URL → 200
+- [x] `index.html` отдаёт `app.js?v=20260714-text-tool-v3`
+- [x] на сервере есть `assets/whiteboard-icons/text.svg` и код `placeTextShapeAtEvent`
+- [ ] hard refresh → кнопка «Текст» в объектах
+- [ ] клик по столу → курсор без рамки; Enter → обычная фигура; инструмент выключается
+
+---
+
 ## 2026-07-13 — объекты, рисование/лазер, Ctrl/Alt коннекторы, тёмный БП
 
 **Commit:** `9bc333c` — Add objects toolbar, draw/laser tools, and BP dark theme.  
