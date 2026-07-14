@@ -95,7 +95,8 @@ retry 6 remote_scp "$ROOT_DIR/styles.css" "${USER_NAME}@${HOST}:/tmp/mmtable_sty
 retry 6 remote_scp "$ROOT_DIR/server.py" "${USER_NAME}@${HOST}:/tmp/mmtable_server.py"
 retry 6 remote_scp "$ROOT_DIR/assets/favicon.png" "${USER_NAME}@${HOST}:/tmp/mmtable_favicon.png"
 retry 6 remote_scp "$ROOT_DIR/assets/apple-touch-icon.png" "${USER_NAME}@${HOST}:/tmp/mmtable_apple_touch_icon.png"
-retry 6 remote_scp -r "$ROOT_DIR/assets/whiteboard-icons" "${USER_NAME}@${HOST}:/tmp/mmtable_whiteboard_icons"
+retry 6 remote_ssh "rm -rf /tmp/mmtable_whiteboard_icons && mkdir -p /tmp/mmtable_whiteboard_icons"
+retry 6 remote_scp "$ROOT_DIR/assets/whiteboard-icons/"*.svg "${USER_NAME}@${HOST}:/tmp/mmtable_whiteboard_icons/"
 
 echo "3/4 Installing files and restarting gunicorn"
 retry 6 remote_ssh "
@@ -112,7 +113,8 @@ retry 6 remote_ssh "
   install -m 644 /tmp/mmtable_favicon.png '${REMOTE_APP_DIR}/assets/favicon.png' &&
   install -m 644 /tmp/mmtable_apple_touch_icon.png '${REMOTE_APP_DIR}/assets/apple-touch-icon.png' &&
   rm -rf '${REMOTE_APP_DIR}/assets/whiteboard-icons' &&
-  cp -R /tmp/mmtable_whiteboard_icons '${REMOTE_APP_DIR}/assets/whiteboard-icons' &&
+  mkdir -p '${REMOTE_APP_DIR}/assets/whiteboard-icons' &&
+  cp -R /tmp/mmtable_whiteboard_icons/. '${REMOTE_APP_DIR}/assets/whiteboard-icons/' &&
   mkdir -p /root/.gunicorn &&
   pkill -f \"${GUNICORN_CMD}\" || true &&
   cd '${REMOTE_APP_DIR}' &&

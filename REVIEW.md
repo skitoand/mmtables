@@ -10,6 +10,32 @@
 
 ---
 
+## 2026-07-14 — фикс иконки «Текст» (404 whiteboard-icons)
+
+**Commit:** (локальный, pending push) — fix text.svg deploy nesting + letter A icon  
+**Бэкап:** `mmtable-PROD-BACKUP-20260714-114858-before-deploy.tar.gz`  
+**Деплой:** ручной `scripts/deploy_prod.sh`  
+**Статус:** OK
+
+### Причина
+
+`scp -r` в существовавший `/tmp/mmtable_whiteboard_icons` создавал вложенную папку → `text.svg` оказывался в `assets/whiteboard-icons/whiteboard-icons/text.svg` и отдавал 404. В тулбаре вместо «A» был битый placeholder.
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `scripts/deploy_prod.sh` | заливка `*.svg` плоско без вложенной директории |
+| `assets/whiteboard-icons/text.svg` | иконка буквы A; лежит в правильном пути на проде |
+
+### Проверка на проде
+
+- [x] `GET /assets/whiteboard-icons/text.svg` → 200
+- [x] нет nested `assets/whiteboard-icons/whiteboard-icons/`
+- [ ] hard refresh → в объектах иконка «A» у кнопки «Текст»
+
+---
+
 ## 2026-07-14 — инструмент «Текст» (A) на рабочем столе
 
 **Commit:** `46f6182` — Add text tool that places caret-first labels without fill or border.  
