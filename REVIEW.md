@@ -10,6 +10,27 @@
 
 ---
 
+## 2026-07-14 — без браузерного меню при Ctrl-соединителях
+
+**Commit:** `251c049` — Suppress browser context menu during Ctrl connector pulls.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260714-140524-before-deploy.tar.gz`  
+**Деплой:** ручной `scripts/deploy_prod.sh`  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | блокировка browser contextmenu на `.conn-arrow` и при Ctrl+/черновике соединителя (macOS Ctrl+click) |
+| `index.html` | cache-buster `ctrl-connector-no-menu-v1` |
+
+### Проверка на проде
+
+- [x] публичный URL → 200
+- [ ] hard refresh → Ctrl + тянуть синюю стрелку без меню браузера
+
+---
+
 ## 2026-07-14 — фикс иконки «Текст» (404 whiteboard-icons)
 
 **Commit:** (локальный, pending push) — fix text.svg deploy nesting + letter A icon  
