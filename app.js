@@ -240,9 +240,22 @@ let bpProcessCounter = 1;
 let groupSelectionBox = null;
 let frameToolActive = false;
 let frameDrawSelection = null;
+let shapePlaceTool = null;
+let shapePlaceDraw = null;
 const FRAME_MIN_SIZE = 40;
 const FRAME_DEFAULT_NAME = "Фрейм";
 const FRAME_WRAP_PADDING = 16;
+const SHAPE_PLACE_MIN_SIZE = 8;
+const SHAPE_PLACE_DEFAULT_STYLE = Object.freeze({
+  fillEnabled: true,
+  fill: "#ffffff",
+  fill2: "#ffffff",
+  borderEnabled: true,
+  border: "#000000",
+  borderWidth: 1,
+  borderStyle: "solid",
+  shadow: 0
+});
 let pendingGroupMemberSelect = null;
 let contextMenuEl = null;
 let contextMenuCloseTimer = null;
@@ -410,7 +423,7 @@ const BUILTIN_DEFAULT_STYLES = Object.freeze({
     fillDirection: "horizontal",
     borderEnabled: true,
     border: "#000000",
-    borderWidth: 2,
+    borderWidth: 1,
     borderStyle: "solid",
     radius: 0,
     shadow: 0,
@@ -464,6 +477,12 @@ let sheetSwitcherOpen = false;
 let commentsCache = [];
 let desktopStyleState = { ...DEFAULT_DESKTOP_STYLE };
 let formatPanelExpandedPosition = null;
+let expandedAttachedNoteId = null;
+const ATTACHED_NOTE_FILL = "#fef9c3";
+const ATTACHED_NOTE_DEFAULT_WIDTH = 220;
+const ATTACHED_NOTE_DEFAULT_HEIGHT = 180;
+const ATTACHED_NOTE_LEGACY_PLACEHOLDER = "Тут текст заметки";
+const ATTACHED_NOTE_BADGE_SCREEN_SIZE = 22;
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function normalizeOpacityValue(value, fallback = 1) {
@@ -639,6 +658,10 @@ function restoreLiftedShapeControls(shapeId = null) {
   const selector = shapeId ? `[data-lifted-from-shape="${shapeId}"]` : "[data-lifted-from-shape]";
   Array.from(layer.querySelectorAll(selector)).forEach((el) => {
     if (el.classList.contains("table-cell-connector-guides")) return;
+    if (el.classList.contains("shape-note-badge")) {
+      el.remove();
+      return;
+    }
     const ownerId = el.dataset.liftedFromShape;
     const owner = ownerId ? getControlOwnerNode(ownerId) : null;
     if (owner) {
@@ -693,6 +716,14 @@ function syncLiftedControlsPosition(node) {
       el.style.top = `${top}px`;
       el.style.width = `${w}px`;
       el.style.height = `${h}px`;
+    } else if (el.classList.contains("shape-note-badge")) {
+      const size = ATTACHED_NOTE_BADGE_SCREEN_SIZE / getDesktopZoom();
+      el.style.inset = "auto";
+      el.style.left = `${left + w - size}px`;
+      el.style.top = `${top - size}px`;
+      el.style.width = `${size}px`;
+      el.style.height = `${size}px`;
+      el.style.transform = "none";
     } else if (el.classList.contains("shape-param-handle")) {
       const depthPx = getChevronInsetDepthPx(node);
       el.style.left = `${left + depthPx}px`;
@@ -791,16 +822,18 @@ function liftShapeControlsToOverlay(node) {
 function syncSelectionControlsOverlay() {
   restoreLiftedShapeControls();
   purgeOrphanedInteractionControls();
-  if (isWorkspaceReadOnly()) return;
+  if (isWorkspaceReadOnly()) {
+    syncAttachedNoteBadge();
+    return;
+  }
   if (selectedShape) {
     liftShapeControlsToOverlay(selectedShape);
-    return;
-  }
-  if (selectedWindow) {
+  } else if (selectedWindow) {
     liftShapeControlsToOverlay(selectedWindow);
-    return;
+  } else {
+    getMultiSelectedShapes().forEach((node) => liftShapeControlsToOverlay(node));
   }
-  getMultiSelectedShapes().forEach((node) => liftShapeControlsToOverlay(node));
+  syncAttachedNoteBadge();
 }
 function saveViewportState() {
   if (!viewportEl) return;
@@ -7406,14 +7439,327 @@ function beginFrameNameEdit(frame) {
   });
 }
 
+function closeObjectsToolbarSubmenus() {
+  if (!objectsToolbar) return;
+  objectsToolbar.querySelectorAll(".context-menu-group.open").forEach((node) => node.classList.remove("open"));
+}
+
 function setFrameToolActive(active) {
   if (active && window.DrawTools?.deactivateAll) window.DrawTools.deactivateAll();
+  if (active) setShapePlaceToolActive(null);
   frameToolActive = !!active;
   if (desktop) desktop.classList.toggle("frame-tool-active", frameToolActive);
   if (!frameToolActive) {
     frameDrawSelection = null;
     hideFrameDrawPreview();
   }
+  syncObjectsToolbarToolState();
+}
+
+function isShapePlaceToolActive() {
+  return !!shapePlaceTool;
+}
+
+function setShapePlaceToolActive(tool) {
+  const next = tool && typeof tool === "object"
+    ? (tool.kind === "line"
+      ? { kind: "line" }
+      : tool.kind === "text"
+        ? { kind: "text" }
+        : { kind: "rect", variant: normalizeShapeVariant(tool.variant || tool.shapeVariant || "rectangle") })
+    : null;
+  if (next) {
+    if (window.DrawTools?.deactivateAll) window.DrawTools.deactivateAll();
+    if (frameToolActive) {
+      frameToolActive = false;
+      if (desktop) desktop.classList.remove("frame-tool-active");
+      frameDrawSelection = null;
+      hideFrameDrawPreview();
+    }
+  }
+  shapePlaceTool = next;
+  if (desktop) {
+    desktop.classList.toggle("shape-place-tool-active", !!shapePlaceTool && shapePlaceTool.kind !== "text");
+    desktop.classList.toggle("text-tool-active", shapePlaceTool?.kind === "text");
+  }
+  if (!shapePlaceTool) {
+    shapePlaceDraw = null;
+    hideShapePlacePreview();
+  }
+  syncObjectsToolbarToolState();
+}
+
+function beginShapePlaceTool(tool) {
+  if (!canEditCurrentDocument()) return;
+  setShapePlaceToolActive(tool);
+  hideContextMenu();
+  closeObjectsToolbarSubmenus();
+  closeAllMenus();
+}
+
+function fitTextToolShape(node) {
+  if (!node || node.dataset.textTool !== "1") return;
+  const text = node.querySelector(".shape-text");
+  if (!text) return;
+  const fontSize = Math.max(12, parseInt(text.style.fontSize || text.dataset.baseFontSize || "20", 10) || 20);
+  const minW = Math.max(16, Math.round(fontSize * 0.7));
+  const minH = Math.max(24, Math.round(fontSize * 1.35));
+  const style = window.getComputedStyle(text);
+  const measure = document.createElement("div");
+  measure.setAttribute("aria-hidden", "true");
+  measure.style.cssText = [
+    "position:absolute",
+    "left:-99999px",
+    "top:0",
+    "visibility:hidden",
+    "pointer-events:none",
+    "white-space:pre-wrap",
+    "word-break:break-word",
+    `font-family:${style.fontFamily || "Arial, sans-serif"}`,
+    `font-size:${fontSize}px`,
+    `font-weight:${style.fontWeight || "400"}`,
+    `font-style:${style.fontStyle || "normal"}`,
+    `line-height:${style.lineHeight || "normal"}`,
+    `letter-spacing:${style.letterSpacing || "normal"}`,
+    `padding:${style.paddingTop || "0"} ${style.paddingRight || "0"} ${style.paddingBottom || "0"} ${style.paddingLeft || "0"}`,
+    "max-width:960px"
+  ].join(";");
+  const raw = String(text.innerText || text.dataset.rawText || "");
+  measure.textContent = raw.length ? raw : " ";
+  document.body.appendChild(measure);
+  const width = Math.ceil(measure.offsetWidth) + 4;
+  const height = Math.ceil(measure.offsetHeight) + 4;
+  measure.remove();
+  node.style.width = `${Math.max(minW, width)}px`;
+  node.style.height = `${Math.max(minH, height)}px`;
+  syncShapeVisualStyle(node);
+  syncAllLiftedControlsPositions();
+}
+
+function finalizeTextToolShape(node, { discard = false } = {}) {
+  if (!node || node.dataset.textTool !== "1") return false;
+  const text = node.querySelector(".shape-text");
+  const content = String(text?.dataset?.rawText || text?.innerText || "").trim();
+  node.classList.remove("is-text-placing");
+  setShapePlaceToolActive(null);
+  if (discard || !content) {
+    const shapeId = node.dataset.shapeId;
+    restoreLiftedShapeControls(shapeId);
+    if (selectedShape === node) clearSelectedShape();
+    multiSelectedShapeIds.delete(shapeId);
+    node.remove();
+    updateDesktopExtent();
+    renderConnectors();
+    syncSelectionControlsOverlay();
+    saveLayout();
+    return true;
+  }
+  fitTextToolShape(node);
+  selectShape(node);
+  return false;
+}
+
+function clearTextToolPlacingFlag(textEl) {
+  if (textEl) delete textEl.dataset.textToolPlacing;
+}
+
+function retainTextToolEditorFocus(node) {
+  if (!node?.isConnected) return;
+  const text = node.querySelector(".shape-text");
+  if (!text || text.contentEditable !== "true") return;
+  clearTextToolPlacingFlag(text);
+  text.focus();
+  placeCaretAtEnd(text);
+}
+
+function placeTextShapeAtEvent(event) {
+  if (!canEditCurrentDocument() || isWorkspaceReadOnly()) return false;
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const editing = document.querySelector('.shape-text[contenteditable="true"]');
+  if (editing) finishInlineShapeEditing(editing);
+  const pt = getDesktopPoint(event.clientX, event.clientY);
+  clearSelection();
+  const node = createShapeRectangle({
+    shapeVariant: "rectangle",
+    left: formatPositionPx(pt.x),
+    top: formatPositionPx(pt.y),
+    width: "20px",
+    height: "28px",
+    fillEnabled: false,
+    gradientEnabled: false,
+    borderEnabled: false,
+    borderWidth: 0,
+    border: "#000000",
+    fill: "#ffffff",
+    fill2: "#ffffff",
+    shadow: 0,
+    text: "",
+    fontSize: 20,
+    textColor: "#000000",
+    hAlign: "left",
+    vAlign: "top",
+    textTool: true
+  }, true);
+  if (!node) return false;
+  node.dataset.textTool = "1";
+  node.classList.add("shape-text-tool", "is-text-placing");
+  startInlineShapeEditing(node, "", { select: false });
+  fitTextToolShape(node);
+  const text = node.querySelector(".shape-text");
+  if (text) {
+    // Keep the empty editor alive until the placing click gesture ends.
+    // Focusing during pointerdown on the desktop would otherwise blur immediately
+    // and finalizeTextToolShape would discard the empty rectangle.
+    text.dataset.textToolPlacing = "1";
+    const releasePlacing = () => {
+      window.removeEventListener("pointerup", releasePlacing, true);
+      window.removeEventListener("pointercancel", releasePlacing, true);
+      requestAnimationFrame(() => retainTextToolEditorFocus(node));
+    };
+    window.addEventListener("pointerup", releasePlacing, true);
+    window.addEventListener("pointercancel", releasePlacing, true);
+    window.setTimeout(() => {
+      if (text.dataset.textToolPlacing === "1") retainTextToolEditorFocus(node);
+    }, 120);
+  }
+  return true;
+}
+
+function ensureShapePlacePreviewEl() {
+  let el = desktop.querySelector(".shape-place-preview");
+  if (el) return el;
+  el = document.createElement("div");
+  el.className = "shape-place-preview hidden";
+  appendToDesktop(el);
+  return el;
+}
+
+function hideShapePlacePreview() {
+  const el = desktop?.querySelector(".shape-place-preview");
+  if (!el) return;
+  el.classList.add("hidden");
+  el.style.transform = "";
+  el.style.borderRadius = "";
+  el.classList.remove("shape-place-preview--line", "shape-place-preview--rect");
+}
+
+function updateShapePlacePreview() {
+  if (!shapePlaceDraw || !shapePlaceTool) return;
+  const el = ensureShapePlacePreviewEl();
+  el.classList.remove("hidden", "shape-place-preview--line", "shape-place-preview--rect");
+  if (shapePlaceTool.kind === "line") {
+    const dx = shapePlaceDraw.x2 - shapePlaceDraw.x1;
+    const dy = shapePlaceDraw.y2 - shapePlaceDraw.y1;
+    const len = Math.max(1, Math.hypot(dx, dy));
+    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    el.classList.add("shape-place-preview--line");
+    el.style.left = `${shapePlaceDraw.x1}px`;
+    el.style.top = `${shapePlaceDraw.y1}px`;
+    el.style.width = `${len}px`;
+    el.style.height = "1px";
+    el.style.borderRadius = "0";
+    el.style.transform = `rotate(${angle}deg)`;
+    return;
+  }
+  const left = Math.min(shapePlaceDraw.x1, shapePlaceDraw.x2);
+  const top = Math.min(shapePlaceDraw.y1, shapePlaceDraw.y2);
+  const width = Math.abs(shapePlaceDraw.x2 - shapePlaceDraw.x1);
+  const height = Math.abs(shapePlaceDraw.y2 - shapePlaceDraw.y1);
+  const variant = shapePlaceTool.variant || "rectangle";
+  el.classList.add("shape-place-preview--rect");
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+  el.style.width = `${width}px`;
+  el.style.height = `${height}px`;
+  el.style.transform = "";
+  if (variant === "circle") el.style.borderRadius = "50%";
+  else if (variant === "rounded") el.style.borderRadius = `${SHAPE_VARIANTS.rounded?.radius || 28}px`;
+  else el.style.borderRadius = "0";
+}
+
+function startShapePlaceDraw(event) {
+  if (isWorkspaceReadOnly() || !shapePlaceTool) return false;
+  if (shapePlaceTool.kind === "text") {
+    placeTextShapeAtEvent(event);
+    return true;
+  }
+  const pt = getDesktopPoint(event.clientX, event.clientY);
+  shapePlaceDraw = {
+    pointerId: event.pointerId,
+    x1: pt.x,
+    y1: pt.y,
+    x2: pt.x,
+    y2: pt.y
+  };
+  updateShapePlacePreview();
+  desktop.setPointerCapture(event.pointerId);
+  clearSelection();
+  return true;
+}
+
+function finishShapePlaceDraw() {
+  if (!shapePlaceDraw || !shapePlaceTool) return;
+  const tool = shapePlaceTool;
+  const x1 = shapePlaceDraw.x1;
+  const y1 = shapePlaceDraw.y1;
+  const x2 = shapePlaceDraw.x2;
+  const y2 = shapePlaceDraw.y2;
+  const bounds = {
+    left: Math.min(x1, x2),
+    top: Math.min(y1, y2),
+    right: Math.max(x1, x2),
+    bottom: Math.max(y1, y2)
+  };
+  shapePlaceDraw = null;
+  hideShapePlacePreview();
+  setShapePlaceToolActive(null);
+
+  if (tool.kind === "line") {
+    const dist = Math.hypot(x2 - x1, y2 - y1);
+    const lineOpts = {
+      ...SHAPE_PLACE_DEFAULT_STYLE,
+      left: formatPositionPx(x1),
+      top: formatPositionPx(y1),
+      minLength: dist < SHAPE_PLACE_MIN_SIZE ? 180 : SHAPE_PLACE_MIN_SIZE
+    };
+    if (dist >= SHAPE_PLACE_MIN_SIZE) {
+      lineOpts.x2 = x2;
+      lineOpts.y2 = y2;
+    } else {
+      lineOpts.x2 = x1 + 180;
+      lineOpts.y2 = y1;
+    }
+    const node = createShapeLine(lineOpts);
+    if (node) selectShape(node);
+    return;
+  }
+
+  const variant = normalizeShapeVariant(tool.variant || "rectangle");
+  const variantSpec = SHAPE_VARIANTS[variant] || SHAPE_VARIANTS.rectangle;
+  const defaultWidth = Number.parseFloat(variantSpec.width) || 220;
+  const defaultHeight = Number.parseFloat(variantSpec.height) || 120;
+  const width = bounds.right - bounds.left;
+  const height = bounds.bottom - bounds.top;
+  const rectOpts = {
+    ...SHAPE_PLACE_DEFAULT_STYLE,
+    shapeVariant: variant
+  };
+  if (width < SHAPE_PLACE_MIN_SIZE && height < SHAPE_PLACE_MIN_SIZE) {
+    rectOpts.left = formatPositionPx(bounds.left - defaultWidth / 2);
+    rectOpts.top = formatPositionPx(bounds.top - defaultHeight / 2);
+    rectOpts.width = `${defaultWidth}px`;
+    rectOpts.height = `${defaultHeight}px`;
+  } else {
+    rectOpts.left = formatPositionPx(bounds.left);
+    rectOpts.top = formatPositionPx(bounds.top);
+    rectOpts.width = `${Math.max(SHAPE_PLACE_MIN_SIZE, width)}px`;
+    rectOpts.height = `${Math.max(SHAPE_PLACE_MIN_SIZE, height)}px`;
+  }
+  const node = createShapeRectangle(rectOpts);
+  if (node) selectShape(node);
 }
 
 function ensureFrameDrawPreviewEl() {
@@ -8036,12 +8382,13 @@ function resolveInsertSpawnPoint(spawnPoint) {
   return lastDesktopPointer || getViewportCenterDesktopPoint();
 }
 
-function getContextShapeMenuItems(spawnPoint) {
+function getContextShapeMenuItems(_spawnPoint) {
   return SHAPE_MENU_ITEMS.map((item) => ({
     label: item.label,
     icon: item.icon,
     iconOnly: true,
-    action: () => createShapeAtContextPoint(item.variant, resolveInsertSpawnPoint(spawnPoint))
+    shapeVariant: item.variant,
+    action: () => beginShapePlaceTool({ kind: "rect", variant: item.variant })
   }));
 }
 
@@ -8059,11 +8406,16 @@ function getDesktopInsertMenuItems(spawnPoint) {
     {
       label: "Фигуры",
       icon: "figures.svg",
+      placeTool: "shapes",
       children: getContextShapeMenuItems(point),
       submenuClass: "context-shape-palette"
     },
-    { label: "Линия", icon: "line.svg", action: () => createShapeAtContextPoint("line", point()) },
-    { label: "Заметка", icon: "note.svg", action: () => createShapeAtContextPoint("note", point()) },
+    { label: "Линия", icon: "line.svg", placeTool: "line", action: () => beginShapePlaceTool({ kind: "line" }) },
+    { label: "Текст", icon: "text.svg", placeTool: "text", action: () => {
+      if (shapePlaceTool?.kind === "text") setShapePlaceToolActive(null);
+      else beginShapePlaceTool({ kind: "text" });
+    } },
+    { label: "Заметка", icon: "note.svg", action: () => attachOrExpandNoteForSelection() },
     {
       label: "Картинка",
       icon: "image.svg",
@@ -8071,7 +8423,7 @@ function getDesktopInsertMenuItems(spawnPoint) {
       action: () => promptImageImportAtPoint(point())
     },
     { label: "Таблица", icon: "table.svg", action: () => createShapeAtContextPoint("table", point()) },
-    { label: "Фрейм", icon: "frame.svg", action: () => createShapeAtContextPoint("frame", point()) },
+    { label: "Фрейм", icon: "frame.svg", tool: "frame", action: () => createShapeAtContextPoint("frame", point()) },
     { label: "Рисование", icon: "draw.svg", tool: "draw", action: () => window.DrawTools?.activateDrawToolFromMenu?.() },
     { label: "Лазерная указка", icon: "laser-pointer.svg", tool: "laser", action: () => window.DrawTools?.activateLaserToolFromMenu?.() },
     {
@@ -8129,6 +8481,7 @@ function createContextSubmenuButton(child, options = {}) {
   const childBtn = document.createElement("button");
   childBtn.type = "button";
   childBtn.disabled = !!child.disabled;
+  if (child.shapeVariant) childBtn.dataset.shapeVariant = child.shapeVariant;
   if (toolbar && child.icon && !child.iconOnly) {
     childBtn.className = "context-submenu-item";
     childBtn.appendChild(createWhiteboardIcon(child.icon));
@@ -8138,8 +8491,6 @@ function createContextSubmenuButton(child, options = {}) {
     childBtn.appendChild(childLabel);
   } else if (child.icon) {
     childBtn.classList.add("context-shape-btn");
-    childBtn.title = child.label;
-    childBtn.setAttribute("aria-label", child.label);
     const img = document.createElement("img");
     img.src = `${WB_ICON_BASE}${child.icon}`;
     img.alt = "";
@@ -8147,15 +8498,22 @@ function createContextSubmenuButton(child, options = {}) {
     childBtn.appendChild(img);
   } else if (child.iconSvg) {
     childBtn.innerHTML = child.iconSvg;
-    childBtn.title = child.label;
-    childBtn.setAttribute("aria-label", child.label);
     if (child.iconOnly) childBtn.classList.add("context-shape-btn");
   } else {
     childBtn.textContent = child.label;
   }
+  if (toolbar && (child.iconOnly || !(child.icon && !child.iconOnly))) {
+    bindObjectsToolbarTooltip(childBtn, child.label);
+  } else if (!toolbar && child.label) {
+    childBtn.title = child.label;
+    childBtn.setAttribute("aria-label", child.label);
+  } else if (child.label) {
+    childBtn.setAttribute("aria-label", child.label);
+  }
   childBtn.addEventListener("click", () => {
     if (!child.disabled && typeof child.action === "function") child.action();
     hideContextMenu();
+    hideObjectsToolbarTooltip();
   });
   return childBtn;
 }
@@ -8435,8 +8793,89 @@ function hideContextMenu() {
   if (contextMenuEl) contextMenuEl.classList.add("hidden");
 }
 
+let objectsToolbarTooltipEl = null;
+let objectsToolbarTooltipTimer = null;
+let objectsToolbarTooltipHideTimer = null;
+
+function ensureObjectsToolbarTooltip() {
+  if (objectsToolbarTooltipEl) return objectsToolbarTooltipEl;
+  objectsToolbarTooltipEl = document.createElement("div");
+  objectsToolbarTooltipEl.className = "objects-toolbar-tooltip hidden";
+  objectsToolbarTooltipEl.setAttribute("role", "tooltip");
+  document.body.appendChild(objectsToolbarTooltipEl);
+  return objectsToolbarTooltipEl;
+}
+
+function hideObjectsToolbarTooltip() {
+  if (objectsToolbarTooltipTimer) {
+    clearTimeout(objectsToolbarTooltipTimer);
+    objectsToolbarTooltipTimer = null;
+  }
+  if (objectsToolbarTooltipHideTimer) {
+    clearTimeout(objectsToolbarTooltipHideTimer);
+    objectsToolbarTooltipHideTimer = null;
+  }
+  if (objectsToolbarTooltipEl) objectsToolbarTooltipEl.classList.add("hidden");
+}
+
+function showObjectsToolbarTooltip(target, text) {
+  if (!target || !text) return;
+  hideObjectsToolbarTooltip();
+  objectsToolbarTooltipTimer = setTimeout(() => {
+    objectsToolbarTooltipTimer = null;
+    if (!target.isConnected) return;
+    const tip = ensureObjectsToolbarTooltip();
+    tip.textContent = text;
+    tip.classList.remove("hidden");
+    const rect = target.getBoundingClientRect();
+    const tipRect = tip.getBoundingClientRect();
+    const left = Math.max(8, Math.min(window.innerWidth - tipRect.width - 8, rect.left + (rect.width - tipRect.width) / 2));
+    const top = Math.min(window.innerHeight - tipRect.height - 8, rect.bottom + 8);
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = `${Math.round(top)}px`;
+  }, 120);
+}
+
+function bindObjectsToolbarTooltip(el, text) {
+  if (!el || !text) return;
+  const label = String(text).trim();
+  if (!label) return;
+  el.setAttribute("data-tooltip", label);
+  el.setAttribute("aria-label", label);
+  el.removeAttribute("title");
+}
+
+function syncObjectsToolbarToolState() {
+  if (!objectsToolbar) return;
+  const drawActive = !!window.DrawTools?.isDrawToolActive?.();
+  const laserActive = !!window.DrawTools?.isLaserToolActive?.();
+  const shapeKind = shapePlaceTool?.kind || null;
+  const shapeVariant = shapeKind === "rect" ? (shapePlaceTool.variant || "rectangle") : null;
+
+  objectsToolbar.querySelectorAll(".objects-toolbar-item").forEach((btn) => {
+    const tool = btn.dataset.tool || "";
+    const placeTool = btn.dataset.placeTool || "";
+    let active = false;
+    if (tool === "draw") active = drawActive;
+    else if (tool === "laser") active = laserActive;
+    else if (tool === "frame") active = !!frameToolActive;
+    else if (placeTool === "line") active = shapeKind === "line";
+    else if (placeTool === "text") active = shapeKind === "text";
+    else if (placeTool === "shapes") active = shapeKind === "rect";
+    btn.classList.toggle("is-tool-active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+
+  objectsToolbar.querySelectorAll(".context-shape-btn[data-shape-variant]").forEach((btn) => {
+    const active = !!shapeVariant && btn.dataset.shapeVariant === shapeVariant;
+    btn.classList.toggle("is-tool-active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
 function populateObjectsToolbar() {
   if (!objectsToolbar) return;
+  hideObjectsToolbarTooltip();
   objectsToolbar.innerHTML = "";
   const items = getDesktopInsertMenuItems(() => lastDesktopPointer || getViewportCenterDesktopPoint());
   items.forEach((item) => {
@@ -8447,8 +8886,9 @@ function populateObjectsToolbar() {
       btn.type = "button";
       btn.className = "objects-toolbar-item";
       btn.disabled = !!item.disabled;
-      btn.title = item.label;
-      btn.setAttribute("aria-label", item.label);
+      if (item.tool) btn.dataset.tool = item.tool;
+      if (item.placeTool) btn.dataset.placeTool = item.placeTool;
+      bindObjectsToolbarTooltip(btn, item.label);
       if (item.icon) btn.appendChild(createWhiteboardIcon(item.icon));
       group.appendChild(btn);
       const submenu = document.createElement("div");
@@ -8464,16 +8904,34 @@ function populateObjectsToolbar() {
     btn.type = "button";
     btn.className = "objects-toolbar-item";
     btn.disabled = !!item.disabled;
-    btn.title = item.label;
-    btn.setAttribute("aria-label", item.label);
     if (item.tool) btn.dataset.tool = item.tool;
+    if (item.placeTool) btn.dataset.placeTool = item.placeTool;
+    bindObjectsToolbarTooltip(btn, item.label);
     if (item.icon) btn.appendChild(createWhiteboardIcon(item.icon));
     btn.addEventListener("click", () => {
       if (!item.disabled && typeof item.action === "function") item.action();
+      syncObjectsToolbarToolState();
     });
     objectsToolbar.appendChild(btn);
   });
+  if (!objectsToolbar.dataset.tooltipBound) {
+    objectsToolbar.dataset.tooltipBound = "1";
+    objectsToolbar.addEventListener("pointerover", (event) => {
+      const target = event.target.closest("[data-tooltip]");
+      if (!target || !objectsToolbar.contains(target)) return;
+      if (event.relatedTarget && target.contains(event.relatedTarget)) return;
+      showObjectsToolbarTooltip(target, target.getAttribute("data-tooltip"));
+    });
+    objectsToolbar.addEventListener("pointerout", (event) => {
+      const target = event.target.closest("[data-tooltip]");
+      if (!target || !objectsToolbar.contains(target)) return;
+      if (event.relatedTarget && target.contains(event.relatedTarget)) return;
+      hideObjectsToolbarTooltip();
+    });
+    objectsToolbar.addEventListener("pointerdown", hideObjectsToolbarTooltip);
+  }
   window.DrawTools?.syncToolbarState?.();
+  syncObjectsToolbarToolState();
 }
 
 function syncObjectsToolbarVisibility() {
@@ -8673,11 +9131,11 @@ function createShapeAtContextPoint(shape, point) {
   const x = Number(point?.x) || 0;
   const y = Number(point?.y) || 0;
   if (shape === "line") {
-    createShapeLine({ left: formatContextSpawnPx(x), top: formatContextSpawnPx(y) });
+    beginShapePlaceTool({ kind: "line" });
     return;
   }
   if (shape === "note") {
-    createShapeNote({ left: formatContextSpawnPx(x), top: formatContextSpawnPx(y) });
+    attachOrExpandNoteForSelection();
     return;
   }
   if (shape === "table") {
@@ -8708,19 +9166,15 @@ function createShapeAtContextPoint(shape, point) {
     promptImageImportAtPoint(point);
     return;
   }
-  createShapeRectangle({
-    shapeVariant: normalizeShapeVariant(shape || "rectangle"),
-    left: formatContextSpawnPx(x),
-    top: formatContextSpawnPx(y)
-  });
+  beginShapePlaceTool({ kind: "rect", variant: normalizeShapeVariant(shape || "rectangle") });
 }
 
-function startInlineShapeEditing(node, initialText = "") {
+function startInlineShapeEditing(node, initialText = "", opts = {}) {
   if (!canEditCurrentDocument()) return false;
   if (!node) return false;
   const text = node.querySelector(".shape-text");
   if (!text) return false;
-  selectShape(node);
+  if (opts.select !== false) selectShape(node);
   text.dataset.editingBackup = text.dataset.rawText || text.innerText || "";
   text.dataset.editingBackupHtml = text.dataset.textHtml || "";
   text.contentEditable = "true";
@@ -8739,6 +9193,7 @@ function startInlineShapeEditing(node, initialText = "") {
 
 function finishInlineShapeEditing(text, { revert = false } = {}) {
   if (!text) return;
+  clearTextToolPlacingFlag(text);
   resetShapeTextDblSelectSession(text);
   clearShapeTextSelection(text);
   if (revert) {
@@ -8758,7 +9213,11 @@ function finishInlineShapeEditing(text, { revert = false } = {}) {
   clearActiveFormulaEditor(text);
   renderShapeText(text);
   const owner = text.closest(".shape");
-  if (isBpProcessTask(owner)) {
+  if (owner?.dataset?.textTool === "1") {
+    const removed = finalizeTextToolShape(owner, { discard: !!revert });
+    refreshAllFormulaDisplays();
+    if (removed) return;
+  } else if (isBpProcessTask(owner)) {
     owner.dataset.bpTaskAutoHeight = "1";
     fitBpTaskHeightToText(owner);
     layoutAllBpTasksInProcess(owner.dataset.bpProcessId);
@@ -8771,6 +9230,7 @@ function finishInlineShapeEditing(text, { revert = false } = {}) {
 
 function shouldKeepShapeTextEditingOnFocusChange(textEl) {
   if (!textEl || textEl.contentEditable !== "true") return false;
+  if (textEl.dataset.textToolPlacing === "1") return true;
   const active = document.activeElement;
   if (active && (textEl === active || textEl.contains(active))) return true;
   if (formatPanel && !formatPanel.classList.contains("hidden")) {
@@ -9352,6 +9812,7 @@ function clearSelection() {
   if (window.BitrixChart?.clearAllBitrixCardTextSelections) {
     window.BitrixChart.clearAllBitrixCardTextSelections();
   }
+  collapseAllAttachedNotes({ sync: false });
   clearSelectedShape();
   clearSelectedGroup();
   clearMultiSelection();
@@ -9447,6 +9908,18 @@ function deleteSelected() {
     const shapeId = selectedShape.dataset.shapeId;
     const connId = selectedShape.dataset.connId;
     restoreLiftedShapeControls(shapeId);
+    if (isAttachedAnnotationNote(selectedShape)) {
+      const owner = getNoteOwnerShape(selectedShape);
+      if (owner && owner.dataset.attachedNoteId === shapeId) delete owner.dataset.attachedNoteId;
+      if (expandedAttachedNoteId === shapeId) expandedAttachedNoteId = null;
+    } else if (selectedShape.dataset.attachedNoteId) {
+      const note = getShapeById(selectedShape.dataset.attachedNoteId);
+      if (note) {
+        restoreLiftedShapeControls(note.dataset.shapeId);
+        note.remove();
+      }
+      if (expandedAttachedNoteId === selectedShape.dataset.attachedNoteId) expandedAttachedNoteId = null;
+    }
     selectedShape.remove();
     for (let i = connectors.length - 1; i >= 0; i -= 1) {
       const c = connectors[i];
@@ -9846,6 +10319,7 @@ function pasteShapeClipboard(offsetX = 24, offsetY = 24, sourcePayload = null) {
     stripSyntheticPasteGroupIds(createdEntries, remaps);
     finalizePastedTableCopies(createdEntries);
     finalizePastedBpProcessCopies(remaps.processMap);
+    finalizePastedAttachedNotes(createdEntries, maps);
     const createdConnectors = payload.connectors
       .map((item) => createConnectorFromClipboardData(item, maps, offsetX, offsetY))
       .filter(Boolean);
@@ -9927,10 +10401,13 @@ function createShapeBase(type, opts = {}) {
   node.dataset.connId = opts.connId || node.dataset.shapeId;
   if (opts.groupId) node.dataset.groupId = String(opts.groupId);
   if (opts.frameId) node.dataset.frameId = String(opts.frameId);
+  if (opts.attachedNoteId) node.dataset.attachedNoteId = String(opts.attachedNoteId);
+  if (opts.attachedNote) node.dataset.attachedNote = "1";
+  if (opts.noteOwnerId) node.dataset.noteOwnerId = String(opts.noteOwnerId);
   node.dataset.borderWidth = String(Math.max(0, Number(opts.borderWidth ?? 1) || 0));
   node.dataset.borderEnabled = opts.borderEnabled === false ? "0" : "1";
   const defaultWidth = opts.width || (type === "shape-note" ? "260px" : type === "shape-image" ? "240px" : type === "shape-line" ? "180px" : "220px");
-  const defaultHeight = opts.height || (type === "shape-line" ? "2px" : type === "shape-note" ? "150px" : type === "shape-image" ? "180px" : "120px");
+  const defaultHeight = opts.height || (type === "shape-line" ? "1px" : type === "shape-note" ? "150px" : type === "shape-image" ? "180px" : "120px");
   node.style.width = defaultWidth;
   node.style.height = defaultHeight;
 
@@ -12888,8 +13365,24 @@ function createShapeFrame(opts = {}, doSave = true) {
 }
 
 function createShapeRectangle(opts = {}, doSave = true) {
+  const isTextTool = !!opts.textTool;
   if (opts.bpRole !== "base" && opts.bpRole !== "stage") {
     opts = applyCreationStylePreset("shape-rect", opts);
+  }
+  if (isTextTool) {
+    opts = {
+      ...opts,
+      textTool: true,
+      fillEnabled: false,
+      gradientEnabled: false,
+      borderEnabled: false,
+      borderWidth: 0,
+      shadow: 0,
+      textPaddingTop: opts.textPaddingTop ?? 2,
+      textPaddingRight: opts.textPaddingRight ?? 2,
+      textPaddingBottom: opts.textPaddingBottom ?? 2,
+      textPaddingLeft: opts.textPaddingLeft ?? 2
+    };
   }
   opts.shapeVariant = normalizeShapeVariant(opts.shapeVariant || opts.variant);
   const variantSpec = SHAPE_VARIANTS[opts.shapeVariant] || SHAPE_VARIANTS.rectangle;
@@ -12898,6 +13391,10 @@ function createShapeRectangle(opts = {}, doSave = true) {
   const node = createShapeBase("shape-rect", opts);
   applyBpProcessMeta(node, opts);
   node.dataset.shapeVariant = opts.shapeVariant;
+  if (isTextTool) {
+    node.dataset.textTool = "1";
+    node.classList.add("shape-text-tool");
+  }
   if (opts.shapeVariant === "chevron") {
     if (opts.shapeInsetDepthPx != null) {
       setChevronInsetDepthPx(node, opts.shapeInsetDepthPx);
@@ -12958,6 +13455,7 @@ function createShapeRectangle(opts = {}, doSave = true) {
       insertLineBreakAtCursor(text);
       syncShapeTextRichContent(text);
       refreshActiveFormulaReferenceHighlight();
+      if (node.dataset.textTool === "1") fitTextToolShape(node);
       saveLayout();
       return;
     }
@@ -12972,6 +13470,7 @@ function createShapeRectangle(opts = {}, doSave = true) {
     syncShapeTextRichContent(text);
     refreshAllFormulaDisplays();
     refreshActiveFormulaReferenceHighlight();
+    if (node.dataset.textTool === "1") fitTextToolShape(node);
     saveLayout();
   });
   text.addEventListener("keyup", refreshActiveFormulaReferenceHighlight);
@@ -13015,6 +13514,262 @@ function createShapeRectangle(opts = {}, doSave = true) {
   renderConnectors();
   if (doSave) saveLayout();
   return node;
+}
+
+function isAttachedAnnotationNote(node) {
+  return !!(node
+    && node.dataset?.shapeType === "shape-note"
+    && node.dataset.attachedNote === "1"
+    && node.dataset.bpRole !== "task");
+}
+
+function getAttachedNoteForOwner(owner) {
+  const id = owner?.dataset?.attachedNoteId || "";
+  if (!id) return null;
+  const note = getShapeById(id);
+  return isAttachedAnnotationNote(note) ? note : null;
+}
+
+function getNoteOwnerShape(note) {
+  const id = note?.dataset?.noteOwnerId || "";
+  return id ? getShapeById(id) : null;
+}
+
+function canAttachNoteToShape(node) {
+  if (!node || isWorkspaceReadOnly() || !canEditCurrentDocument()) return false;
+  if (isAttachedAnnotationNote(node)) return false;
+  if (node.dataset?.bpRole === "task") return false;
+  if (node.dataset?.shapeType === "shape-line") return false;
+  return !!node.dataset?.shapeId;
+}
+
+function setAttachedNoteCollapsed(note, collapsed) {
+  if (!note || !isAttachedAnnotationNote(note)) return;
+  note.classList.toggle("attached-note-collapsed", !!collapsed);
+  if (collapsed) {
+    note.setAttribute("aria-hidden", "true");
+  } else {
+    note.removeAttribute("aria-hidden");
+  }
+}
+
+function isAttachedNoteCollapsed(note) {
+  return !!(note && note.classList.contains("attached-note-collapsed"));
+}
+
+function getAttachedNoteBadgeAnchor(owner) {
+  const box = getElementLogicalBox(owner);
+  const size = ATTACHED_NOTE_BADGE_SCREEN_SIZE / getDesktopZoom();
+  const left = box.left + box.width - size;
+  const top = box.top - size;
+  return {
+    left,
+    top,
+    right: left + size,
+    bottom: top + size,
+    size
+  };
+}
+
+function positionAttachedNoteNearOwner(note, owner) {
+  if (!note || !owner) return;
+  const nh = Math.max(60, note.offsetHeight || parseFloat(note.style.height) || ATTACHED_NOTE_DEFAULT_HEIGHT);
+  const anchor = getAttachedNoteBadgeAnchor(owner);
+  // Bottom-left of the note coincides with bottom-left of the note icon.
+  setNodePosition(note, anchor.left, anchor.bottom - nh);
+  bringToFront(note);
+}
+
+function collapseAttachedNote(note, opts = {}) {
+  if (!note || !isAttachedAnnotationNote(note)) return;
+  setAttachedNoteCollapsed(note, true);
+  if (expandedAttachedNoteId === note.dataset.shapeId) expandedAttachedNoteId = null;
+  if (opts.clearSelection !== false && selectedShape === note) {
+    const owner = getNoteOwnerShape(note);
+    clearSelectedShape();
+    if (owner && opts.reselectOwner) selectShape(owner);
+    else syncSelectionControlsOverlay();
+  }
+  if (opts.sync !== false) syncAttachedNoteBadge();
+}
+
+function collapseAllAttachedNotes(opts = {}) {
+  if (!desktop) return;
+  desktop.querySelectorAll('.shape[data-attached-note="1"]').forEach((note) => {
+    if (!isAttachedAnnotationNote(note)) return;
+    if (!isAttachedNoteCollapsed(note)) collapseAttachedNote(note, { clearSelection: false, sync: false });
+  });
+  expandedAttachedNoteId = null;
+  if (opts.sync !== false) syncAttachedNoteBadge();
+}
+
+function expandAttachedNoteForOwner(owner) {
+  if (!owner || !canEditCurrentDocument()) return null;
+  const note = getAttachedNoteForOwner(owner);
+  if (!note) return null;
+  if (expandedAttachedNoteId && expandedAttachedNoteId !== note.dataset.shapeId) {
+    const prev = getShapeById(expandedAttachedNoteId);
+    if (prev) collapseAttachedNote(prev, { clearSelection: false, sync: false });
+  }
+  positionAttachedNoteNearOwner(note, owner);
+  setAttachedNoteCollapsed(note, false);
+  expandedAttachedNoteId = note.dataset.shapeId;
+  // Expand for reading only; select on a subsequent click when editing size/text.
+  if (selectedShape === note) {
+    clearSelectedShape();
+    if (formatToggle.checked) syncFormatPanel();
+    syncSelectionControlsOverlay();
+  }
+  syncAttachedNoteBadge();
+  return note;
+}
+
+function resolveNoteAttachTarget() {
+  if (selectedShape) {
+    if (isAttachedAnnotationNote(selectedShape)) {
+      return getNoteOwnerShape(selectedShape);
+    }
+    if (canAttachNoteToShape(selectedShape)) return selectedShape;
+  }
+  if (multiSelectedShapeIds.size === 1) {
+    const only = getShapeById([...multiSelectedShapeIds][0]);
+    if (canAttachNoteToShape(only)) return only;
+  }
+  return null;
+}
+
+function createAttachedNoteForOwner(owner, opts = {}) {
+  if (!canAttachNoteToShape(owner)) return null;
+  const existing = getAttachedNoteForOwner(owner);
+  if (existing) return expandAttachedNoteForOwner(owner);
+  const anchor = getAttachedNoteBadgeAnchor(owner);
+  const note = createShapeNote({
+    fill: ATTACHED_NOTE_FILL,
+    fill2: ATTACHED_NOTE_FILL,
+    fillEnabled: true,
+    gradientEnabled: false,
+    borderEnabled: false,
+    borderWidth: 0,
+    text: "",
+    width: `${ATTACHED_NOTE_DEFAULT_WIDTH}px`,
+    height: `${ATTACHED_NOTE_DEFAULT_HEIGHT}px`,
+    left: formatContextSpawnPx(anchor.left),
+    top: formatContextSpawnPx(anchor.bottom - ATTACHED_NOTE_DEFAULT_HEIGHT),
+    attachedNote: true,
+    noteOwnerId: owner.dataset.shapeId,
+    collapsed: false,
+    ...opts
+  }, false);
+  if (!note) return null;
+  owner.dataset.attachedNoteId = note.dataset.shapeId;
+  note.dataset.attachedNote = "1";
+  note.dataset.noteOwnerId = owner.dataset.shapeId;
+  note.classList.add("attached-annotation-note");
+  expandAttachedNoteForOwner(owner);
+  saveLayout();
+  return note;
+}
+
+function attachOrExpandNoteForSelection() {
+  if (!canEditCurrentDocument()) return null;
+  const owner = resolveNoteAttachTarget();
+  if (!owner) {
+    showHint("Выделите фигуру, чтобы добавить заметку", "warning", 2200);
+    return null;
+  }
+  const existing = getAttachedNoteForOwner(owner);
+  if (existing) {
+    if (!isAttachedNoteCollapsed(existing)) return existing;
+    return expandAttachedNoteForOwner(owner);
+  }
+  return createAttachedNoteForOwner(owner);
+}
+
+function syncAttachedNoteBadge() {
+  const layer = interactionControlsLayer?.isConnected ? interactionControlsLayer : null;
+  if (layer) layer.querySelectorAll(".shape-note-badge").forEach((el) => el.remove());
+  if (!desktop || isWorkspaceReadOnly()) return;
+  let owner = null;
+  if (selectedShape) {
+    if (isAttachedAnnotationNote(selectedShape)) owner = getNoteOwnerShape(selectedShape);
+    else if (selectedShape.dataset.attachedNoteId) owner = selectedShape;
+  }
+  if (!owner && expandedAttachedNoteId) {
+    owner = getNoteOwnerShape(getShapeById(expandedAttachedNoteId));
+  }
+  const note = owner ? getAttachedNoteForOwner(owner) : null;
+  if (!owner || !note) return;
+  // Hide icon while the note panel is expanded — it should "become" the note.
+  if (!isAttachedNoteCollapsed(note)) return;
+  const useLayer = ensureInteractionControlsLayer();
+  const badge = document.createElement("button");
+  badge.type = "button";
+  badge.className = "shape-note-badge";
+  badge.dataset.liftedFromShape = owner.dataset.shapeId || "";
+  badge.dataset.noteOwnerId = owner.dataset.shapeId || "";
+  badge.setAttribute("aria-label", "Открыть заметку");
+  badge.title = "Заметка";
+  badge.appendChild(createWhiteboardIcon("note.svg"));
+  badge.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+    if (event.button === 0) event.preventDefault();
+  });
+  badge.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!canEditCurrentDocument()) return;
+    expandAttachedNoteForOwner(owner);
+  });
+  useLayer.appendChild(badge);
+  syncLiftedControlsPosition(owner);
+}
+
+function finalizePastedAttachedNotes(createdEntries, maps) {
+  if (!Array.isArray(createdEntries) || !maps?.shapeIds) return;
+  createdEntries.forEach(({ source, node }) => {
+    if (!node) return;
+    const oldAttachedNoteId = String(source?.attachedNoteId || "").trim();
+    if (oldAttachedNoteId) {
+      const nextNoteId = maps.shapeIds.get(oldAttachedNoteId) || "";
+      if (nextNoteId) node.dataset.attachedNoteId = nextNoteId;
+      else delete node.dataset.attachedNoteId;
+    }
+    const oldOwnerId = String(source?.noteOwnerId || "").trim();
+    if (source?.attachedNote || oldOwnerId) {
+      const nextOwnerId = oldOwnerId ? (maps.shapeIds.get(oldOwnerId) || "") : "";
+      if (nextOwnerId) {
+        node.dataset.attachedNote = "1";
+        node.dataset.noteOwnerId = nextOwnerId;
+        node.classList.add("attached-annotation-note");
+        setAttachedNoteCollapsed(node, true);
+      } else {
+        delete node.dataset.attachedNote;
+        delete node.dataset.noteOwnerId;
+        node.classList.remove("attached-annotation-note", "attached-note-collapsed");
+      }
+    }
+  });
+  expandedAttachedNoteId = null;
+}
+
+function maybeCollapseAttachedNotesFromPointer(event) {
+  if (!expandedAttachedNoteId || !event) return;
+  const note = getShapeById(expandedAttachedNoteId);
+  if (!note || isAttachedNoteCollapsed(note)) {
+    expandedAttachedNoteId = null;
+    return;
+  }
+  const target = event.target;
+  if (!target || typeof target.closest !== "function") return;
+  if (note.contains(target)) return;
+  const noteId = note.dataset.shapeId || "";
+  const lifted = target.closest("[data-lifted-from-shape]");
+  if (lifted && lifted.dataset.liftedFromShape === noteId) return;
+  if (target.closest(".shape-note-badge")) return;
+  if (target.closest("#formatPanel, .format-panel")) return;
+  if (target.closest(".app-menu-dropdown, .file-dropdown, .shape-dropdown, .context-menu, .modal, .objects-toolbar")) return;
+  if (target.closest(".objects-toolbar-tooltip")) return;
+  collapseAttachedNote(note, { clearSelection: true, reselectOwner: false });
 }
 
 function createBpTaskNote(opts = {}, doSave = true) {
@@ -13062,13 +13817,39 @@ function createBpTaskNote(opts = {}, doSave = true) {
 
 function createShapeNote(opts = {}, doSave = true) {
   if (opts.bpRole === "task") return createBpTaskNote(opts, doSave);
-  opts = applyCreationStylePreset("shape-note", opts);
+  const isAttached = !!(opts.attachedNote || opts.noteOwnerId);
+  if (!isAttached) opts = applyCreationStylePreset("shape-note", opts);
+  else {
+    opts = {
+      fill: ATTACHED_NOTE_FILL,
+      fill2: ATTACHED_NOTE_FILL,
+      fillEnabled: true,
+      gradientEnabled: false,
+      borderEnabled: false,
+      borderWidth: 0,
+      text: opts.text != null ? opts.text : "",
+      width: opts.width || `${ATTACHED_NOTE_DEFAULT_WIDTH}px`,
+      height: opts.height || `${ATTACHED_NOTE_DEFAULT_HEIGHT}px`,
+      ...opts,
+      fill: opts.fill || ATTACHED_NOTE_FILL,
+      fill2: opts.fill2 || opts.fill || ATTACHED_NOTE_FILL,
+      borderEnabled: opts.borderEnabled === true,
+      borderWidth: opts.borderEnabled === true ? (opts.borderWidth ?? 1) : 0
+    };
+  }
   const node = createShapeBase("shape-note", opts);
   applyBpProcessMeta(node, opts);
+  if (isAttached) {
+    node.dataset.attachedNote = "1";
+    node.classList.add("attached-annotation-note");
+    if (opts.noteOwnerId) node.dataset.noteOwnerId = String(opts.noteOwnerId);
+  }
   const text = document.createElement("div");
   text.className = "shape-text";
   text.contentEditable = "false";
-  text.dataset.rawText = String(opts.text || "");
+  let noteText = String(opts.text ?? "");
+  if (isAttached && noteText === ATTACHED_NOTE_LEGACY_PLACEHOLDER) noteText = "";
+  text.dataset.rawText = noteText;
   if (opts.textHtml) text.dataset.textHtml = sanitizeShapeTextHtml(String(opts.textHtml));
   text.dataset.numberGrouping = opts.numberGrouping != null ? (opts.numberGrouping ? "1" : "0") : "1";
   setNumberFormat(text, opts.numberFormat);
@@ -13128,12 +13909,12 @@ function createShapeNote(opts = {}, doSave = true) {
   node.appendChild(text); node.appendChild(rh);
   addShapeHandles(node, false);
   attachResize(node, rh, 100, 60, { raiseOnResize: false });
-  attachConnectorPoints(node);
+  if (!isAttached) attachConnectorPoints(node);
   applyFillStyle(node, {
     fillEnabled: opts.fillEnabled !== false,
     gradientEnabled: opts.gradientEnabled,
-    fill1: opts.fill || opts.fillColor || "#ffffff",
-    fill2: opts.fillColor2 || opts.fill2 || opts.fill || opts.fillColor || "#ffffff",
+    fill1: opts.fill || opts.fillColor || (isAttached ? ATTACHED_NOTE_FILL : "#ffffff"),
+    fill2: opts.fillColor2 || opts.fill2 || opts.fill || opts.fillColor || (isAttached ? ATTACHED_NOTE_FILL : "#ffffff"),
     fillDirection: opts.fillDirection || "horizontal"
   });
   node.style.borderColor = opts.border || "#111827";
@@ -13141,13 +13922,18 @@ function createShapeNote(opts = {}, doSave = true) {
   node.dataset.borderStyle = normalizeBorderLineStyle(opts.borderStyle || "solid");
   node.style.borderStyle = node.dataset.borderStyle;
   if (opts.radius != null) node.style.borderRadius = `${opts.radius}px`;
-  applyBpTaskStyle(node);
+  if (!isAttached) applyBpTaskStyle(node);
   renderShapeText(text);
   if (isBpProcessTask(node)) fitBpTaskHeightToText(node);
   appendToDesktop(node);
+  if (isAttached) {
+    setAttachedNoteCollapsed(node, opts.collapsed !== false);
+  }
   updateDesktopExtent();
-  layoutConnectorPoints(node);
-  renderConnectors();
+  if (!isAttached) {
+    layoutConnectorPoints(node);
+    renderConnectors();
+  }
   if (doSave) saveLayout();
   return node;
 }
@@ -13185,10 +13971,10 @@ function createShapeImage(opts = {}, doSave = true) {
 function createShapeLine(opts = {}, doSave = true) {
   opts = applyCreationStylePreset("shape-line", opts);
   const node = createShapeBase("shape-line", opts);
-  node.style.height = "2px";
-  node.style.background = opts.border || "#000000";
-  if (opts.borderWidth != null) node.style.height = `${Math.max(1, opts.borderWidth)}px`;
-  if (opts.borderEnabled === false) node.style.background = "transparent";
+  const lineWidth = Math.max(1, Number(opts.borderWidth ?? node.dataset.borderWidth ?? 1) || 1);
+  node.style.height = `${lineWidth}px`;
+  node.style.background = opts.borderEnabled === false ? "transparent" : (opts.border || "#000000");
+  node.dataset.borderWidth = String(lineWidth);
 
   const startHandle = document.createElement("div");
   const endHandle = document.createElement("div");
@@ -13196,6 +13982,8 @@ function createShapeLine(opts = {}, doSave = true) {
   endHandle.className = "shape-line-handle end";
   node.appendChild(startHandle);
   node.appendChild(endHandle);
+
+  const minLength = Math.max(1, Number(opts.minLength != null ? opts.minLength : 40) || 1);
 
   function getLineEndpoints() {
     const x1 = node.offsetLeft;
@@ -13206,10 +13994,10 @@ function createShapeLine(opts = {}, doSave = true) {
     return { x1, y1, x2: x1 + Math.cos(a) * len, y2: y1 + Math.sin(a) * len };
   }
 
-  function applyLineEndpoints(x1, y1, x2, y2) {
+  function applyLineEndpoints(x1, y1, x2, y2, lengthFloor = minLength) {
     const dx = x2 - x1;
     const dy = y2 - y1;
-    const len = Math.max(40, Math.sqrt(dx * dx + dy * dy));
+    const len = Math.max(lengthFloor, Math.sqrt(dx * dx + dy * dy));
     const angle = Math.atan2(dy, dx) * 180 / Math.PI;
     setNodePosition(node, x1, y1);
     node.style.width = `${len}px`;
@@ -13247,6 +14035,11 @@ function createShapeLine(opts = {}, doSave = true) {
   bindEndpointDrag(startHandle, "start");
   bindEndpointDrag(endHandle, "end");
   appendToDesktop(node);
+  if (opts.x2 != null && opts.y2 != null) {
+    const startX = Number.parseFloat(opts.left != null ? opts.left : node.style.left) || node.offsetLeft;
+    const startY = Number.parseFloat(opts.top != null ? opts.top : node.style.top) || node.offsetTop;
+    applyLineEndpoints(startX, startY, Number(opts.x2), Number(opts.y2), minLength);
+  }
   updateDesktopExtent();
   renderConnectors();
   if (doSave) saveLayout();
@@ -15761,6 +16554,10 @@ function readShapeData(node) {
     bpTaskManualPosition: node.dataset.bpTaskManualPosition === "1",
     bpTaskData: isBpProcessTask(node) ? getBpTaskData(node) : undefined,
     bpTaskTypography: isBpProcessTask(node) ? getBpTaskTypography(node) : undefined,
+    attachedNoteId: node.dataset.attachedNoteId || undefined,
+    attachedNote: isAttachedAnnotationNote(node) || undefined,
+    noteOwnerId: node.dataset.noteOwnerId || undefined,
+    textTool: node.dataset.textTool === "1" || undefined,
     imageSrc: node.dataset.shapeType === "shape-image" ? (node.dataset.imageSrc || "") : undefined,
     tableData
   };
@@ -15926,6 +16723,20 @@ function applyLayout(data) {
   if (isDarkThemeActive()) {
     syncBpProcessesToTheme({ save: false });
   }
+  desktop.querySelectorAll('.shape[data-attached-note="1"]').forEach((note) => {
+    if (!isAttachedAnnotationNote(note)) return;
+    const owner = getNoteOwnerShape(note);
+    if (owner) owner.dataset.attachedNoteId = note.dataset.shapeId;
+    const text = note.querySelector(".shape-text");
+    if (text && String(text.dataset.rawText || "") === ATTACHED_NOTE_LEGACY_PLACEHOLDER) {
+      text.dataset.rawText = "";
+      delete text.dataset.textHtml;
+      if (typeof renderShapeText === "function") renderShapeText(text);
+      else text.textContent = "";
+    }
+    setAttachedNoteCollapsed(note, true);
+  });
+  expandedAttachedNoteId = null;
   return true;
 }
 
@@ -16909,6 +17720,9 @@ desktop.addEventListener("pointerdown", (e) => {
   if (isDesktopBackgroundPointerTarget(e.target) && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
     clearSelection();
   }
+  if (shapePlaceTool && canStartMarqueeSelectionFromTarget(e.target)) {
+    if (startShapePlaceDraw(e)) return;
+  }
   if (frameToolActive && canStartMarqueeSelectionFromTarget(e.target)) {
     if (startFrameDraw(e)) return;
   }
@@ -16934,6 +17748,7 @@ document.addEventListener("pointermove", (e) => {
 }, { passive: true });
 document.addEventListener("pointerdown", (e) => {
   updateLastDesktopPointer(e.clientX, e.clientY);
+  maybeCollapseAttachedNotesFromPointer(e);
 }, true);
 document.addEventListener("pointerup", finalizePendingGroupMemberSelect);
 document.addEventListener("pointercancel", finalizePendingGroupMemberSelect);
@@ -16960,6 +17775,13 @@ window.addEventListener("beforeunload", () => {
 });
 document.addEventListener("pointermove", (e) => {
   if (window.DrawTools?.handlePointerMove?.(e)) return;
+  if (shapePlaceDraw && e.pointerId === shapePlaceDraw.pointerId) {
+    const pt = getDesktopPoint(e.clientX, e.clientY);
+    shapePlaceDraw.x2 = pt.x;
+    shapePlaceDraw.y2 = pt.y;
+    updateShapePlacePreview();
+    return;
+  }
   if (frameDrawSelection && e.pointerId === frameDrawSelection.pointerId) {
     const pt = getDesktopPoint(e.clientX, e.clientY);
     frameDrawSelection.x2 = pt.x;
@@ -16977,6 +17799,11 @@ document.addEventListener("pointermove", (e) => {
 });
 document.addEventListener("pointerup", (e) => {
   if (window.DrawTools?.handlePointerUp?.(e)) return;
+  if (shapePlaceDraw && e.pointerId === shapePlaceDraw.pointerId) {
+    try { desktop.releasePointerCapture(e.pointerId); } catch {}
+    finishShapePlaceDraw();
+    return;
+  }
   if (frameDrawSelection && e.pointerId === frameDrawSelection.pointerId) {
     try { desktop.releasePointerCapture(e.pointerId); } catch {}
     finishFrameDraw();
@@ -17418,9 +18245,9 @@ safeOn(shapeButton && shapeButton.closest(".app-menu-nested"), "focusin", () => 
     const k = btn.dataset.shape;
     const shapeVariant = btn.dataset.shapeVariant || "rectangle";
     try {
-      if (k === "rectangle") createShapeRectangle({ shapeVariant });
-      else if (k === "line") createShapeLine();
-      else if (k === "note") createShapeNote();
+      if (k === "rectangle") beginShapePlaceTool({ kind: "rect", variant: shapeVariant });
+      else if (k === "line") beginShapePlaceTool({ kind: "line" });
+      else if (k === "note") attachOrExpandNoteForSelection();
       else if (k === "table") createShapeTable();
       else if (k === "chart" && window.BitrixChart) window.BitrixChart.createShapeChart();
       else if (k === "bitrix-card" && window.BitrixChart) window.BitrixChart.createShapeCard();
@@ -17685,6 +18512,10 @@ document.addEventListener("keydown", (e) => {
   }
   if (!typing && key === "Escape" && frameToolActive) {
     setFrameToolActive(false);
+    return;
+  }
+  if (!typing && key === "Escape" && shapePlaceTool) {
+    setShapePlaceToolActive(null);
     return;
   }
   if (!typing && key === "Escape" && window.DrawTools?.isDrawToolEngaged?.()) {
@@ -18324,6 +19155,9 @@ function initDrawToolsModule() {
     renderConnectors,
     updateDesktopExtent,
     setFrameToolActive,
+    setShapePlaceToolActive,
+    isShapePlaceToolActive,
+    syncObjectsToolbarToolState,
     closeAllMenus
   });
 }

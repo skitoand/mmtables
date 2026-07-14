@@ -36,9 +36,14 @@
     if (ctx?.setFrameToolActive) ctx.setFrameToolActive(false);
   }
 
+  function deactivateShapePlaceTool() {
+    if (ctx?.setShapePlaceToolActive) ctx.setShapePlaceToolActive(null);
+  }
+
   function deactivateAll() {
     setDrawToolActive(false);
     setLaserToolActive(false);
+    deactivateShapePlaceTool();
   }
 
   function isDrawToolActive() {
@@ -62,6 +67,7 @@
       laserToolActive = false;
       stopLaserAnimation();
       deactivateFrameTool();
+      deactivateShapePlaceTool();
     } else {
       cancelDrawDraft();
     }
@@ -75,6 +81,7 @@
       drawToolActive = false;
       cancelDrawDraft();
       deactivateFrameTool();
+      deactivateShapePlaceTool();
       ensureLaserLayer();
     } else {
       stopLaserAnimation();
@@ -115,6 +122,7 @@
       btn.classList.toggle("is-tool-active", !!active);
       btn.setAttribute("aria-pressed", active ? "true" : "false");
     });
+    ctx?.syncObjectsToolbarToolState?.();
   }
 
   function easeOut(k) {
