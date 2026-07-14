@@ -18863,10 +18863,23 @@ function isElementScrollableForWheel(el) {
   return canY || canX;
 }
 
+function getShapeTextScrollTarget(fromEl) {
+  if (!(fromEl instanceof Element)) return null;
+  const shape = fromEl.closest?.(".shape");
+  if (!shape || shape.dataset.shapeType === "shape-table") return null;
+  const text = shape.querySelector(":scope > .shape-text");
+  if (!text || !isElementScrollableForWheel(text)) return null;
+  return text;
+}
+
 function findScrollableWheelTarget(start, stopAt, clientX, clientY) {
   let node = start instanceof Node ? start : null;
   while (node && node !== stopAt) {
-    if (node.nodeType === 1 && isElementScrollableForWheel(node)) return node;
+    if (node.nodeType === 1) {
+      if (isElementScrollableForWheel(node)) return node;
+      const shapeText = getShapeTextScrollTarget(node);
+      if (shapeText) return shapeText;
+    }
     node = node.parentElement;
   }
   if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
@@ -18877,6 +18890,8 @@ function findScrollableWheelTarget(start, stopAt, clientX, clientY) {
     if (!(el instanceof Element) || el === stopAt) continue;
     const tableWrap = el.closest(".shape-table-wrap");
     if (tableWrap && isElementScrollableForWheel(tableWrap)) return tableWrap;
+    const shapeText = getShapeTextScrollTarget(el);
+    if (shapeText) return shapeText;
     if (isElementScrollableForWheel(el)) return el;
   }
   return null;
