@@ -10,6 +10,28 @@
 
 ---
 
+## 2026-07-14 — значок заметки всегда виден
+
+**Commit:** `118d821` — Show attached-note badges on all shapes, not only when selected.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260714-173225-before-deploy.tar.gz`  
+**Деплой:** ручной `scripts/deploy_prod.sh`  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | `syncAttachedNoteBadge` рисует значки для всех фигур с свёрнутой заметкой; клик сразу открывает заметку |
+| `index.html` | cache-buster `note-badge-always-v1` |
+
+### Проверка на проде
+
+- [x] публичный URL → 200
+- [ ] hard refresh → значок заметки виден без выделения фигуры
+- [ ] клик по значку открывает заметку
+
+---
+
 ## 2026-07-14 — прокрутка текста фигур по наведению
 
 **Commit:** `6df3727` — Scroll shape text on hover like tables, without entering edit mode.  
