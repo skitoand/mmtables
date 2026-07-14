@@ -628,6 +628,19 @@ function suppressCellConnectorArrowBrowserMenu(event) {
   if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
   hideContextMenu();
 }
+
+function shouldSuppressConnectorContextMenu(event) {
+  if (!event) return false;
+  if (connectorDraft) return true;
+  if (event.target?.closest?.(".conn-arrow, .conn-point, .table-cell-conn-arrow, .table-cell-connector-guides")) {
+    return true;
+  }
+  // macOS: Ctrl+click opens the browser menu; Ctrl is reserved for connector arrows.
+  if ((event.ctrlKey || event.metaKey) && ctrlModifierActive && !isWorkspaceReadOnly() && !guestPublicView) {
+    return true;
+  }
+  return false;
+}
 function bringToFront(el) { el.style.zIndex = String(++zCounter); }
 function bringNodesToFront(nodes) {
   nodes.forEach((node) => {
@@ -11834,6 +11847,12 @@ function attachConnectorPoints(shape) {
     const ar = document.createElement("div");
     ar.className = "conn-arrow";
     ar.dataset.anchor = a;
+    ["contextmenu", "auxclick"].forEach((eventName) => {
+      ar.addEventListener(eventName, (event) => {
+        if (eventName === "auxclick" && event.button !== 2) return;
+        suppressCellConnectorArrowBrowserMenu(event);
+      });
+    });
     ar.addEventListener("pointerdown", (e) => startConnectorFromPoint(shape, a, e));
     box.appendChild(ar);
   });
@@ -18355,6 +18374,15 @@ document.addEventListener("click", (e) => {
   }
 }, true);
 document.addEventListener("contextmenu", (e) => {
+  if (shouldSuppressConnectorContextMenu(e)) {
+    suppressCellConnectorArrowBrowserMenu(e);
+  }
+}, true);
+document.addEventListener("contextmenu", (e) => {
+  if (shouldSuppressConnectorContextMenu(e)) {
+    suppressCellConnectorArrowBrowserMenu(e);
+    return;
+  }
   if (e.target.closest && (e.target.closest(".table-cell-conn-arrow") || e.target.closest(".table-cell-connector-guides"))) {
     suppressCellConnectorArrowBrowserMenu(e);
     return;
