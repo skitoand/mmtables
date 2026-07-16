@@ -10,6 +10,27 @@
 
 ---
 
+## 2026-07-16 — вставка стадии БП по визуальному порядку
+
+**Commit:** `ef9a557` — Fix BP stage insert to use visual order and relayout immediately.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260716-134419-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29503464745](https://github.com/skitoand/mmtables/actions/runs/29503464745)  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | «+» слева/справа вставляет по `offsetLeft`; reindex `0..n-1`; `relayout` сразу; то же после drag/delete стадии |
+| `index.html` | cache-buster `bp-stage-insert-visual-v1` |
+
+### Проверка на проде
+
+- [x] публичный URL → 200
+- [ ] hard refresh → «+» справа от стадии ставит новую сразу справа, без прыжка после reload
+
+---
+
 ## 2026-07-14 — значок заметки всегда виден
 
 **Commit:** `118d821` — Show attached-note badges on all shapes, not only when selected.  
