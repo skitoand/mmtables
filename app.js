@@ -9504,7 +9504,7 @@ function attachDrag(node, handle, opts = {}) {
         if (processId) layoutAllBpTasksInProcess(processId);
       }
     }
-    if (draggedBpProcessId) syncAllBpTasksInProcess(draggedBpProcessId);
+    if (draggedBpProcessId) repairBpProcessStageOrder(draggedBpProcessId);
     if (isFrameShape(node)) updateFrameMembership(node);
     else updateShapeFrameMembershipAfterMove(node);
     updateDesktopExtent();
@@ -9908,6 +9908,10 @@ function redoAction() {
 
 function deleteSelected() {
   let changed = false;
+  const bpProcessesToRepair = new Set();
+  const noteBpStage = (node) => {
+    if (isBpProcessStage(node) && node.dataset.bpProcessId) bpProcessesToRepair.add(node.dataset.bpProcessId);
+  };
   if (selectedConnector) {
     const idx = connectors.findIndex((c) => c.id === selectedConnector);
     if (idx >= 0) {
@@ -9933,6 +9937,7 @@ function deleteSelected() {
       }
       if (expandedAttachedNoteId === selectedShape.dataset.attachedNoteId) expandedAttachedNoteId = null;
     }
+    noteBpStage(selectedShape);
     selectedShape.remove();
     for (let i = connectors.length - 1; i >= 0; i -= 1) {
       const c = connectors[i];
@@ -9956,6 +9961,7 @@ function deleteSelected() {
   } else if (selectedGroupId) {
     const memberIds = new Set(getGroupedShapeIds(selectedGroupId));
     getGroupMembers(selectedGroupId).forEach((node) => {
+      noteBpStage(node);
       restoreLiftedShapeControls(node.dataset.shapeId);
       node.remove();
     });
@@ -9973,6 +9979,7 @@ function deleteSelected() {
       if (isFrameShape(node)) {
         getFrameChildren(node.dataset.shapeId).forEach((child) => setShapeFrameId(child, null));
       }
+      noteBpStage(node);
       restoreLiftedShapeControls(node.dataset.shapeId);
       node.remove();
     });
@@ -9988,6 +9995,7 @@ function deleteSelected() {
     if (shapeIds.size) changed = true;
   }
   if (!changed) return;
+  bpProcessesToRepair.forEach((processId) => repairBpProcessStageOrder(processId));
   clearSelection();
   renderConnectors();
   saveLayout();
@@ -12087,6 +12095,45 @@ function getBpStages(processId) {
     .sort((a, b) => Number(a.dataset.bpStageIndex) - Number(b.dataset.bpStageIndex));
 }
 
+function getBpStagesByVisualOrder(processId) {
+  const id = String(processId || "").trim();
+  if (!id) return [];
+  return Array.from(desktop.querySelectorAll(`.shape[data-bp-process-id="${id}"][data-bp-role="stage"]`))
+    .sort((a, b) => {
+      const leftDiff = (a.offsetLeft || 0) - (b.offsetLeft || 0);
+      if (leftDiff !== 0) return leftDiff;
+      return Number(a.dataset.bpStageIndex) - Number(b.dataset.bpStageIndex);
+    });
+}
+
+/** Align bpStageIndex / task stage refs with left-to-right visual order (0..n-1). */
+function reindexBpProcessStages(processId, orderedStages = null) {
+  const stages = Array.isArray(orderedStages) ? orderedStages : getBpStagesByVisualOrder(processId);
+  const oldToNew = new Map();
+  stages.forEach((node, newIndex) => {
+    const oldIndex = Number(node.dataset.bpStageIndex);
+    if (Number.isFinite(oldIndex)) oldToNew.set(oldIndex, newIndex);
+    node.dataset.bpStageIndex = String(newIndex);
+  });
+  getAllBpTasksInProcess(processId).forEach((task) => {
+    const old = Number(task.dataset.bpTaskStageIndex);
+    if (!Number.isFinite(old) || !oldToNew.has(old)) return;
+    task.dataset.bpTaskStageIndex = String(oldToNew.get(old));
+  });
+  return stages;
+}
+
+function repairBpProcessStageOrder(processId) {
+  const id = String(processId || "").trim();
+  if (!id) return;
+  const stages = reindexBpProcessStages(id);
+  if (!stages.length) {
+    layoutBpProcessBase(id);
+    return;
+  }
+  relayoutBpStagesAfter(id, 1);
+}
+
 function getBpBase(processId) {
   return desktop.querySelector(`.shape[data-bp-process-id="${processId}"][data-bp-role="base"]`);
 }
@@ -13138,64 +13185,41 @@ function bumpBpTaskStageIndicesFrom(processId, fromIndex) {
 }
 
 function insertBpStageAt(processId, groupId, atIndex, refStageNode = null) {
-  const sorted = getBpStages(processId);
+  // Visual order is the source of truth; sync indices before computing the insert slot.
+  const sorted = reindexBpProcessStages(processId, getBpStagesByVisualOrder(processId));
   if (!sorted.length) return null;
+  let insertAt = Number(atIndex);
+  if (!Number.isFinite(insertAt)) insertAt = sorted.length;
+  insertAt = Math.max(0, Math.min(insertAt, sorted.length));
   const heightRef = refStageNode && refStageNode.dataset.bpProcessId === processId
     ? refStageNode
-    : (atIndex <= 0 ? sorted[0] : (atIndex >= sorted.length ? sorted[sorted.length - 1] : sorted[atIndex - 1]));
+    : (insertAt <= 0 ? sorted[0] : (insertAt >= sorted.length ? sorted[sorted.length - 1] : sorted[insertAt - 1]));
   const stageHeight = Math.max(40, heightRef.offsetHeight || parseFloat(heightRef.style.height) || BP_STAGE_HEIGHT);
-  const newStageWidth = BP_STAGE_WIDTH;
-  const insertWidth = getBpStageStride(newStageWidth);
-  let newLeft;
-  let newTop;
-  if (atIndex <= 0) {
-    newLeft = sorted[0].offsetLeft;
-    newTop = sorted[0].style.top;
-    sorted.forEach((node) => {
-      node.style.left = `${node.offsetLeft + insertWidth}px`;
-      layoutConnectorPoints(node);
-    });
-    atIndex = 0;
-  } else if (atIndex >= sorted.length) {
-    const last = sorted[sorted.length - 1];
-    newLeft = getBpStageLeftAfter(last);
-    newTop = last.style.top;
-    atIndex = sorted.length;
-  } else {
-    const prev = sorted[atIndex - 1];
-    newLeft = getBpStageLeftAfter(prev);
-    newTop = prev.style.top;
-    sorted.slice(atIndex).forEach((node) => {
-      node.style.left = `${node.offsetLeft + insertWidth}px`;
-      layoutConnectorPoints(node);
-    });
-  }
+  const newTop = heightRef.style.top || sorted[0].style.top;
+  const anchorLeft = sorted[0].offsetLeft;
   sorted.forEach((node) => {
     const idx = Number(node.dataset.bpStageIndex);
-    if (idx >= atIndex) node.dataset.bpStageIndex = String(idx + 1);
+    if (idx >= insertAt) node.dataset.bpStageIndex = String(idx + 1);
   });
-  bumpBpTaskStageIndicesFrom(processId, atIndex);
-  const count = sorted.length + 1;
-  const isLast = atIndex === count - 1;
+  bumpBpTaskStageIndicesFrom(processId, insertAt);
+  const isLast = insertAt === sorted.length;
   const colors = getBpStageColors();
   const newStage = createBpProcessStage({
     bpProcessId: processId,
     groupId,
-    bpStageIndex: atIndex,
+    bpStageIndex: insertAt,
     isLastStage: isLast,
-    left: `${newLeft}px`,
+    // Temporary left; relayoutBpStagesAfter rebuilds the full chain from index order.
+    left: `${anchorLeft}px`,
     top: newTop,
     height: `${stageHeight}px`,
     zIndex: ++zCounter,
-    text: isLast ? "ПРЕДОПЛАТА ПОЛУЧЕНА" : `Стадия ${atIndex + 1}`,
-    fill: isLast ? colors[colors.length - 1] : colors[Math.min(atIndex, colors.length - 2)],
+    text: isLast ? "ПРЕДОПЛАТА ПОЛУЧЕНА" : `Стадия ${insertAt + 1}`,
+    fill: isLast ? colors[colors.length - 1] : colors[Math.min(insertAt, colors.length - 2)],
     textColor: getBpStageTextColor(isLast)
   }, false);
   syncBpProcessStageHeights(heightRef);
-  layoutBpProcessBase(processId);
-  layoutAllBpTasksInProcess(processId);
-  updateDesktopExtent();
-  renderConnectors();
+  relayoutBpStagesAfter(processId, 1);
   selectShape(newStage);
   return newStage;
 }
@@ -13205,8 +13229,10 @@ function insertBpStageRelative(stageNode, side) {
   const processId = stageNode.dataset.bpProcessId;
   const groupId = getShapeGroupId(stageNode);
   if (!processId || !groupId) return;
-  const stageIndex = Number(stageNode.dataset.bpStageIndex);
-  const atIndex = side === "left" ? stageIndex : stageIndex + 1;
+  const visual = getBpStagesByVisualOrder(processId);
+  const visualIndex = visual.indexOf(stageNode);
+  if (visualIndex < 0) return;
+  const atIndex = side === "left" ? visualIndex : visualIndex + 1;
   insertBpStageAt(processId, groupId, atIndex, stageNode);
   saveLayout();
 }
