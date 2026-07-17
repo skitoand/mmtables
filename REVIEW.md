@@ -10,6 +10,27 @@
 
 ---
 
+## 2026-07-17 — перетаскивание стадий БП с задачами
+
+**Commit:** `7ea0922` — Drag BP stages with their tasks and reindex on drop.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260717-074914-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29564303368](https://github.com/skitoand/mmtables/actions/runs/29564303368)  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | drag стадии двигает её задачи; по отпусканию — reindex `0..n-1`, relayout цепочки и задач |
+| `index.html` | cache-buster `bp-stage-drag-reorder-v1` |
+
+### Проверка на проде
+
+- [x] публичный URL → 200
+- [ ] hard refresh → перетащить стадию в другой слот; задачи едут вместе; «+» справа вставляет рядом
+
+---
+
 ## 2026-07-17 — без автовыделения всей группы БП
 
 **Commit:** `c97f6c1` — Disable auto group selection for sequential BP shapes.  
