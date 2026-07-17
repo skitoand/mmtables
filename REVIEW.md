@@ -10,6 +10,28 @@
 
 ---
 
+## 2026-07-17 — шеврон: превью, жёлтый буллит, линия
+
+**Commit:** `f36863e` — Fix chevron place preview, yellow depth handle, and missing SVG border.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260717-113102-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29577093241](https://github.com/skitoand/mmtables/actions/runs/29577093241)  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | превью шеврона при создании; жёлтый буллит в overlay; цвет линии SVG хранится в `dataset.borderColor` (больше не пропадает) |
+| `styles.css` | показ `.shape-param-handle` в overlay; SVG place-preview |
+| `index.html` | cache-buster `chevron-border-fix-v1` |
+
+### Проверка на проде
+
+- [x] публичный URL → 200
+- [ ] hard refresh → создать шеврон: сразу форма + жёлтый буллит + чёрная линия 1pt
+
+---
+
 ## 2026-07-17 — выравнивание стадий БП в одну строку
 
 **Commit:** `a8e45cd` — Align BP stages to a single row on every relayout.  
