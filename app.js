@@ -9438,13 +9438,25 @@ function attachDrag(node, handle, opts = {}) {
         bpTaskReassign,
         bpTaskDropTarget: null
       };
+      if (isBpProcessStage(node)) {
+        const processId = node.dataset.bpProcessId;
+        const stageIndex = Number(node.dataset.bpStageIndex);
+        drag.bpStageReorder = true;
+        drag.bpStageTasks = getBpTasksForStage(processId, stageIndex).map((task) => {
+          const box = getElementLogicalBox(task);
+          return { node: task, left: box.left, top: box.top };
+        });
+      }
       if (isFrameShape(node)) {
         drag.frameChildren = getFrameChildren(node.dataset.shapeId).map((child) => {
           const box = getElementLogicalBox(child);
           return { node: child, left: box.left, top: box.top };
         });
       }
-      if (raiseOnDrag && !bpTaskReassign && !isFrameShape(node)) bringToFront(node);
+      if (raiseOnDrag && !bpTaskReassign && !isFrameShape(node)) {
+        if (drag.bpStageReorder) bringNodesToFront([node, ...(drag.bpStageTasks || []).map((entry) => entry.node)]);
+        else bringToFront(node);
+      }
     }
     handle.setPointerCapture(event.pointerId);
   });
@@ -9455,7 +9467,14 @@ function attachDrag(node, handle, opts = {}) {
     if (drag.type === "group" || drag.type === "multi") {
       applyBulkSelectionDragMove(drag, event);
     } else {
-      setNodePosition(node, drag.l + dx, drag.t + dy);
+      const nextTop = drag.bpStageReorder ? drag.t : drag.t + dy;
+      setNodePosition(node, drag.l + dx, nextTop);
+      if (drag.bpStageTasks?.length) {
+        drag.bpStageTasks.forEach((entry) => {
+          setNodePosition(entry.node, entry.left + dx, drag.bpStageReorder ? entry.top : entry.top + dy);
+          layoutConnectorPoints(entry.node);
+        });
+      }
       if (drag.frameChildren?.length) {
         drag.frameChildren.forEach((entry) => {
           setNodePosition(entry.node, entry.left + dx, entry.top + dy);
@@ -9469,6 +9488,8 @@ function attachDrag(node, handle, opts = {}) {
         });
         drag.bpTaskDropTarget = target;
         setBpStageDropHighlight(target);
+      } else if (isBpProcessStage(node)) {
+        layoutConnectorPoints(node);
       }
     }
     updateDesktopExtent();
@@ -12107,7 +12128,7 @@ function getBpStagesByVisualOrder(processId) {
   if (!id) return [];
   return Array.from(desktop.querySelectorAll(`.shape[data-bp-process-id="${id}"][data-bp-role="stage"]`))
     .sort((a, b) => {
-      const leftDiff = (a.offsetLeft || 0) - (b.offsetLeft || 0);
+      const leftDiff = getElementLogicalBox(a).left - getElementLogicalBox(b).left;
       if (leftDiff !== 0) return leftDiff;
       return Number(a.dataset.bpStageIndex) - Number(b.dataset.bpStageIndex);
     });
@@ -12146,6 +12167,10 @@ function repairBpProcessStageOrder(processId) {
     layoutBpProcessBase(id);
     return;
   }
+  const rowTop = stages[0].style.top || `${getElementLogicalBox(stages[0]).top}px`;
+  stages.forEach((stage) => {
+    if (stage.style.top !== rowTop) stage.style.top = rowTop;
+  });
   relayoutBpStagesAfter(id, 1);
   layoutAllBpTasksInProcess(id);
 }
