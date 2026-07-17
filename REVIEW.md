@@ -12,10 +12,10 @@
 
 ## 2026-07-17 — выравнивание стадий БП в одну строку
 
-**Commit:** (pending) — Keep BP stages on a single row during relayout.  
-**Бэкап:** (pending)  
-**Деплой:** GitHub Actions (pending)  
-**Статус:** pending
+**Commit:** `a8e45cd` — Align BP stages to a single row on every relayout.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260717-075601-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29564677532](https://github.com/skitoand/mmtables/actions/runs/29564677532)  
+**Статус:** OK
 
 ### Выкатано
 
@@ -26,6 +26,7 @@
 
 ### Проверка на проде
 
+- [x] публичный URL → 200
 - [ ] hard refresh → документ «электрик»: все стадии РАСЧЕТ в одну строку
 
 ---
