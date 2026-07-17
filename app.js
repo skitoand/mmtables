@@ -8084,7 +8084,7 @@ function selectPastedShapes(created, remaps = null) {
   }
   if (remaps?.groupMap?.size === 1) {
     const newGroupId = [...remaps.groupMap.values()][0];
-    if (shapes.length >= 2 && shapes.every((node) => getShapeGroupId(node) === newGroupId)) {
+    if (shapes.length >= 2 && shapes.every((node) => getShapeGroupId(node) === newGroupId) && !isBpProcessGroupId(newGroupId)) {
       selectGroup(newGroupId);
       return;
     }
@@ -8092,7 +8092,7 @@ function selectPastedShapes(created, remaps = null) {
   const groupIds = new Set(shapes.map((node) => getShapeGroupId(node)).filter(Boolean));
   if (groupIds.size === 1) {
     const groupId = [...groupIds][0];
-    if (shapes.length >= 2 && shapes.every((node) => getShapeGroupId(node) === groupId)) {
+    if (shapes.length >= 2 && shapes.every((node) => getShapeGroupId(node) === groupId) && !isBpProcessGroupId(groupId)) {
       selectGroup(groupId);
       return;
     }
@@ -10506,17 +10506,7 @@ function createShapeBase(type, opts = {}) {
       return;
     }
     const groupId = getShapeGroupId(node);
-    if (groupId) {
-      if (isBpProcessTask(node)) {
-        const processId = node.dataset.bpProcessId;
-        const transferReassign = isBpReassignSessionActive(processId)
-          || selectedShape?.dataset?.bpTaskReassignReady === "1";
-        if (transferReassign) {
-          selectShape(node);
-          armBpTaskReassign(node);
-          return;
-        }
-      }
+    if (groupId && !isBpProcessMember(node)) {
       if (!selectedGroupId && selectedShape && getShapeGroupId(selectedShape) === groupId) {
         selectGroup(groupId);
         return;
@@ -10526,6 +10516,14 @@ function createShapeBase(type, opts = {}) {
         return;
       }
       selectGroup(groupId);
+      return;
+    }
+    if (isBpProcessTask(node) && canEditCurrentDocument()) {
+      const processId = node.dataset.bpProcessId;
+      const transferReassign = isBpReassignSessionActive(processId)
+        || selectedShape?.dataset?.bpTaskReassignReady === "1";
+      selectShape(node);
+      if (transferReassign) armBpTaskReassign(node);
       return;
     }
     selectShape(node);
@@ -12207,6 +12205,15 @@ function isBpProcessTask(node) {
   return node?.dataset?.bpRole === "task" && !!node?.dataset?.bpProcessId;
 }
 
+function isBpProcessMember(node) {
+  return !!node?.dataset?.bpProcessId && (node.dataset.bpRole === "stage" || node.dataset.bpRole === "task" || node.dataset.bpRole === "base");
+}
+
+function isBpProcessGroupId(groupId) {
+  const members = getGroupMembers(groupId);
+  return members.length > 0 && members.every((node) => !!node.dataset.bpProcessId);
+}
+
 function getBpStageWidth(stageNode) {
   const box = getElementLogicalBox(stageNode);
   return Math.max(40, box.width || parseFloat(stageNode?.style?.width) || BP_STAGE_WIDTH);
@@ -13387,7 +13394,7 @@ function createSequentialBusinessProcess(opts = {}, doSave = true) {
   layoutBpProcessBase(processId);
   updateDesktopExtent();
   renderConnectors();
-  selectGroup(groupId);
+  if (stages[0]) selectShape(stages[0]);
   if (doSave) saveLayout();
   return { processId, groupId, stages };
 }
@@ -18450,7 +18457,7 @@ document.addEventListener("contextmenu", (e) => {
   if (!canEditCurrentDocument()) return;
   e.preventDefault();
   if (selectedShape !== shape && !multiSelectedShapeIds.has(shape.dataset.shapeId) && getShapeGroupId(shape) !== selectedGroupId) {
-    if (getShapeGroupId(shape)) selectGroup(getShapeGroupId(shape));
+    if (getShapeGroupId(shape) && !isBpProcessMember(shape)) selectGroup(getShapeGroupId(shape));
     else selectShape(shape);
   }
   const multiCount = getMultiSelectedShapes().length;

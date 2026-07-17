@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-07-17 — без автовыделения всей группы БП
+
+**Commit:** (pending) — Disable auto group selection for sequential BP shapes.  
+**Бэкап:** (pending)  
+**Деплой:** GitHub Actions (pending)  
+**Статус:** pending
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | клик/ПКМ/создание/вставка БП больше не вызывают `selectGroup`; выделяется одна фигура; `groupId` и связи стадий/задач без изменений |
+| `index.html` | cache-buster `bp-no-auto-group-select-v1` |
+
+### Проверка на проде
+
+- [ ] hard refresh → клик по стадии выделяет только её, без синей рамки на весь процесс
+
+---
+
 ## 2026-07-17 — relayout стадий БП сразу после удаления
 
 **Commit:** `f93c07f` — Relayout BP stages immediately after stage deletion.  
