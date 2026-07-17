@@ -738,9 +738,17 @@ function syncLiftedControlsPosition(node) {
       el.style.height = `${size}px`;
       el.style.transform = "none";
     } else if (el.classList.contains("shape-param-handle")) {
-      const depthPx = getChevronInsetDepthPx(node);
-      el.style.left = `${left + depthPx}px`;
-      el.style.top = `${top + (h / 2)}px`;
+      const variant = normalizeShapeVariant(node.dataset.shapeVariant);
+      if (variant === "chevron") {
+        const depthPx = getChevronInsetDepthPx(node);
+        el.style.left = `${left + depthPx}px`;
+        el.style.top = `${top + (h / 2)}px`;
+      } else if (variant === "parallelogram" || variant === "hexagon") {
+        const depth = getShapeVariantDepth(node, variant);
+        el.style.left = `${left + (w * depth) / 100}px`;
+        el.style.top = `${top}px`;
+      }
+      el.style.transform = "translate(-50%, -50%)";
     }
   });
 }
@@ -1432,6 +1440,23 @@ function getShapeBorderLineStyle(node) {
   if (!node) return "solid";
   return normalizeBorderLineStyle(node.dataset.borderStyle || node.style.borderStyle || "solid");
 }
+function getShapeBorderColor(node, fallback = "#111827") {
+  const fromData = String(node?.dataset?.borderColor || "").trim();
+  if (fromData && fromData !== "transparent") return fromData;
+  const fromStyle = String(node?.style?.borderColor || "").trim();
+  if (fromStyle && fromStyle !== "transparent") return fromStyle;
+  const stroke = String(node?.querySelector?.(":scope > .shape-visual .shape-fill")?.getAttribute("stroke") || "").trim();
+  if (stroke && stroke !== "transparent") return stroke;
+  return fallback;
+}
+function setShapeBorderColor(node, color, fallback = "#111827") {
+  if (!node) return fallback;
+  const next = String(color || "").trim();
+  const resolved = next && next !== "transparent" ? next : fallback;
+  node.dataset.borderColor = resolved;
+  node.style.borderColor = resolved;
+  return resolved;
+}
 function getShapeStrokeDasharray(lineStyle, borderWidth = 1) {
   const width = Math.max(1, Number(borderWidth) || 1);
   if (lineStyle === "dashed") return `${Math.max(6, Math.round(width * 4))} ${Math.max(4, Math.round(width * 3))}`;
@@ -1639,10 +1664,18 @@ function getVariantPoints(node, variant, spec) {
   }
   return spec?.points || "";
 }
+function findShapeParamHandle(node) {
+  if (!node) return null;
+  const local = node.querySelector(":scope > .shape-param-handle");
+  if (local) return local;
+  const shapeId = getControlOwnerId(node);
+  if (!shapeId || !interactionControlsLayer?.isConnected) return null;
+  return interactionControlsLayer.querySelector(`.shape-param-handle[data-lifted-from-shape="${shapeId}"]`);
+}
 function syncShapeParamHandle(node) {
   if (!node || node.dataset.shapeType !== "shape-rect") return;
   const variant = normalizeShapeVariant(node.dataset.shapeVariant);
-  let handle = node.querySelector(":scope > .shape-param-handle");
+  let handle = findShapeParamHandle(node);
   const cfg = getVariantDepthConfig(variant);
   if (!cfg) {
     if (handle) handle.remove();
@@ -1663,12 +1696,13 @@ function syncShapeParamHandle(node) {
     handle.addEventListener("pointermove", (event) => {
       if (!drag || (event.buttons & 1) !== 1) return;
       const rect = node.getBoundingClientRect();
-      if (variant === "chevron") {
+      const currentVariant = normalizeShapeVariant(node.dataset.shapeVariant);
+      if (currentVariant === "chevron") {
         const localX = event.clientX - rect.left;
         setChevronInsetDepthPx(node, localX);
       } else {
         const localX = ((event.clientX - rect.left) / Math.max(1, rect.width)) * 100;
-        setShapeVariantDepth(node, variant, localX);
+        setShapeVariantDepth(node, currentVariant, localX);
       }
       renderShapeVisual(node);
       syncShapeVisualStyle(node);
@@ -1685,6 +1719,10 @@ function syncShapeParamHandle(node) {
     handle.addEventListener("pointerup", stop);
     handle.addEventListener("pointercancel", stop);
     node.appendChild(handle);
+  }
+  if (handle.parentElement === interactionControlsLayer) {
+    syncLiftedControlsPosition(node);
+    return;
   }
   const depth = getShapeVariantDepth(node, variant);
   if (variant === "chevron") {
@@ -1752,12 +1790,15 @@ function syncShapeVisualStyle(node) {
   const shape = svg ? svg.querySelector(".shape-fill") : null;
   if (!svg || !shape) return;
   const fillState = getFillStyleFromNode(node, "#ffffff");
-  const borderColor = node.style.borderColor || "#111827";
+  const borderColor = getShapeBorderColor(node);
   if (spec.points) {
     const points = parseShapePoints(getVariantPoints(node, variant, spec));
     shape.setAttribute("d", buildRoundedPolygonPath(points, getShapeCornerRadiusUnits(node)));
   }
   syncShapeParamHandle(node);
+  // Keep CSS box border off for SVG shapes; stroke is drawn on .shape-fill.
+  // Persist the real color in dataset so later syncs don't read "transparent".
+  node.dataset.borderColor = borderColor;
   node.style.background = "transparent";
   node.style.border = "0px solid transparent";
   node.style.borderWidth = "0px";
@@ -6088,11 +6129,10 @@ function applyStyleDataToShape(node, data = {}, opts = {}) {
   const lineEnabled = data.borderEnabled != null ? !!data.borderEnabled : true;
   const borderWidth = Math.max(0, Number(data.borderWidth) || 0);
   const borderStyle = normalizeBorderLineStyle(data.borderStyle || "solid");
-  const borderColor = rgbToHex(data.border || "#000000");
+  const borderColor = setShapeBorderColor(node, rgbToHex(data.border || "#000000"), "#000000");
   node.dataset.borderEnabled = lineEnabled ? "1" : "0";
   node.dataset.borderWidth = String(borderWidth);
   node.dataset.borderStyle = borderStyle;
-  node.style.borderColor = borderColor;
   node.style.borderStyle = borderStyle;
   node.style.borderWidth = lineEnabled ? `${Math.max(lineEnabled ? 1 : 0, borderWidth)}px` : "0px";
   node.style.border = lineEnabled ? `${Math.max(1, borderWidth)}px solid ${borderColor}` : "0px solid transparent";
@@ -7656,14 +7696,77 @@ function hideShapePlacePreview() {
   el.classList.add("hidden");
   el.style.transform = "";
   el.style.borderRadius = "";
-  el.classList.remove("shape-place-preview--line", "shape-place-preview--rect");
+  el.style.background = "";
+  el.style.border = "";
+  el.innerHTML = "";
+  el.classList.remove("shape-place-preview--line", "shape-place-preview--rect", "shape-place-preview--svg");
+}
+
+function getShapePlacePreviewPoints(variant, widthPx) {
+  const spec = SHAPE_VARIANTS[variant];
+  if (!spec?.points) return "";
+  if (variant === "chevron") {
+    const depth = clamp((DEFAULT_CHEVRON_INSET_PX / Math.max(1, widthPx)) * 100, 0, 49);
+    return `0,0 ${100 - depth},0 100,50 ${100 - depth},100 0,100 ${depth},50`;
+  }
+  if (variant === "parallelogram") {
+    const depth = DEFAULT_PARALLELOGRAM_SKEW;
+    return `${depth},0 100,0 ${100 - depth},100 0,100`;
+  }
+  if (variant === "hexagon") {
+    const depth = DEFAULT_HEXAGON_CHAMFER;
+    return `${depth},0 ${100 - depth},0 100,50 ${100 - depth},100 ${depth},100 0,50`;
+  }
+  return spec.points;
+}
+
+function renderShapePlacePreviewVisual(el, variant, width, height) {
+  const spec = SHAPE_VARIANTS[variant] || SHAPE_VARIANTS.rectangle;
+  el.innerHTML = "";
+  el.style.background = "";
+  el.style.border = "";
+  el.style.borderRadius = "";
+  if (!spec || spec.kind !== "svg") {
+    el.classList.add("shape-place-preview--rect");
+    el.classList.remove("shape-place-preview--svg");
+    if (variant === "circle") el.style.borderRadius = "50%";
+    else if (variant === "rounded") el.style.borderRadius = `${SHAPE_VARIANTS.rounded?.radius || 28}px`;
+    else el.style.borderRadius = "0";
+    return;
+  }
+  el.classList.add("shape-place-preview--svg");
+  el.classList.remove("shape-place-preview--rect");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 100 100");
+  svg.setAttribute("preserveAspectRatio", "none");
+  const strokeWidth = Math.max(0.6, Math.min(2.4, 100 / Math.max(8, Math.min(width || 100, height || 100))));
+  if (spec.points) {
+    const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const points = parseShapePoints(getShapePlacePreviewPoints(variant, width));
+    shape.setAttribute("d", buildRoundedPolygonPath(points, 0));
+    shape.setAttribute("fill", "#ffffff");
+    shape.setAttribute("stroke", "#000000");
+    shape.setAttribute("stroke-width", String(strokeWidth));
+    shape.setAttribute("vector-effect", "non-scaling-stroke");
+    svg.appendChild(shape);
+  } else {
+    const shape = document.createElementNS("http://www.w3.org/2000/svg", spec.tag || "ellipse");
+    Object.entries(spec.attrs || {}).forEach(([key, value]) => shape.setAttribute(key, String(value)));
+    shape.setAttribute("fill", "#ffffff");
+    shape.setAttribute("stroke", "#000000");
+    shape.setAttribute("stroke-width", String(strokeWidth));
+    shape.setAttribute("vector-effect", "non-scaling-stroke");
+    svg.appendChild(shape);
+  }
+  el.appendChild(svg);
 }
 
 function updateShapePlacePreview() {
   if (!shapePlaceDraw || !shapePlaceTool) return;
   const el = ensureShapePlacePreviewEl();
-  el.classList.remove("hidden", "shape-place-preview--line", "shape-place-preview--rect");
+  el.classList.remove("hidden", "shape-place-preview--line", "shape-place-preview--rect", "shape-place-preview--svg");
   if (shapePlaceTool.kind === "line") {
+    el.innerHTML = "";
     const dx = shapePlaceDraw.x2 - shapePlaceDraw.x1;
     const dy = shapePlaceDraw.y2 - shapePlaceDraw.y1;
     const len = Math.max(1, Math.hypot(dx, dy));
@@ -7674,6 +7777,8 @@ function updateShapePlacePreview() {
     el.style.width = `${len}px`;
     el.style.height = "1px";
     el.style.borderRadius = "0";
+    el.style.background = "";
+    el.style.border = "";
     el.style.transform = `rotate(${angle}deg)`;
     return;
   }
@@ -7681,16 +7786,13 @@ function updateShapePlacePreview() {
   const top = Math.min(shapePlaceDraw.y1, shapePlaceDraw.y2);
   const width = Math.abs(shapePlaceDraw.x2 - shapePlaceDraw.x1);
   const height = Math.abs(shapePlaceDraw.y2 - shapePlaceDraw.y1);
-  const variant = shapePlaceTool.variant || "rectangle";
-  el.classList.add("shape-place-preview--rect");
+  const variant = normalizeShapeVariant(shapePlaceTool.variant || "rectangle");
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;
   el.style.width = `${width}px`;
   el.style.height = `${height}px`;
   el.style.transform = "";
-  if (variant === "circle") el.style.borderRadius = "50%";
-  else if (variant === "rounded") el.style.borderRadius = `${SHAPE_VARIANTS.rounded?.radius || 28}px`;
-  else el.style.borderRadius = "0";
+  renderShapePlacePreviewVisual(el, variant, width, height);
 }
 
 function startShapePlaceDraw(event) {
@@ -10457,6 +10559,9 @@ function createShapeBase(type, opts = {}) {
   if (opts.noteOwnerId) node.dataset.noteOwnerId = String(opts.noteOwnerId);
   node.dataset.borderWidth = String(Math.max(0, Number(opts.borderWidth ?? 1) || 0));
   node.dataset.borderEnabled = opts.borderEnabled === false ? "0" : "1";
+  if (opts.border != null || opts.borderColor != null) {
+    setShapeBorderColor(node, opts.border || opts.borderColor || "#111827");
+  }
   const defaultWidth = opts.width || (type === "shape-note" ? "260px" : type === "shape-image" ? "240px" : type === "shape-line" ? "180px" : "220px");
   const defaultHeight = opts.height || (type === "shape-line" ? "1px" : type === "shape-note" ? "150px" : type === "shape-image" ? "180px" : "120px");
   node.style.width = defaultWidth;
@@ -13606,7 +13711,7 @@ function createShapeRectangle(opts = {}, doSave = true) {
     fill2: opts.fillColor2 || opts.fill2 || opts.fill || opts.fillColor || "#ffffff",
     fillDirection: opts.fillDirection || "horizontal"
   });
-  node.style.borderColor = opts.border || "#111827";
+  setShapeBorderColor(node, opts.border || opts.borderColor || node.dataset.borderColor || "#111827");
   node.style.borderWidth = node.dataset.borderEnabled === "1" ? `${Math.max(0, Number(node.dataset.borderWidth) || 0)}px` : "0px";
   node.dataset.borderStyle = normalizeBorderLineStyle(opts.borderStyle || "solid");
   node.style.borderStyle = node.dataset.borderStyle;
@@ -17082,7 +17187,7 @@ function applyFormatPanelToShape(node, opts = {}) {
     if (tableState) tableState.style.borderEnabled = fpBorderEnabled.checked;
   }
   if (fpBorder && !isControlMixed(fpBorder)) {
-    node.style.borderColor = fpBorder.value;
+    setShapeBorderColor(node, fpBorder.value);
     if (tableState) tableState.style.border = fpBorder.value;
   }
   if (fpLineStyle && !isControlMixed(fpLineStyle)) {
@@ -17341,7 +17446,7 @@ function syncFormatPanel() {
   fpFill.value = fillState.fill1;
   if (fpFill2) fpFill2.value = fillState.fill2;
   if (fpFillType) fpFillType.value = fillState.fillDirection;
-  fpBorder.value = rgbToHex(cs.borderColor);
+  fpBorder.value = rgbToHex(getShapeBorderColor(panelShape, cs.borderColor || "#000000"));
   const shapeBorderWidth = Math.max(0, Number(panelShape.dataset.borderWidth || cs.borderWidth || 1) || 0);
   fpBorderWidth.value = String(shapeBorderWidth);
   if (fpBorderWidthNum) fpBorderWidthNum.value = fpBorderWidth.value;
@@ -17601,8 +17706,8 @@ function applyFormat(opts = {}) {
   const lineEnabled = fpBorderEnabled ? fpBorderEnabled.checked : true;
   const borderWidth = Math.max(0, Number(fpBorderWidth.value) || 0);
   const borderStyle = normalizeBorderLineStyle(fpLineStyle ? fpLineStyle.value : (selectedShape.dataset.borderStyle || "solid"));
-  selectedShape.style.border = lineEnabled ? `${Math.max(1, borderWidth)}px solid ${fpBorder.value}` : "0px solid transparent";
-  selectedShape.style.borderColor = fpBorder.value;
+  const borderColor = setShapeBorderColor(selectedShape, fpBorder.value);
+  selectedShape.style.border = lineEnabled ? `${Math.max(1, borderWidth)}px solid ${borderColor}` : "0px solid transparent";
   selectedShape.dataset.borderWidth = String(borderWidth);
   selectedShape.dataset.borderEnabled = lineEnabled ? "1" : "0";
   selectedShape.dataset.borderStyle = borderStyle;
