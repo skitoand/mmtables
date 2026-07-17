@@ -12158,6 +12158,17 @@ function reindexBpProcessStages(processId, orderedStages = null) {
   return compactBpStageIndices(processId);
 }
 
+function getBpStageRowTop(processId) {
+  const stages = getBpStages(processId);
+  if (!stages.length) return 0;
+  return stages.reduce((min, stage) => {
+    const top = Number.isFinite(parseFloat(stage.style.top))
+      ? parseFloat(stage.style.top)
+      : getElementLogicalBox(stage).top;
+    return Math.min(min, top);
+  }, Infinity);
+}
+
 function repairBpProcessStageOrder(processId) {
   const id = String(processId || "").trim();
   if (!id) return;
@@ -12167,10 +12178,6 @@ function repairBpProcessStageOrder(processId) {
     layoutBpProcessBase(id);
     return;
   }
-  const rowTop = stages[0].style.top || `${getElementLogicalBox(stages[0]).top}px`;
-  stages.forEach((stage) => {
-    if (stage.style.top !== rowTop) stage.style.top = rowTop;
-  });
   relayoutBpStagesAfter(id, 1);
   layoutAllBpTasksInProcess(id);
 }
@@ -13152,18 +13159,30 @@ function applyBpStagesSteppedFill(stages, fill1, fill2) {
 function relayoutBpStagesAfter(processId, fromIndex = 1) {
   const stages = getBpStages(processId);
   if (!stages.length) return;
+  const rowTop = getBpStageRowTop(processId);
+
+  stages.forEach((stage) => {
+    const top = Number.isFinite(parseFloat(stage.style.top))
+      ? parseFloat(stage.style.top)
+      : getElementLogicalBox(stage).top;
+    if (Math.abs(top - rowTop) > 0.5) {
+      setNodePosition(stage, getElementLogicalBox(stage).left, rowTop);
+      layoutConnectorPoints(stage);
+    }
+  });
+
   if (stages.length === 1) {
     layoutBpProcessBase(processId);
     syncAllBpTasksInProcess(processId);
     renderConnectors();
     return;
   }
+
   const start = Math.max(1, Number(fromIndex) || 1);
   for (let i = start; i < stages.length; i += 1) {
     const prev = stages[i - 1];
     const current = stages[i];
-    const top = Number.isFinite(parseFloat(current.style.top)) ? parseFloat(current.style.top) : current.offsetTop;
-    setNodePosition(current, getBpStageLeftAfter(prev), top);
+    setNodePosition(current, getBpStageLeftAfter(prev), rowTop);
     layoutConnectorPoints(current);
   }
   layoutBpProcessBase(processId);

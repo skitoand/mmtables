@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-07-17 — выравнивание стадий БП в одну строку
+
+**Commit:** (pending) — Keep BP stages on a single row during relayout.  
+**Бэкап:** (pending)  
+**Деплой:** GitHub Actions (pending)  
+**Статус:** pending
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | `relayoutBpStagesAfter` выравнивает все стадии по общему `rowTop` (min top); исправляет «уехавшие вниз» при загрузке |
+| `index.html` | cache-buster `bp-stage-row-align-v1` |
+
+### Проверка на проде
+
+- [ ] hard refresh → документ «электрик»: все стадии РАСЧЕТ в одну строку
+
+---
+
 ## 2026-07-17 — перетаскивание стадий БП с задачами
 
 **Commit:** `7ea0922` — Drag BP stages with their tasks and reindex on drop.  
