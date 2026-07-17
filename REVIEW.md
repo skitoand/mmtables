@@ -12,10 +12,10 @@
 
 ## 2026-07-17 — relayout стадий БП сразу после удаления
 
-**Commit:** (pending) — Relayout BP stages immediately after stage deletion.  
-**Бэкап:** (pending)  
-**Деплой:** GitHub Actions (pending)  
-**Статус:** pending
+**Commit:** `f93c07f` — Relayout BP stages immediately after stage deletion.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260717-074238-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29563939388](https://github.com/skitoand/mmtables/actions/runs/29563939388)  
+**Статус:** OK
 
 ### Выкатано
 
@@ -26,6 +26,7 @@
 
 ### Проверка на проде
 
+- [x] публичный URL → 200
 - [ ] hard refresh → удалить стадию из середины — остальные сдвигаются сразу, без reload
 
 ---
