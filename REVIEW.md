@@ -12,10 +12,10 @@
 
 ## 2026-07-17 — без автовыделения всей группы БП
 
-**Commit:** (pending) — Disable auto group selection for sequential BP shapes.  
-**Бэкап:** (pending)  
-**Деплой:** GitHub Actions (pending)  
-**Статус:** pending
+**Commit:** `c97f6c1` — Disable auto group selection for sequential BP shapes.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260717-074640-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29564165609](https://github.com/skitoand/mmtables/actions/runs/29564165609)  
+**Статус:** OK
 
 ### Выкатано
 
@@ -26,6 +26,7 @@
 
 ### Проверка на проде
 
+- [x] публичный URL → 200
 - [ ] hard refresh → клик по стадии выделяет только её, без синей рамки на весь процесс
 
 ---
