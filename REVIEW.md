@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-07-17 — relayout стадий БП сразу после удаления
+
+**Commit:** (pending) — Relayout BP stages immediately after stage deletion.  
+**Бэкап:** (pending)  
+**Деплой:** GitHub Actions (pending)  
+**Статус:** pending
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | после удаления стадии — compact индексов, relayout цепочки, удаление задач без стадии; `getBpStageLeftAfter` по logical box |
+| `index.html` | cache-buster `bp-stage-delete-relayout-v1` |
+
+### Проверка на проде
+
+- [ ] hard refresh → удалить стадию из середины — остальные сдвигаются сразу, без reload
+
+---
+
 ## 2026-07-16 — вставка стадии БП по визуальному порядку
 
 **Commit:** `ef9a557` — Fix BP stage insert to use visual order and relayout immediately.  
