@@ -25,20 +25,18 @@
 
 ## ChatGPT (OAuth 2.1)
 
+**Инструкция со скриншотами:** [chatgpt-mcp-guide/](./chatgpt-mcp-guide/) · [открыть HTML](./chatgpt-mcp-guide/index.html)
+
 PAT в ChatGPT обычно вставить нельзя — нужен OAuth.
 
-1. В ChatGPT добавьте remote MCP / connector с URL:  
-   `https://mmtable.crystalsystems.ru/mcp`
-2. ChatGPT сам откроет discovery:
-   - `/.well-known/oauth-protected-resource`
-   - `/.well-known/oauth-authorization-server`
-3. При первом вызове tool откроется страница входа MM Table.
-4. Войдите email/паролем аккаунта MM Table и нажмите **Разрешить**.
-5. ChatGPT получит пару токенов:
-   - `access_token` (`oat_...`) — ~1 час, им ходят в `/mcp`
-   - `refresh_token` (`ort_...`) — ~90 дней, клиент сам обновляет access без повторного логина
+1. Settings → Apps → Advanced → **Developer mode**
+2. **Create** → URL `https://mmtable.crystalsystems.ru/mcp`, Auth = **OAuth**
+3. Войдите email/паролем MM Table и разрешите доступ
+4. В чате: **+** → Developer mode → включите MM Table
 
-Как у Notion/Figma: логин один раз, дальше silent refresh.
+ChatGPT получит пару токенов:
+- `access_token` (`oat_...`) — ~1 час
+- `refresh_token` (`ort_...`) — ~90 дней (silent refresh, как у Notion)
 
 Discovery endpoints:
 

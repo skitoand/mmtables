@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MM Table → ChatGPT MCP — инструкция</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --card: #ffffff;
+      --ink: #0f172a;
+      --muted: #475569;
+      --line: #e2e8f0;
+      --accent: #2563eb;
+      --warn: #b45309;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #dbeafe 0%, transparent 55%),
+        var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+    }
+    .wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { font-size: 2rem; margin: 0 0 8px; letter-spacing: -0.02em; }
+    .lead { color: var(--muted); font-size: 1.05rem; margin: 0 0 24px; }
+    .pill {
+      display: inline-block;
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 0.9rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      margin-bottom: 20px;
+    }
+    .note {
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      color: #78350f;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin: 0 0 28px;
+      font-size: 0.95rem;
+    }
+    .step {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 20px;
+      margin: 0 0 22px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+    }
+    .step h2 {
+      margin: 0 0 10px;
+      font-size: 1.25rem;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .num {
+      width: 28px; height: 28px; border-radius: 999px;
+      background: var(--accent); color: #fff;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 0.9rem; font-weight: 700; flex: 0 0 auto;
+    }
+    .step ol, .step ul { margin: 0 0 14px; padding-left: 1.2rem; color: var(--muted); }
+    .step img {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      display: block;
+      background: #f8fafc;
+    }
+    table {
+      width: 100%; border-collapse: collapse; margin: 10px 0 14px;
+      font-size: 0.95rem;
+    }
+    th, td {
+      border: 1px solid var(--line); padding: 8px 10px; text-align: left;
+    }
+    th { background: #f8fafc; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: #f1f5f9; padding: 1px 6px; border-radius: 6px;
+    }
+    .copy {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+      margin: 8px 0 12px;
+    }
+    .copy input {
+      flex: 1 1 280px; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid var(--line); font-family: ui-monospace, Menlo, monospace;
+    }
+    .copy button {
+      border: 0; background: var(--accent); color: #fff;
+      border-radius: 8px; padding: 10px 14px; font-weight: 600; cursor: pointer;
+    }
+    footer { color: var(--muted); font-size: 0.9rem; margin-top: 28px; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Подключить MM Table к ChatGPT</h1>
+    <p class="lead">Инструкция со скриншотами: стрелки и подсказки на картинках показывают, куда нажимать.</p>
+    <div class="pill">https://mmtable.crystalsystems.ru/mcp</div>
+    <div class="note">
+      Нужен платный ChatGPT и <strong>Developer mode</strong>.
+      В UI названия могут быть Apps / Connectors / Plugins — смысл один.
+      Auth выбирайте <strong>OAuth</strong>, не API key.
+    </div>
+
+    <div class="step">
+      <h2><span class="num">1</span> Settings → Apps</h2>
+      <ol>
+        <li>Откройте chatgpt.com</li>
+        <li>Аватар → <strong>Settings</strong></li>
+        <li>Слева выберите <strong>Apps</strong></li>
+      </ol>
+      <img src="chatgpt-mcp-01-settings.jpg" alt="Шаг 1: Settings → Apps" />
+    </div>
+
+    <div class="step">
+      <h2><span class="num">2</span> Включите Developer mode</h2>
+      <ol>
+        <li>Откройте <strong>Advanced settings</strong></li>
+        <li>Включите переключатель <strong>Developer mode</strong></li>
+      </ol>
+      <img src="chatgpt-mcp-02-developer-mode.jpg" alt="Шаг 2: Developer mode" />
+    </div>
+
+    <div class="step">
+      <h2><span class="num">3</span> Нажмите Create</h2>
+      <ol>
+        <li>Вернитесь к списку Apps</li>
+        <li>Нажмите <strong>Create</strong></li>
+      </ol>
+      <img src="chatgpt-mcp-03-create-app.jpg" alt="Шаг 3: Create app" />
+    </div>
+
+    <div class="step">
+      <h2><span class="num">4</span> URL и OAuth</h2>
+      <table>
+        <tr><th>Поле</th><th>Значение</th></tr>
+        <tr><td>Name</td><td>MM Table</td></tr>
+        <tr><td>Description</td><td>Документы, таблицы и бизнес-процессы</td></tr>
+        <tr><td>MCP server URL</td><td><code>https://mmtable.crystalsystems.ru/mcp</code></td></tr>
+        <tr><td>Authentication</td><td><strong>OAuth</strong></td></tr>
+      </table>
+      <div class="copy">
+        <input id="mcpUrl" readonly value="https://mmtable.crystalsystems.ru/mcp" />
+        <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('mcpUrl').value)">Копировать URL</button>
+      </div>
+      <img src="chatgpt-mcp-04-form-url.jpg" alt="Шаг 4: форма URL и OAuth" />
+    </div>
+
+    <div class="step">
+      <h2><span class="num">5</span> Войдите в MM Table</h2>
+      <ol>
+        <li>Откроется страница OAuth MM Table</li>
+        <li>Введите email/пароль от mmtable.crystalsystems.ru</li>
+        <li>Нажмите <strong>Войти и продолжить</strong> / <strong>Разрешить</strong></li>
+      </ol>
+      <img src="chatgpt-mcp-05-oauth-login.jpg" alt="Шаг 5: OAuth логин" />
+    </div>
+
+    <div class="step">
+      <h2><span class="num">6</span> Включите в чате</h2>
+      <ol>
+        <li>В диалоге нажмите <strong>+</strong></li>
+        <li>Выберите <strong>Developer mode</strong></li>
+        <li>Включите <strong>MM Table</strong></li>
+        <li>Напишите: «Создай бизнес-процесс из 5 этапов…»</li>
+      </ol>
+      <img src="chatgpt-mcp-06-use-in-chat.jpg" alt="Шаг 6: использование в чате" />
+    </div>
+
+    <footer>
+      Markdown-версия: <a href="README.md">README.md</a> ·
+      Технические детали: <a href="../MCP.md">docs/MCP.md</a>
+    </footer>
+  </div>
+</body>
+</html>
