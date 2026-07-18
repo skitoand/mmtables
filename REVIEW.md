@@ -10,6 +10,27 @@
 
 ---
 
+## 2026-07-18 — независимое выравнивание текста + вход в редактирование из share
+
+**Commit:** `f44182d` — Fix independent text align buttons and shared-doc edit entry.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260718-151221-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29649519161](https://github.com/skitoand/mmtables/actions/runs/29649519161)  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `app.js` | горизонталь/вертикаль текста больше не переписывают друг друга; публичная ссылка остаётся view-only, при личном доступе — кнопка «Открыть для редактирования» |
+| `index.html` | cache-buster `align-axes-independent` |
+
+### Проверка на проде
+
+- [x] публичный URL → 200
+- [ ] hard refresh → выделить 2 фигуры: Left+Middle → клик Center → остаётся Center+Middle
+
+---
+
 ## 2026-07-17 — шеврон: превью, жёлтый буллит, линия
 
 **Commit:** `f36863e` — Fix chevron place preview, yellow depth handle, and missing SVG border.  
