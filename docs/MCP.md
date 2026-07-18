@@ -34,7 +34,11 @@ PAT в ChatGPT обычно вставить нельзя — нужен OAuth.
    - `/.well-known/oauth-authorization-server`
 3. При первом вызове tool откроется страница входа MM Table.
 4. Войдите email/паролем аккаунта MM Table и нажмите **Разрешить**.
-5. ChatGPT получит access token (`oat_...`) и будет слать его как `Authorization: Bearer`.
+5. ChatGPT получит пару токенов:
+   - `access_token` (`oat_...`) — ~1 час, им ходят в `/mcp`
+   - `refresh_token` (`ort_...`) — ~90 дней, клиент сам обновляет access без повторного логина
+
+Как у Notion/Figma: логин один раз, дальше silent refresh.
 
 Discovery endpoints:
 
@@ -76,6 +80,6 @@ Scopes: `docs:read`, `docs:write`.
 - Нет raw-записи всего `layout_json` через MCP.
 - Нет Bitrix / freedraw / image.
 - Для записи нужна роль `editor+` на документ.
-- OAuth access token живёт 8 часов; повторный login при истечении.
+- OAuth access ~1 час, refresh ~90 дней (с ротацией refresh token).
 
 Контракт данных: [MCP_LAYOUT_CONTRACT.md](./MCP_LAYOUT_CONTRACT.md).

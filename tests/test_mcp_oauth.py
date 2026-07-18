@@ -116,7 +116,10 @@ class McpOAuthTests(unittest.TestCase):
         )
         self.assertEqual(token.status_code, 200)
         access = token.json["access_token"]
+        refresh = token.json["refresh_token"]
         self.assertTrue(access.startswith("oat_"))
+        self.assertTrue(refresh.startswith("ort_"))
+        self.assertEqual(token.json["expires_in"], 3600)
 
         mcp = self.client.post(
             "/mcp",
@@ -125,6 +128,39 @@ class McpOAuthTests(unittest.TestCase):
         )
         self.assertEqual(mcp.status_code, 200)
         self.assertGreaterEqual(len(mcp.json["result"]["tools"]), 1)
+
+        refreshed = self.client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh,
+                "client_id": client_id,
+                "resource": "https://mmtable.test/mcp",
+            },
+        )
+        self.assertEqual(refreshed.status_code, 200)
+        self.assertTrue(refreshed.json["access_token"].startswith("oat_"))
+        self.assertTrue(refreshed.json["refresh_token"].startswith("ort_"))
+        self.assertNotEqual(refreshed.json["refresh_token"], refresh)
+
+        # Old refresh token must be invalidated after rotation.
+        reuse = self.client.post(
+            "/oauth/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh,
+                "client_id": client_id,
+                "resource": "https://mmtable.test/mcp",
+            },
+        )
+        self.assertEqual(reuse.status_code, 400)
+
+        mcp2 = self.client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 3, "method": "tools/list"},
+            headers={"Authorization": f"Bearer {refreshed.json['access_token']}", "Accept": "application/json"},
+        )
+        self.assertEqual(mcp2.status_code, 200)
 
 
 if __name__ == "__main__":

@@ -27,7 +27,10 @@ from flask import jsonify, make_response, redirect, request, session
 
 OAUTH_SCOPES = ("docs:read", "docs:write")
 ACCESS_TOKEN_PREFIX = "oat_"
-ACCESS_TOKEN_TTL_SEC = 60 * 60 * 8
+REFRESH_TOKEN_PREFIX = "ort_"
+# Notion-style: short-lived access + long-lived refresh for silent renewal.
+ACCESS_TOKEN_TTL_SEC = 60 * 60  # 1 hour
+REFRESH_TOKEN_TTL_SEC = 60 * 60 * 24 * 90  # 90 days
 AUTH_CODE_TTL_SEC = 60 * 10
 CHATGPT_REDIRECT_PREFIXES = (
     "https://chatgpt.com/connector/oauth/",
@@ -103,6 +106,22 @@ def init_oauth_tables(conn):
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_oauth_tokens_email ON oauth_access_tokens(email)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+          token_hash TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          client_id TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          resource TEXT,
+          expires_at TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          revoked_at TEXT,
+          replaced_by_hash TEXT
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_oauth_refresh_email ON oauth_refresh_tokens(email)")
 
 
 def register_mcp_oauth(app, deps):
@@ -289,6 +308,7 @@ def register_mcp_oauth(app, deps):
                 "token_endpoint_auth_methods_supported": ["none", "client_secret_post", "client_secret_basic"],
                 "client_id_metadata_document_supported": True,
                 "service_documentation": f"{base}/docs/MCP.md",
+                "revocation_endpoint_auth_methods_supported": ["none", "client_secret_post"],
             }
         )
 
@@ -337,7 +357,7 @@ def register_mcp_oauth(app, deps):
             "client_id_issued_at": int(time.time()),
             "client_name": str(payload.get("client_name") or "MCP client")[:120],
             "redirect_uris": redirect_uris,
-            "grant_types": ["authorization_code"],
+            "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
             "token_endpoint_auth_method": auth_method if auth_method != "none" else "none",
             "client_secret_expires_at": 0,
@@ -517,9 +537,12 @@ def register_mcp_oauth(app, deps):
 
     # --- Token ---
 
-    def _client_auth(conn):
-        client_id = request.form.get("client_id") or (request.get_json(silent=True) or {}).get("client_id")
-        client_secret = request.form.get("client_secret")
+    def _client_auth(conn, form=None):
+        form = form or {}
+        client_id = form.get("client_id") or request.form.get("client_id")
+        if not client_id and request.is_json:
+            client_id = (request.get_json(silent=True) or {}).get("client_id")
+        client_secret = form.get("client_secret") or request.form.get("client_secret")
         auth = request.headers.get("Authorization") or ""
         if auth.lower().startswith("basic "):
             try:
@@ -540,6 +563,43 @@ def register_mcp_oauth(app, deps):
             return None, "invalid_client"
         return client, None
 
+    def _parse_expiry(value):
+        try:
+            expires_at = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return _utc_now() - timedelta(seconds=1)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return expires_at
+
+    def _issue_token_pair(conn, *, email, client_id, scope, resource):
+        access = ACCESS_TOKEN_PREFIX + secrets.token_urlsafe(32)
+        refresh = REFRESH_TOKEN_PREFIX + secrets.token_urlsafe(40)
+        access_expires = _utc_now() + timedelta(seconds=ACCESS_TOKEN_TTL_SEC)
+        refresh_expires = _utc_now() + timedelta(seconds=REFRESH_TOKEN_TTL_SEC)
+        conn.execute(
+            """
+            INSERT INTO oauth_access_tokens(token_hash, email, client_id, scope, resource, expires_at)
+            VALUES(?, ?, ?, ?, ?, ?)
+            """,
+            (_hash_token(access), email, client_id, scope, resource, _iso(access_expires)),
+        )
+        conn.execute(
+            """
+            INSERT INTO oauth_refresh_tokens(token_hash, email, client_id, scope, resource, expires_at)
+            VALUES(?, ?, ?, ?, ?, ?)
+            """,
+            (_hash_token(refresh), email, client_id, scope, resource, _iso(refresh_expires)),
+        )
+        return {
+            "access_token": access,
+            "refresh_token": refresh,
+            "token_type": "Bearer",
+            "expires_in": ACCESS_TOKEN_TTL_SEC,
+            "scope": str(scope).replace(",", " "),
+            "resource": resource,
+        }
+
     @app.post("/oauth/token")
     def oauth_token():
         # Support form-urlencoded (standard) and JSON.
@@ -548,22 +608,69 @@ def register_mcp_oauth(app, deps):
             form = request.get_json(force=True, silent=True) or {}
 
         grant_type = str(form.get("grant_type") or "")
+        resource = str(form.get("resource") or mcp_resource()).rstrip("/")
+        if resource in {issuer(), issuer() + "/"}:
+            resource = mcp_resource()
+        expected = mcp_resource().rstrip("/")
+
+        conn = db()
+        init_oauth_tables(conn)
+        client, err = _client_auth(conn, form)
+        if err:
+            conn.close()
+            return jsonify({"error": err}), 401
+
+        if grant_type == "refresh_token":
+            refresh_raw = str(form.get("refresh_token") or "").strip()
+            if not refresh_raw.startswith(REFRESH_TOKEN_PREFIX):
+                conn.close()
+                return jsonify({"error": "invalid_grant"}), 400
+            row = conn.execute(
+                """
+                SELECT * FROM oauth_refresh_tokens
+                WHERE token_hash = ? AND revoked_at IS NULL
+                LIMIT 1
+                """,
+                (_hash_token(refresh_raw),),
+            ).fetchone()
+            if not row or row["client_id"] != client["client_id"]:
+                conn.close()
+                return jsonify({"error": "invalid_grant"}), 400
+            if _parse_expiry(row["expires_at"]) < _utc_now():
+                conn.close()
+                return jsonify({"error": "invalid_grant", "error_description": "refresh_expired"}), 400
+            token_resource = str(row["resource"] or expected).rstrip("/")
+            if resource.rstrip("/") != expected or token_resource != expected:
+                conn.close()
+                return jsonify({"error": "invalid_target"}), 400
+
+            # Rotate refresh token (Notion-like / OAuth best practice).
+            payload = _issue_token_pair(
+                conn,
+                email=row["email"],
+                client_id=client["client_id"],
+                scope=row["scope"],
+                resource=expected,
+            )
+            conn.execute(
+                """
+                UPDATE oauth_refresh_tokens
+                SET revoked_at = ?, replaced_by_hash = ?
+                WHERE token_hash = ?
+                """,
+                (_iso(_utc_now()), _hash_token(payload["refresh_token"]), row["token_hash"]),
+            )
+            conn.commit()
+            conn.close()
+            return jsonify(payload)
+
         if grant_type != "authorization_code":
+            conn.close()
             return jsonify({"error": "unsupported_grant_type"}), 400
 
         code = str(form.get("code") or "")
         redirect_uri = str(form.get("redirect_uri") or "")
         verifier = str(form.get("code_verifier") or "")
-        resource = str(form.get("resource") or mcp_resource()).rstrip("/")
-        if resource in {issuer(), issuer() + "/"}:
-            resource = mcp_resource()
-
-        conn = db()
-        init_oauth_tables(conn)
-        client, err = _client_auth(conn)
-        if err:
-            conn.close()
-            return jsonify({"error": err}), 401
 
         row = conn.execute("SELECT * FROM oauth_auth_codes WHERE code = ?", (code,)).fetchone()
         if not row or row["used_at"]:
@@ -578,53 +685,29 @@ def register_mcp_oauth(app, deps):
         if row["code_challenge_method"] != "S256" or _pkce_s256(verifier) != row["code_challenge"]:
             conn.close()
             return jsonify({"error": "invalid_grant", "error_description": "pkce_failed"}), 400
-        try:
-            expires_at = datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00"))
-        except ValueError:
-            expires_at = _utc_now() - timedelta(seconds=1)
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if expires_at < _utc_now():
+        if _parse_expiry(row["expires_at"]) < _utc_now():
             conn.close()
             return jsonify({"error": "invalid_grant", "error_description": "code_expired"}), 400
 
-        expected = mcp_resource().rstrip("/")
         token_resource = str(row["resource"] or expected).rstrip("/")
         if resource.rstrip("/") != expected or token_resource != expected:
             conn.close()
             return jsonify({"error": "invalid_target"}), 400
 
-        access = ACCESS_TOKEN_PREFIX + secrets.token_urlsafe(32)
-        token_expires = _utc_now() + timedelta(seconds=ACCESS_TOKEN_TTL_SEC)
         conn.execute(
             "UPDATE oauth_auth_codes SET used_at = ? WHERE code = ?",
             (_iso(_utc_now()), code),
         )
-        conn.execute(
-            """
-            INSERT INTO oauth_access_tokens(token_hash, email, client_id, scope, resource, expires_at)
-            VALUES(?, ?, ?, ?, ?, ?)
-            """,
-            (
-                _hash_token(access),
-                row["email"],
-                client["client_id"],
-                row["scope"],
-                expected,
-                _iso(token_expires),
-            ),
+        payload = _issue_token_pair(
+            conn,
+            email=row["email"],
+            client_id=client["client_id"],
+            scope=row["scope"],
+            resource=expected,
         )
         conn.commit()
         conn.close()
-        return jsonify(
-            {
-                "access_token": access,
-                "token_type": "Bearer",
-                "expires_in": ACCESS_TOKEN_TTL_SEC,
-                "scope": str(row["scope"]).replace(",", " "),
-                "resource": expected,
-            }
-        )
+        return jsonify(payload)
 
     def lookup_access_token(raw_token: str):
         raw = str(raw_token or "").strip()
