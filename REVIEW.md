@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-07-18 — Claude.ai OAuth для MCP
+
+**Commit:** `aab125a` — Add Claude.ai OAuth support for MM Table MCP connectors.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260718-194523-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29658391758](https://github.com/skitoand/mmtables/actions/runs/29658391758)  
+**Статус:** OK
+
+### Что сделано
+Разрешён OAuth redirect Claude `https://claude.ai/api/mcp/auth_callback`, loopback для Claude Code, CIMD fallback для claude.ai/anthropic.com, в UI/доках — инструкция подключения.
+
+### Проверка
+- [x] `POST /oauth/register` с Claude redirect → 201
+- [x] metadata содержит `offline_access`
+- [x] unit tests OAuth OK
+
+### Как подключить
+Claude → Customize → Connectors → Add custom connector → URL `https://mmtable.crystalsystems.ru/mcp` → Connect → логин MM Table.
+
+---
+
 ## 2026-07-18 — fix ChatGPT OAuth CIMD 403
 
 **Commit:** `58c440b` — Fix ChatGPT MCP OAuth when CIMD fetch is blocked by Cloudflare.  
