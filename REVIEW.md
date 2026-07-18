@@ -10,6 +10,33 @@
 
 ---
 
+## 2026-07-18 — MCP remote + PAT + object API
+
+**Commit:** `52d026d` — Include MCP Python modules in production deploy package. (feature: `bbc21db`)  
+**Бэкап:** `mmtable-PROD-BACKUP-20260718-162048-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29651770697](https://github.com/skitoand/mmtables/actions/runs/29651770697)  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `server.py` | PAT (`api_tokens`), Bearer auth, `/api/me/tokens`, `/api/mcp/config` |
+| `layout_engine/` | серверные мутации shapes/tables/BP/connectors |
+| `api_v1.py` | object-level REST `/api/v1` |
+| `mcp_http.py` | Streamable HTTP MCP на `/mcp` |
+| `app.js` / `index.html` / `styles.css` | UI токенов в Профиле |
+| `docs/MCP.md`, `docs/MCP_LAYOUT_CONTRACT.md` | документация |
+| `scripts/deploy_prod.sh` | выкладка новых Python-модулей |
+
+### Проверка на проде
+
+- [x] публичный URL → 200
+- [x] `POST /mcp` без токена → 401
+- [ ] Профиль → создать MCP-токен → Cursor tools/list
+
+---
+
 ## 2026-07-18 — независимое выравнивание текста + вход в редактирование из share
 
 **Commit:** `f44182d` — Fix independent text align buttons and shared-doc edit entry.  
