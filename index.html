@@ -7,7 +7,7 @@
     <title>MMTable</title>
     <link rel="icon" type="image/png" sizes="128x128" href="assets/favicon.png?v=20260701-crop" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=20260701-crop" />
-    <link rel="stylesheet" href="styles.css?v=20260718-align-axes-independent" />
+    <link rel="stylesheet" href="styles.css?v=20260718-mcp-v1" />
   </head>
   <body>
     <div class="app">
@@ -626,6 +626,24 @@
               <button id="bitrixDisconnectBtn" type="button">Отключить</button>
             </div>
           </div>
+          <div class="mcp-integration-block">
+            <h4>MCP / Cursor</h4>
+            <p class="mcp-integration-hint">Создайте токен и добавьте сервер в Cursor (Settings → MCP). Подробнее: <code>docs/MCP.md</code>.</p>
+            <label for="mcpTokenNameInput">Имя токена</label>
+            <input id="mcpTokenNameInput" type="text" placeholder="Cursor MCP" autocomplete="off" />
+            <div class="mcp-integration-actions">
+              <button id="mcpCreateTokenBtn" type="button">Создать токен</button>
+              <button id="mcpCopyConfigBtn" type="button">Копировать конфиг</button>
+            </div>
+            <div id="mcpTokenOnceWrap" class="mcp-token-once hidden">
+              <label for="mcpTokenOnceInput">Токен (показывается один раз)</label>
+              <textarea id="mcpTokenOnceInput" rows="2" readonly></textarea>
+              <button id="mcpCopyTokenBtn" type="button">Копировать токен</button>
+            </div>
+            <div id="mcpConfigPreview" class="mcp-config-preview"></div>
+            <div id="mcpTokenList" class="mcp-token-list"></div>
+            <div id="mcpIntegrationStatus" class="mcp-integration-status"></div>
+          </div>
         </div>
         <div class="modal-actions">
           <button id="profileModalCloseBtn" type="button">Закрыть</button>
@@ -819,7 +837,7 @@
     <script src="vendor/laser-pointer.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="vendor/perfect-freehand.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="draw-tools.js?v=20260714-toolbar-active-tooltip-v1"></script>
-    <script src="app.js?v=20260718-align-axes-independent"></script>
+    <script src="app.js?v=20260718-mcp-v1"></script>
     <script src="bitrix-chart.js?v=20260713-laser-fade-v1"></script>
   </body>
 </html>

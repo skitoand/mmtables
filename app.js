@@ -49,6 +49,17 @@ const profileCurrentPasswordInput = $("profileCurrentPasswordInput");
 const profileNewPasswordLabel = $("profileNewPasswordLabel");
 const profileNewPasswordInput = $("profileNewPasswordInput");
 const profileErrorText = $("profileErrorText");
+const mcpTokenNameInput = $("mcpTokenNameInput");
+const mcpCreateTokenBtn = $("mcpCreateTokenBtn");
+const mcpCopyConfigBtn = $("mcpCopyConfigBtn");
+const mcpTokenOnceWrap = $("mcpTokenOnceWrap");
+const mcpTokenOnceInput = $("mcpTokenOnceInput");
+const mcpCopyTokenBtn = $("mcpCopyTokenBtn");
+const mcpConfigPreview = $("mcpConfigPreview");
+const mcpTokenList = $("mcpTokenList");
+const mcpIntegrationStatus = $("mcpIntegrationStatus");
+let mcpConfigCache = null;
+let mcpCreatedToken = "";
 const shareModal = $("shareModal");
 const shareModalCloseBtn = $("shareModalCloseBtn");
 const shareDocMeta = $("shareDocMeta");
@@ -5313,6 +5324,128 @@ function syncProfilePasswordUi() {
   }
 }
 
+function setMcpStatus(text, isError = false) {
+  if (!mcpIntegrationStatus) return;
+  mcpIntegrationStatus.textContent = String(text || "");
+  mcpIntegrationStatus.classList.toggle("mcp-integration-status-error", !!isError && !!text);
+}
+
+function buildMcpConfigText(tokenValue) {
+  const url = (mcpConfigCache && mcpConfigCache.mcpUrl) || `${location.origin}/mcp`;
+  const token = tokenValue || "<PASTE_TOKEN_HERE>";
+  return JSON.stringify(
+    {
+      mcpServers: {
+        mmtable: {
+          url,
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      }
+    },
+    null,
+    2
+  );
+}
+
+function renderMcpConfigPreview() {
+  if (mcpConfigPreview) mcpConfigPreview.textContent = buildMcpConfigText(mcpCreatedToken || undefined);
+}
+
+async function loadMcpProfileUi() {
+  if (!currentUser) return;
+  setMcpStatus("");
+  try {
+    const [configData, tokensData] = await Promise.all([
+      fetchJson("/api/mcp/config"),
+      fetchJson("/api/me/tokens")
+    ]);
+    mcpConfigCache = configData || null;
+    renderMcpConfigPreview();
+    renderMcpTokenList((tokensData && tokensData.tokens) || []);
+  } catch (err) {
+    console.error(err);
+    setMcpStatus("Не удалось загрузить настройки MCP.", true);
+  }
+}
+
+function renderMcpTokenList(tokens) {
+  if (!mcpTokenList) return;
+  mcpTokenList.innerHTML = "";
+  if (!tokens.length) {
+    const empty = document.createElement("div");
+    empty.className = "mcp-token-meta";
+    empty.textContent = "Активных токенов нет.";
+    mcpTokenList.appendChild(empty);
+    return;
+  }
+  tokens.forEach((token) => {
+    const row = document.createElement("div");
+    row.className = "mcp-token-row";
+    const info = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = token.name || "Токен";
+    const meta = document.createElement("div");
+    meta.className = "mcp-token-meta";
+    meta.textContent = `${token.tokenPrefix || ""} · ${(token.scopes || []).join(", ")}`;
+    info.appendChild(title);
+    info.appendChild(meta);
+    const revokeBtn = document.createElement("button");
+    revokeBtn.type = "button";
+    revokeBtn.textContent = "Отозвать";
+    revokeBtn.addEventListener("click", async () => {
+      try {
+        await fetchJson(`/api/me/tokens/${encodeURIComponent(token.id)}`, { method: "DELETE" });
+        setMcpStatus("Токен отозван.");
+        await loadMcpProfileUi();
+      } catch (err) {
+        console.error(err);
+        setMcpStatus("Не удалось отозвать токен.", true);
+      }
+    });
+    row.appendChild(info);
+    row.appendChild(revokeBtn);
+    mcpTokenList.appendChild(row);
+  });
+}
+
+async function createMcpToken() {
+  if (!currentUser) return;
+  const name = String(mcpTokenNameInput ? mcpTokenNameInput.value : "").trim() || "Cursor MCP";
+  setMcpStatus("");
+  try {
+    const data = await fetchJson("/api/me/tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, scopes: ["docs:read", "docs:write"] })
+    });
+    mcpCreatedToken = String((data && data.token) || "");
+    if (mcpTokenOnceInput) mcpTokenOnceInput.value = mcpCreatedToken;
+    if (mcpTokenOnceWrap) mcpTokenOnceWrap.classList.toggle("hidden", !mcpCreatedToken);
+    renderMcpConfigPreview();
+    setMcpStatus("Токен создан. Скопируйте его сейчас — повторно показать нельзя.");
+    await loadMcpProfileUi();
+  } catch (err) {
+    console.error(err);
+    setMcpStatus("Не удалось создать токен.", true);
+  }
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text || "");
+  if (!value) return false;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(value);
+    return true;
+  }
+  const area = document.createElement("textarea");
+  area.value = value;
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand("copy");
+  area.remove();
+  return true;
+}
+
 function openProfileModal() {
   if (!currentUser) {
     openAuthModal("login");
@@ -5324,6 +5457,11 @@ function openProfileModal() {
   if (profileCurrentPasswordInput) profileCurrentPasswordInput.value = "";
   syncProfilePasswordUi();
   if (window.BitrixChart && window.BitrixChart.syncBitrixProfileUi) window.BitrixChart.syncBitrixProfileUi();
+  mcpCreatedToken = "";
+  if (mcpTokenOnceWrap) mcpTokenOnceWrap.classList.add("hidden");
+  if (mcpTokenOnceInput) mcpTokenOnceInput.value = "";
+  if (mcpTokenNameInput) mcpTokenNameInput.value = "Cursor MCP";
+  loadMcpProfileUi();
   if (profileModal) profileModal.classList.remove("hidden");
   if (profileNameInput) profileNameInput.focus();
 }
@@ -17903,6 +18041,31 @@ safeOn(profileModal, "click", (e) => {
   if (e.target === profileModal) closeProfileModal();
 });
 safeOn(profileSaveBtn, "click", saveProfileSettings);
+safeOn(mcpCreateTokenBtn, "click", (e) => {
+  e.preventDefault();
+  createMcpToken();
+});
+safeOn(mcpCopyTokenBtn, "click", async (e) => {
+  e.preventDefault();
+  try {
+    await copyTextToClipboard(mcpCreatedToken || (mcpTokenOnceInput && mcpTokenOnceInput.value) || "");
+    setMcpStatus("Токен скопирован.");
+  } catch (err) {
+    console.error(err);
+    setMcpStatus("Не удалось скопировать токен.", true);
+  }
+});
+safeOn(mcpCopyConfigBtn, "click", async (e) => {
+  e.preventDefault();
+  try {
+    if (!mcpConfigCache) await loadMcpProfileUi();
+    await copyTextToClipboard(buildMcpConfigText(mcpCreatedToken || undefined));
+    setMcpStatus(mcpCreatedToken ? "Конфиг со токеном скопирован." : "Конфиг скопирован. Вставьте токен вместо плейсхолдера.");
+  } catch (err) {
+    console.error(err);
+    setMcpStatus("Не удалось скопировать конфиг.", true);
+  }
+});
 safeOn(profileNameInput, "keydown", (e) => {
   if (e.key === "Enter") saveProfileSettings();
   if (e.key === "Escape") closeProfileModal();

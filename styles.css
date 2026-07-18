@@ -2238,6 +2238,80 @@ body.dark #fileModalCloseBtn:hover{
   display:flex;
   gap:8px;
 }
+.mcp-integration-block{
+  margin-top:18px;
+  padding-top:16px;
+  border-top:1px solid #e2e8f0;
+}
+.mcp-integration-block h4{
+  margin:0 0 8px;
+  font-size:15px;
+}
+.mcp-integration-hint{
+  margin:0 0 10px;
+  color:#64748b;
+  font-size:12px;
+  line-height:1.45;
+}
+.mcp-integration-actions{
+  display:flex;
+  gap:8px;
+  margin:10px 0;
+  flex-wrap:wrap;
+}
+.mcp-token-once{
+  margin:10px 0;
+}
+.mcp-token-once textarea,
+.mcp-config-preview{
+  width:100%;
+  box-sizing:border-box;
+  font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size:11px;
+  line-height:1.4;
+  border:1px solid #cbd5e1;
+  border-radius:8px;
+  padding:8px;
+  background:#f8fafc;
+  color:#0f172a;
+  white-space:pre-wrap;
+  word-break:break-all;
+}
+.mcp-config-preview{
+  min-height:72px;
+  margin-bottom:10px;
+}
+.mcp-token-list{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:8px;
+}
+.mcp-token-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:8px 10px;
+  border:1px solid #e2e8f0;
+  border-radius:8px;
+  font-size:12px;
+}
+.mcp-token-row strong{
+  display:block;
+  color:#0f172a;
+}
+.mcp-token-meta{
+  color:#64748b;
+}
+.mcp-integration-status{
+  margin-top:8px;
+  font-size:12px;
+  color:#475569;
+}
+.mcp-integration-status.mcp-integration-status-error{
+  color:#b91c1c;
+}
 .bitrix-connect-placeholder{
   width:100%;
   height:100%;
@@ -2581,6 +2655,21 @@ body.dark .bitrix-widget-loading-spinner{
 }
 body.dark .bitrix-integration-block{
   border-top-color:#334155;
+}
+body.dark .mcp-integration-block{
+  border-top-color:#334155;
+}
+body.dark .mcp-token-once textarea,
+body.dark .mcp-config-preview{
+  background:#0f172a;
+  border-color:#334155;
+  color:#e2e8f0;
+}
+body.dark .mcp-token-row{
+  border-color:#334155;
+}
+body.dark .mcp-token-row strong{
+  color:#f8fafc;
 }
 body.dark .bitrix-chart-card{
   background:#0f172a;

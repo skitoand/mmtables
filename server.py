@@ -17,8 +17,11 @@ from urllib.request import Request, urlopen
 
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
-from flask import Flask, jsonify, make_response, redirect, request, send_from_directory, session
+from flask import Flask, g, jsonify, make_response, redirect, request, send_from_directory, session
 from werkzeug.middleware.proxy_fix import ProxyFix
+
+from api_v1 import register_api_v1
+from mcp_http import register_mcp
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -192,6 +195,9 @@ def _blank_layout():
                     "zCounter": 10,
                     "windowCounter": 1,
                     "shapeCounter": 1,
+                    "groupCounter": 1,
+                    "frameCounter": 1,
+                    "bpProcessCounter": 1,
                     "windows": [],
                     "shapes": [],
                     "connectors": [],
@@ -199,6 +205,10 @@ def _blank_layout():
             }
         ],
     }
+
+
+API_TOKEN_PREFIX = "mmt_"
+API_TOKEN_SCOPES = {"docs:read", "docs:write"}
 
 
 def _init_db():
@@ -325,6 +335,23 @@ def _init_db():
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_user_folders_email ON user_folders(email)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS api_tokens (
+          id TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          token_hash TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
+          scopes TEXT NOT NULL,
+          token_prefix TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          last_used_at DATETIME,
+          revoked_at DATETIME
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_email ON api_tokens(email)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash)")
     _migrate_legacy_doc_ids(conn)
     conn.commit()
     conn.close()
@@ -344,15 +371,124 @@ if GOOGLE_AUTH_ENABLED:
     )
 
 
+def _hash_api_token(token: str) -> str:
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
+
+
+def _parse_scopes(raw) -> set:
+    if isinstance(raw, (list, tuple, set)):
+        values = [str(x).strip() for x in raw]
+    else:
+        values = [part.strip() for part in str(raw or "").split(",")]
+    scopes = {v for v in values if v in API_TOKEN_SCOPES}
+    if "docs:write" in scopes:
+        scopes.add("docs:read")
+    return scopes or {"docs:read", "docs:write"}
+
+
+def _scopes_csv(scopes) -> str:
+    parsed = _parse_scopes(scopes)
+    return ",".join(sorted(parsed))
+
+
+def _lookup_api_token(token: str):
+    raw = str(token or "").strip()
+    if not raw.startswith(API_TOKEN_PREFIX):
+        return None
+    token_hash = _hash_api_token(raw)
+    conn = _db()
+    row = conn.execute(
+        """
+        SELECT * FROM api_tokens
+        WHERE token_hash = ? AND revoked_at IS NULL
+        LIMIT 1
+        """,
+        (token_hash,),
+    ).fetchone()
+    if row:
+        conn.execute(
+            "UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (row["id"],),
+        )
+        conn.commit()
+        refreshed = conn.execute("SELECT * FROM api_tokens WHERE id = ?", (row["id"],)).fetchone()
+        conn.close()
+        return refreshed
+    conn.close()
+    return None
+
+
+def _bearer_token_from_request():
+    header = str(request.headers.get("Authorization") or "")
+    if header.lower().startswith("bearer "):
+        return header[7:].strip()
+    return ""
+
+
+def _authenticate_request():
+    """Resolve session cookie or Bearer PAT. Sets flask.g auth fields."""
+    if getattr(g, "_auth_resolved", False):
+        return getattr(g, "auth_email", None), set(getattr(g, "auth_scopes", set()) or set()), getattr(g, "auth_token", None)
+
+    g._auth_resolved = True
+    g.auth_email = None
+    g.auth_scopes = set()
+    g.auth_token = None
+    g.auth_via = None
+
+    bearer = _bearer_token_from_request()
+    if bearer:
+        row = _lookup_api_token(bearer)
+        if row:
+            g.auth_email = _normalize_email(row["email"])
+            g.auth_scopes = _parse_scopes(row["scopes"])
+            g.auth_token = row
+            g.auth_via = "bearer"
+            return g.auth_email, g.auth_scopes, g.auth_token
+        return None, set(), None
+
+    email = _normalize_email(session.get("email"))
+    if email:
+        g.auth_email = email
+        g.auth_scopes = {"docs:read", "docs:write"}
+        g.auth_via = "session"
+        return email, g.auth_scopes, None
+    return None, set(), None
+
+
+def _set_auth_context(email, scopes=None, token_row=None):
+    g._auth_resolved = True
+    g.auth_email = _normalize_email(email)
+    g.auth_scopes = _parse_scopes(scopes) if scopes is not None else {"docs:read", "docs:write"}
+    g.auth_token = token_row
+    g.auth_via = "bearer" if token_row is not None else "session"
+
+
 def require_login(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        email = _normalize_email(session.get("email"))
+        email, _scopes, _token = _authenticate_request()
         if not email:
             return jsonify({"error": "unauthorized"}), 401
         return fn(*args, **kwargs)
 
     return wrapper
+
+
+def require_scope(scope):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            email, scopes, _token = _authenticate_request()
+            if not email:
+                return jsonify({"error": "unauthorized"}), 401
+            if scope not in scopes and not ("docs:write" in scopes and scope == "docs:read"):
+                return jsonify({"error": "forbidden_scope"}), 403
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
 def _set_session_user(email, name):
@@ -361,7 +497,15 @@ def _set_session_user(email, name):
 
 
 def _current_email():
-    return _normalize_email(session.get("email"))
+    email, _scopes, _token = _authenticate_request()
+    return _normalize_email(email)
+
+
+def _has_scope(scope: str) -> bool:
+    _email, scopes, _token = _authenticate_request()
+    if scope in scopes:
+        return True
+    return scope == "docs:read" and "docs:write" in scopes
 
 
 def _is_role_at_least(role, expected):
@@ -442,7 +586,11 @@ def _ensure_seed_document(conn, email):
 
 def _get_docs_conn(email):
     conn = _db()
-    _upsert_user(conn, email, name=session.get("name"))
+    name = session.get("name") if hasattr(session, "get") else None
+    if not name:
+        user = _get_user(conn, email)
+        name = (user["name"] if user else None) or email
+    _upsert_user(conn, email, name=name)
     _ensure_seed_document(conn, email)
     conn.commit()
     return conn
@@ -961,6 +1109,106 @@ def update_me_password():
             "ok": True,
             "hasPassword": bool(user and user["password_hash"]),
             "needsPasswordSetup": bool(user and not user["password_hash"]),
+        }
+    )
+
+
+def _token_public_row(row):
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "scopes": sorted(_parse_scopes(row["scopes"])),
+        "tokenPrefix": row["token_prefix"],
+        "createdAt": row["created_at"],
+        "lastUsedAt": row["last_used_at"],
+        "revokedAt": row["revoked_at"],
+    }
+
+
+@app.route("/api/me/tokens", methods=["GET"])
+@require_login
+def list_api_tokens():
+    email = _current_email()
+    conn = _db()
+    rows = conn.execute(
+        """
+        SELECT * FROM api_tokens
+        WHERE lower(email) = ? AND revoked_at IS NULL
+        ORDER BY created_at DESC
+        """,
+        (email,),
+    ).fetchall()
+    conn.close()
+    return jsonify({"tokens": [_token_public_row(row) for row in rows]})
+
+
+@app.route("/api/me/tokens", methods=["POST"])
+@require_login
+def create_api_token():
+    # Only session users may mint tokens (not another PAT).
+    if getattr(g, "auth_via", None) == "bearer":
+        return jsonify({"error": "forbidden"}), 403
+    payload = request.get_json(force=True, silent=True) or {}
+    name = str(payload.get("name") or "Cursor MCP").strip() or "Cursor MCP"
+    scopes = _parse_scopes(payload.get("scopes") or ["docs:read", "docs:write"])
+    email = _current_email()
+    raw_token = API_TOKEN_PREFIX + secrets.token_urlsafe(32)
+    token_id = secrets.token_hex(8)
+    prefix = raw_token[:10] + "…"
+    conn = _db()
+    conn.execute(
+        """
+        INSERT INTO api_tokens(id, email, token_hash, name, scopes, token_prefix, created_at)
+        VALUES(?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """,
+        (token_id, email, _hash_api_token(raw_token), name, _scopes_csv(scopes), prefix),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM api_tokens WHERE id = ?", (token_id,)).fetchone()
+    conn.close()
+    return jsonify({"ok": True, "token": raw_token, "item": _token_public_row(row)}), 201
+
+
+@app.route("/api/me/tokens/<token_id>", methods=["DELETE"])
+@require_login
+def revoke_api_token(token_id):
+    if getattr(g, "auth_via", None) == "bearer":
+        return jsonify({"error": "forbidden"}), 403
+    email = _current_email()
+    conn = _db()
+    row = conn.execute(
+        "SELECT * FROM api_tokens WHERE id = ? AND lower(email) = ? LIMIT 1",
+        (str(token_id or "").strip(), email),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "not_found"}), 404
+    conn.execute(
+        "UPDATE api_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (row["id"],),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/mcp/config")
+@require_login
+def mcp_client_config():
+    """Ready-to-copy Cursor MCP config (without a live token value)."""
+    base = _app_base_url()
+    return jsonify(
+        {
+            "mcpUrl": f"{base}/mcp",
+            "apiBase": f"{base}/api/v1",
+            "cursorConfig": {
+                "mcpServers": {
+                    "mmtable": {
+                        "url": f"{base}/mcp",
+                        "headers": {"Authorization": "Bearer <PASTE_TOKEN_HERE>"},
+                    }
+                }
+            },
         }
     )
 
@@ -2851,6 +3099,42 @@ def _google_title_from_export(raw_url):
         filename = filename.replace("%20", " ")
         filename = re.sub(r"\.csv$", "", filename, flags=re.IGNORECASE)
         return filename or None
+
+
+register_api_v1(
+    app,
+    {
+        "require_auth": require_login,
+        "require_scope": require_scope,
+        "current_email": _current_email,
+        "get_docs_conn": _get_docs_conn,
+        "get_doc_for_user": _get_doc_for_user,
+        "list_docs": _list_docs,
+        "new_doc_id": _new_doc_id,
+        "is_role_at_least": _is_role_at_least,
+        "role_editor": ROLE_EDITOR,
+        "role_owner": ROLE_OWNER,
+        "blank_layout": _blank_layout,
+        "normalize_email": _normalize_email,
+    },
+)
+
+register_mcp(
+    app,
+    {
+        "authenticate": _authenticate_request,
+        "has_scope": _has_scope,
+        "current_email": _current_email,
+        "get_docs_conn": _get_docs_conn,
+        "get_doc_for_user": _get_doc_for_user,
+        "list_docs": _list_docs,
+        "new_doc_id": _new_doc_id,
+        "is_role_at_least": _is_role_at_least,
+        "role_editor": ROLE_EDITOR,
+        "role_owner": ROLE_OWNER,
+        "set_auth_context": _set_auth_context,
+    },
+)
 
 
 if __name__ == "__main__":
