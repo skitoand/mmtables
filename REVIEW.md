@@ -10,6 +10,21 @@
 
 ---
 
+## 2026-07-18 — fix ChatGPT OAuth CIMD 403
+
+**Commit:** `58c440b` — Fix ChatGPT MCP OAuth when CIMD fetch is blocked by Cloudflare.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260718-190910-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29657238560](https://github.com/skitoand/mmtables/actions/runs/29657238560)  
+**Статус:** OK
+
+### Причина / фикс
+ChatGPT шлёт `client_id` = URL CIMD на chatgpt.com; сервер получал **403** от Cloudflare → `invalid_client`. Добавлен fallback для known ChatGPT CIMD URL.
+
+### Проверка
+- [x] `/oauth/authorize` с ChatGPT client_id → 200 (форма входа), не 302 invalid_client
+
+---
+
 ## 2026-07-18 — инструкция ChatGPT MCP со скриншотами
 
 **Commit:** `7f8b656` — Add illustrated ChatGPT MCP setup guide with annotated screenshots.  
