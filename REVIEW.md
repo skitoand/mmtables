@@ -10,6 +10,32 @@
 
 ---
 
+## 2026-07-18 — OAuth 2.1 для ChatGPT MCP
+
+**Commit:** `a193192` — Add OAuth 2.1 for ChatGPT MCP connectors.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260718-184012-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29656312113](https://github.com/skitoand/mmtables/actions/runs/29656312113)  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `mcp_oauth.py` | discovery, DCR/CIMD, authorize/token, PKCE, `oat_` tokens |
+| `mcp_http.py` | `WWW-Authenticate` на 401; MCP только Bearer (не session cookie) |
+| `server.py` | wiring OAuth + приём OAuth Bearer |
+| `docs/MCP.md` | инструкция ChatGPT OAuth + Cursor PAT |
+| `scripts/deploy_prod.sh` | выкладка `mcp_oauth.py` |
+
+### Проверка на проде
+
+- [x] `/.well-known/oauth-protected-resource` → resource `/mcp`
+- [x] `/.well-known/oauth-authorization-server` → CIMD + S256
+- [x] `POST /mcp` без токена → 401 + `WWW-Authenticate`
+- [ ] ChatGPT: добавить connector URL → логин MM Table → tools
+
+---
+
 ## 2026-07-18 — MCP remote + PAT + object API
 
 **Commit:** `52d026d` — Include MCP Python modules in production deploy package. (feature: `bbc21db`)  
