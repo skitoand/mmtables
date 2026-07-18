@@ -1,4 +1,4 @@
-"""OAuth 2.1 authorization server for MM Table MCP (ChatGPT / Cursor remote).
+"""OAuth 2.1 authorization server for MM Table MCP (ChatGPT / Claude / Cursor).
 
 Implements:
 - Protected Resource Metadata (RFC 9728)
@@ -38,6 +38,12 @@ CHATGPT_REDIRECT_PREFIXES = (
     "https://chat.openai.com/connector/oauth/",
     "https://chat.openai.com/connector_platform_oauth_redirect",
 )
+# Claude.ai / Desktop / Cowork / mobile custom connectors (hosted surfaces).
+CLAUDE_REDIRECT_URIS = (
+    "https://claude.ai/api/mcp/auth_callback",
+)
+# Claude Code declares loopback redirects without a port; actual redirect includes an ephemeral port.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
 
 
 def _utc_now():
@@ -169,6 +175,25 @@ def register_mcp_oauth(app, deps):
         except Exception:
             return []
 
+    def _is_loopback_redirect(uri: str) -> bool:
+        parsed = urlparse(str(uri or "").strip())
+        host = (parsed.hostname or "").lower()
+        return parsed.scheme in {"http", "https"} and host in LOOPBACK_HOSTS
+
+    def _loopback_matches(uri: str, allowed: str) -> bool:
+        """RFC 8252 §7.3: ignore port on loopback redirects (Claude Code)."""
+        a = urlparse(str(uri or "").strip())
+        b = urlparse(str(allowed or "").strip())
+        if a.scheme != b.scheme:
+            return False
+        if (a.hostname or "").lower() not in LOOPBACK_HOSTS:
+            return False
+        if (b.hostname or "").lower() not in LOOPBACK_HOSTS:
+            return False
+        if (a.hostname or "").lower() != (b.hostname or "").lower():
+            return False
+        return (a.path or "/") == (b.path or "/")
+
     def _allowed_redirect(uri: str, registered: list[str] | None = None) -> bool:
         value = str(uri or "").strip()
         if not value:
@@ -176,9 +201,16 @@ def register_mcp_oauth(app, deps):
         for prefix in CHATGPT_REDIRECT_PREFIXES:
             if value == prefix or value.startswith(prefix):
                 return True
-        parsed = urlparse(value)
-        if parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost"}:
+        if value in CLAUDE_REDIRECT_URIS:
             return True
+        if _is_loopback_redirect(value):
+            # Claude Code / local MCP: accept loopback; match path ignoring ephemeral port.
+            if registered is None:
+                return True
+            for allowed in registered:
+                if value == allowed or _loopback_matches(value, allowed):
+                    return True
+            return any(_is_loopback_redirect(a) for a in registered)
         if registered:
             return value in registered
         return False
@@ -193,17 +225,28 @@ def register_mcp_oauth(app, deps):
         path = parsed.path or ""
         return path.startswith("/oauth/") and path.endswith("/client.json")
 
-    def _chatgpt_cimd_fallback(client_id: str, redirect_uri: str | None = None) -> dict | None:
-        """ChatGPT CIMD is often blocked (403) from cloud IPs; accept known ChatGPT clients."""
-        if not _is_chatgpt_cimd(client_id):
+    def _is_claude_cimd(client_id: str) -> bool:
+        parsed = urlparse(str(client_id or "").strip())
+        if parsed.scheme != "https":
+            return False
+        host = (parsed.hostname or "").lower()
+        return host in {"claude.ai", "www.claude.ai", "anthropic.com", "www.anthropic.com"}
+
+    def _cimd_fallback(client_id: str, redirect_uri: str | None = None) -> dict | None:
+        """CIMD fetch from cloud IPs is often blocked; accept known ChatGPT/Claude clients."""
+        if _is_chatgpt_cimd(client_id):
+            name, uri = "ChatGPT", "https://chatgpt.com/"
+        elif _is_claude_cimd(client_id):
+            name, uri = "Claude", "https://claude.ai/"
+        else:
             return None
         redirect_uris = []
         if redirect_uri and _allowed_redirect(redirect_uri, None):
             redirect_uris = [redirect_uri]
         return {
             "client_id": client_id,
-            "client_name": "ChatGPT",
-            "client_uri": "https://chatgpt.com/",
+            "client_name": name,
+            "client_uri": uri,
             "redirect_uris": redirect_uris,
             "token_endpoint_auth_methods_supported": ["none", "private_key_jwt"],
             "token_endpoint_auth_method": "none",
@@ -240,7 +283,7 @@ def register_mcp_oauth(app, deps):
         row = conn.execute("SELECT * FROM oauth_clients WHERE client_id = ?", (client_id,)).fetchone()
         if row:
             uris = _json_list(row["redirect_uris"])
-            # Keep ChatGPT redirect from current request if missing in stored metadata.
+            # Keep ChatGPT/Claude redirect from current request if missing in stored metadata.
             if redirect_uri and _allowed_redirect(redirect_uri, None) and redirect_uri not in uris:
                 uris.append(redirect_uri)
                 conn.execute(
@@ -254,7 +297,7 @@ def register_mcp_oauth(app, deps):
         # CIMD: client_id is an HTTPS metadata URL.
         meta = _fetch_cimd(client_id)
         if not meta:
-            meta = _chatgpt_cimd_fallback(client_id, redirect_uri)
+            meta = _cimd_fallback(client_id, redirect_uri)
         if not meta:
             return None, None
         redirect_uris = _json_list(meta.get("redirect_uris"))
@@ -333,7 +376,7 @@ def register_mcp_oauth(app, deps):
             {
                 "resource": mcp_resource(),
                 "authorization_servers": [issuer()],
-                "scopes_supported": list(OAUTH_SCOPES),
+                "scopes_supported": list(OAUTH_SCOPES) + ["offline_access"],
                 "bearer_methods_supported": ["header"],
                 "resource_documentation": f"{issuer()}/docs/MCP.md",
             }
@@ -349,7 +392,7 @@ def register_mcp_oauth(app, deps):
                 "authorization_endpoint": f"{base}/oauth/authorize",
                 "token_endpoint": f"{base}/oauth/token",
                 "registration_endpoint": f"{base}/oauth/register",
-                "scopes_supported": list(OAUTH_SCOPES),
+                "scopes_supported": list(OAUTH_SCOPES) + ["offline_access"],
                 "response_types_supported": ["code"],
                 "grant_types_supported": ["authorization_code", "refresh_token"],
                 "code_challenge_methods_supported": ["S256"],
@@ -416,13 +459,25 @@ def register_mcp_oauth(app, deps):
 
     # --- Authorize ---
 
+    def _redirect_host_label(redirect_uri: str) -> str:
+        host = (urlparse(str(redirect_uri or "")).hostname or "").lower()
+        if host in {"chatgpt.com", "www.chatgpt.com", "chat.openai.com"}:
+            return "ChatGPT"
+        if host in {"claude.ai", "www.claude.ai"}:
+            return "Claude"
+        if host in LOOPBACK_HOSTS:
+            return f"локальный клиент ({host})"
+        return host or "MCP-клиент"
+
     def _render_login(query, error=""):
         qs = urlencode(query)
         err = f'<div class="err">{html.escape(error)}</div>' if error else ""
+        client_label = _redirect_host_label(str(query.get("redirect_uri") or ""))
+        redirect_host = (urlparse(str(query.get("redirect_uri") or "")).hostname or "") or "—"
         body = f"""
           <h1>Вход в MM Table</h1>
-          <p>Разрешите ChatGPT / MCP-клиенту доступ к вашим документам.</p>
-          <p class="meta">resource: {html.escape(str(query.get("resource") or mcp_resource()))}</p>
+          <p>Разрешите <strong>{html.escape(client_label)}</strong> доступ к вашим документам.</p>
+          <p class="meta">redirect: {html.escape(redirect_host)}<br/>resource: {html.escape(str(query.get("resource") or mcp_resource()))}</p>
           <form method="post" action="/oauth/authorize?{html.escape(qs)}">
             <input type="hidden" name="action" value="login" />
             <label>E-mail</label>
@@ -437,10 +492,12 @@ def register_mcp_oauth(app, deps):
 
     def _render_consent(query, email):
         qs = urlencode(query)
+        client_label = _redirect_host_label(str(query.get("redirect_uri") or ""))
+        redirect_host = (urlparse(str(query.get("redirect_uri") or "")).hostname or "") or "—"
         body = f"""
           <h1>Разрешить доступ</h1>
-          <p>Клиент получит доступ к документам аккаунта <strong>{html.escape(email)}</strong>.</p>
-          <p class="meta">scopes: {html.escape(str(query.get("scope") or "docs:read docs:write"))}</p>
+          <p><strong>{html.escape(client_label)}</strong> получит доступ к документам аккаунта <strong>{html.escape(email)}</strong>.</p>
+          <p class="meta">redirect: {html.escape(redirect_host)}<br/>scopes: {html.escape(str(query.get("scope") or "docs:read docs:write"))}</p>
           <form method="post" action="/oauth/authorize?{html.escape(qs)}">
             <input type="hidden" name="action" value="approve" />
             <button type="submit">Разрешить</button>

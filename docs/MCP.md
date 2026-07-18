@@ -1,4 +1,4 @@
-# Подключение Cursor и ChatGPT к MM Table через MCP
+# Подключение Cursor, Claude и ChatGPT к MM Table через MCP
 
 Прод MCP: `https://mmtable.crystalsystems.ru/mcp`  
 Локально: `http://127.0.0.1:4173/mcp`
@@ -23,6 +23,20 @@
 }
 ```
 
+## Claude (OAuth 2.1)
+
+Custom connector на [claude.ai/customize/connectors](https://claude.ai/customize/connectors) (Pro/Max/Team; на Free — один connector).
+
+1. **+** → **Add custom connector**
+2. URL: `https://mmtable.crystalsystems.ru/mcp`
+3. Advanced / OAuth Client ID/Secret — **не нужны** (DCR)
+4. **Add** → **Connect** → логин MM Table → **Разрешить**
+5. В чате: **+** → Connectors → включите MM Table
+
+Альтернатива без OAuth: Request headers → `Authorization: Bearer mmt_...` (тот же PAT, что для Cursor).
+
+OAuth callback Claude: `https://claude.ai/api/mcp/auth_callback`. Claude Code использует loopback `http://localhost:<port>/callback`.
+
 ## ChatGPT (OAuth 2.1)
 
 **Инструкция со скриншотами:** [chatgpt-mcp-guide/](./chatgpt-mcp-guide/) · [открыть HTML](./chatgpt-mcp-guide/index.html)
@@ -34,7 +48,7 @@ PAT в ChatGPT обычно вставить нельзя — нужен OAuth.
 3. Войдите email/паролем MM Table и разрешите доступ
 4. В чате: **+** → Developer mode → включите MM Table
 
-ChatGPT получит пару токенов:
+ChatGPT / Claude получают пару токенов:
 - `access_token` (`oat_...`) — ~1 час
 - `refresh_token` (`ort_...`) — ~90 дней (silent refresh, как у Notion)
 

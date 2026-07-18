@@ -77,6 +77,68 @@ class McpOAuthTests(unittest.TestCase):
         self.assertTrue("Вход в MM Table" in body or "Разрешить доступ" in body)
         self.assertNotIn("invalid_client", body)
 
+    def test_claude_redirect_dcr_and_authorize(self):
+        """Claude.ai custom connector callback must be accepted by DCR and authorize."""
+        redirect_uri = "https://claude.ai/api/mcp/auth_callback"
+        reg = self.client.post(
+            "/oauth/register",
+            json={
+                "client_name": "Claude",
+                "redirect_uris": [redirect_uri],
+                "token_endpoint_auth_method": "none",
+            },
+        )
+        self.assertEqual(reg.status_code, 201, reg.get_data(as_text=True))
+        client_id = reg.json["client_id"]
+        _, challenge = _pkce()
+        r = self.client.get(
+            "/oauth/authorize",
+            query_string={
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "scope": "docs:read docs:write offline_access",
+                "resource": "https://mmtable.test/mcp",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "state": "claude-test",
+            },
+        )
+        body = r.get_data(as_text=True)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("Claude", body)
+        self.assertTrue("Вход в MM Table" in body or "Разрешить доступ" in body)
+
+    def test_claude_code_loopback_redirect(self):
+        """Claude Code uses ephemeral localhost port; path must match registered template."""
+        registered = "http://localhost/callback"
+        reg = self.client.post(
+            "/oauth/register",
+            json={
+                "client_name": "Claude Code",
+                "redirect_uris": [registered, "http://127.0.0.1/callback"],
+                "token_endpoint_auth_method": "none",
+            },
+        )
+        self.assertEqual(reg.status_code, 201)
+        client_id = reg.json["client_id"]
+        _, challenge = _pkce()
+        r = self.client.get(
+            "/oauth/authorize",
+            query_string={
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": "http://localhost:3118/callback",
+                "scope": "docs:read docs:write",
+                "resource": "https://mmtable.test/mcp",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            },
+        )
+        body = r.get_data(as_text=True)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue("Вход в MM Table" in body or "Разрешить доступ" in body)
+
     def test_mcp_401_has_www_authenticate(self):
         anon = app.test_client()
         r = anon.post(
