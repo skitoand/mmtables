@@ -10,6 +10,28 @@
 
 ---
 
+## 2026-07-18 — OAuth refresh tokens (как у Notion)
+
+**Commit:** `cbfe067` — Add OAuth refresh tokens with rotation for MCP sessions.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260718-184641-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29656522648](https://github.com/skitoand/mmtables/actions/runs/29656522648)  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `mcp_oauth.py` | access 1ч + refresh 90д, grant `refresh_token`, ротация refresh |
+| `docs/MCP.md` | описание silent renewal |
+| `tests/test_mcp_oauth.py` | тест refresh + invalidate old refresh |
+
+### Проверка на проде
+
+- [x] metadata `grant_types_supported` включает `refresh_token`
+- [x] deploy OK / home 200
+
+---
+
 ## 2026-07-18 — OAuth 2.1 для ChatGPT MCP
 
 **Commit:** `a193192` — Add OAuth 2.1 for ChatGPT MCP connectors.  
