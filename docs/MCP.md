@@ -1,16 +1,14 @@
-# Подключение Cursor к MM Table через MCP
+# Подключение Cursor и ChatGPT к MM Table через MCP
 
-Прод: `https://mmtable.crystalsystems.ru/mcp`  
+Прод MCP: `https://mmtable.crystalsystems.ru/mcp`  
 Локально: `http://127.0.0.1:4173/mcp`
 
-## Быстрый старт
+## Cursor (Bearer PAT)
 
 1. Войдите в MM Table.
 2. Меню → **Профиль** → блок **MCP / Cursor**.
-3. Нажмите **Создать токен** и скопируйте значение (показывается один раз).
-4. **Копировать конфиг** и вставьте в Cursor MCP settings.
-
-Пример:
+3. **Создать токен** → скопировать `mmt_...` (один раз).
+4. Вставить в Cursor MCP config:
 
 ```json
 {
@@ -24,6 +22,31 @@
   }
 }
 ```
+
+## ChatGPT (OAuth 2.1)
+
+PAT в ChatGPT обычно вставить нельзя — нужен OAuth.
+
+1. В ChatGPT добавьте remote MCP / connector с URL:  
+   `https://mmtable.crystalsystems.ru/mcp`
+2. ChatGPT сам откроет discovery:
+   - `/.well-known/oauth-protected-resource`
+   - `/.well-known/oauth-authorization-server`
+3. При первом вызове tool откроется страница входа MM Table.
+4. Войдите email/паролем аккаунта MM Table и нажмите **Разрешить**.
+5. ChatGPT получит access token (`oat_...`) и будет слать его как `Authorization: Bearer`.
+
+Discovery endpoints:
+
+| URL | Назначение |
+|-----|------------|
+| `/.well-known/oauth-protected-resource` | resource + authorization_servers |
+| `/.well-known/oauth-authorization-server` | authorize / token / register |
+| `/oauth/register` | Dynamic Client Registration |
+| `/oauth/authorize` | login + consent + auth code + PKCE |
+| `/oauth/token` | обмен code → access token |
+
+Поддерживается CIMD (`client_id_metadata_document_supported: true`) и DCR. PKCE: только `S256`.
 
 ## Возможности (tools)
 
@@ -40,19 +63,19 @@
 
 ## REST API
 
-Тот же функционал доступен как Bearer REST:
+Тот же функционал доступен как Bearer REST (`mmt_...` или OAuth `oat_...`):
 
 - `GET/POST /api/v1/docs`
 - `GET /api/v1/docs/<id>`
 - object endpoints под `/api/v1/docs/<id>/...`
 
-Scopes токена: `docs:read`, `docs:write`.
+Scopes: `docs:read`, `docs:write`.
 
 ## Ограничения v1
 
 - Нет raw-записи всего `layout_json` через MCP.
 - Нет Bitrix / freedraw / image.
 - Для записи нужна роль `editor+` на документ.
-- При гонке с UI autosave можно передать `expectedUpdatedAt` (REST → `409 conflict`).
+- OAuth access token живёт 8 часов; повторный login при истечении.
 
 Контракт данных: [MCP_LAYOUT_CONTRACT.md](./MCP_LAYOUT_CONTRACT.md).

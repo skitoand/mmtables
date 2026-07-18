@@ -70,6 +70,7 @@ require_local_file "$ROOT_DIR/styles.css"
 require_local_file "$ROOT_DIR/server.py"
 require_local_file "$ROOT_DIR/api_v1.py"
 require_local_file "$ROOT_DIR/mcp_http.py"
+require_local_file "$ROOT_DIR/mcp_oauth.py"
 require_local_file "$ROOT_DIR/layout_engine/__init__.py"
 require_local_file "$ROOT_DIR/layout_engine/constants.py"
 require_local_file "$ROOT_DIR/layout_engine/document.py"
@@ -101,6 +102,7 @@ retry 6 remote_scp "$ROOT_DIR/styles.css" "${USER_NAME}@${HOST}:/tmp/mmtable_sty
 retry 6 remote_scp "$ROOT_DIR/server.py" "${USER_NAME}@${HOST}:/tmp/mmtable_server.py"
 retry 6 remote_scp "$ROOT_DIR/api_v1.py" "${USER_NAME}@${HOST}:/tmp/mmtable_api_v1.py"
 retry 6 remote_scp "$ROOT_DIR/mcp_http.py" "${USER_NAME}@${HOST}:/tmp/mmtable_mcp_http.py"
+retry 6 remote_scp "$ROOT_DIR/mcp_oauth.py" "${USER_NAME}@${HOST}:/tmp/mmtable_mcp_oauth.py"
 retry 6 remote_ssh "rm -rf /tmp/mmtable_layout_engine && mkdir -p /tmp/mmtable_layout_engine"
 retry 6 remote_scp \
   "$ROOT_DIR/layout_engine/__init__.py" \
@@ -126,6 +128,7 @@ retry 6 remote_ssh "
   install -m 644 /tmp/mmtable_server.py '${REMOTE_APP_DIR}/server.py' &&
   install -m 644 /tmp/mmtable_api_v1.py '${REMOTE_APP_DIR}/api_v1.py' &&
   install -m 644 /tmp/mmtable_mcp_http.py '${REMOTE_APP_DIR}/mcp_http.py' &&
+  install -m 644 /tmp/mmtable_mcp_oauth.py '${REMOTE_APP_DIR}/mcp_oauth.py' &&
   rm -rf '${REMOTE_APP_DIR}/layout_engine' &&
   mkdir -p '${REMOTE_APP_DIR}/layout_engine' &&
   install -m 644 /tmp/mmtable_layout_engine/__init__.py '${REMOTE_APP_DIR}/layout_engine/__init__.py' &&
@@ -157,7 +160,7 @@ remote_ssh "
   echo ---
   curl -I --max-time 10 http://127.0.0.1:4173/ | sed -n '1,10p'
   echo ---
-  stat -c '%y %n' '${REMOTE_APP_DIR}/app.js' '${REMOTE_APP_DIR}/bitrix-chart.js' '${REMOTE_APP_DIR}/index.html' '${REMOTE_APP_DIR}/styles.css' '${REMOTE_APP_DIR}/server.py' '${REMOTE_APP_DIR}/api_v1.py' '${REMOTE_APP_DIR}/mcp_http.py'
+  stat -c '%y %n' '${REMOTE_APP_DIR}/app.js' '${REMOTE_APP_DIR}/bitrix-chart.js' '${REMOTE_APP_DIR}/index.html' '${REMOTE_APP_DIR}/styles.css' '${REMOTE_APP_DIR}/server.py' '${REMOTE_APP_DIR}/api_v1.py' '${REMOTE_APP_DIR}/mcp_http.py' '${REMOTE_APP_DIR}/mcp_oauth.py'
 "
 
 echo "4/4 Checking public URL"

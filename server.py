@@ -22,6 +22,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from api_v1 import register_api_v1
 from mcp_http import register_mcp
+from mcp_oauth import init_oauth_tables, register_mcp_oauth
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -352,6 +353,7 @@ def _init_db():
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_email ON api_tokens(email)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash)")
+    init_oauth_tables(conn)
     _migrate_legacy_doc_ids(conn)
     conn.commit()
     conn.close()
@@ -379,10 +381,12 @@ def _parse_scopes(raw) -> set:
     if isinstance(raw, (list, tuple, set)):
         values = [str(x).strip() for x in raw]
     else:
-        values = [part.strip() for part in str(raw or "").split(",")]
+        text = str(raw or "").replace(",", " ")
+        values = [part.strip() for part in text.split() if part.strip()]
     scopes = {v for v in values if v in API_TOKEN_SCOPES}
     if "docs:write" in scopes:
         scopes.add("docs:read")
+    # Ignore unknown scopes (e.g. openid/profile from ChatGPT) and keep defaults when empty.
     return scopes or {"docs:read", "docs:write"}
 
 
@@ -425,8 +429,15 @@ def _bearer_token_from_request():
     return ""
 
 
+def _lookup_oauth_access_token(token: str):
+    lookup = getattr(app, "mcp_oauth_lookup_access_token", None)
+    if not callable(lookup):
+        return None
+    return lookup(token)
+
+
 def _authenticate_request():
-    """Resolve session cookie or Bearer PAT. Sets flask.g auth fields."""
+    """Resolve session cookie, Bearer PAT, or OAuth access token."""
     if getattr(g, "_auth_resolved", False):
         return getattr(g, "auth_email", None), set(getattr(g, "auth_scopes", set()) or set()), getattr(g, "auth_token", None)
 
@@ -444,6 +455,13 @@ def _authenticate_request():
             g.auth_scopes = _parse_scopes(row["scopes"])
             g.auth_token = row
             g.auth_via = "bearer"
+            return g.auth_email, g.auth_scopes, g.auth_token
+        oauth_row = _lookup_oauth_access_token(bearer)
+        if oauth_row:
+            g.auth_email = _normalize_email(oauth_row.get("email"))
+            g.auth_scopes = _parse_scopes(oauth_row.get("scopes"))
+            g.auth_token = oauth_row
+            g.auth_via = "oauth"
             return g.auth_email, g.auth_scopes, g.auth_token
         return None, set(), None
 
@@ -1201,6 +1219,13 @@ def mcp_client_config():
         {
             "mcpUrl": f"{base}/mcp",
             "apiBase": f"{base}/api/v1",
+            "oauthAuthorizationServer": f"{base}/.well-known/oauth-authorization-server",
+            "oauthProtectedResource": f"{base}/.well-known/oauth-protected-resource",
+            "chatgpt": {
+                "mcpUrl": f"{base}/mcp",
+                "auth": "oauth2",
+                "hint": "В ChatGPT добавьте remote MCP URL. Авторизация — через OAuth (логин MM Table), не через PAT.",
+            },
             "cursorConfig": {
                 "mcpServers": {
                     "mmtable": {
@@ -3119,6 +3144,21 @@ register_api_v1(
     },
 )
 
+_mcp_oauth = register_mcp_oauth(
+    app,
+    {
+        "db": _db,
+        "normalize_email": _normalize_email,
+        "verify_password": _verify_password,
+        "get_user": _get_user,
+        "upsert_user": _upsert_user,
+        "set_session_user": _set_session_user,
+        "app_base_url": _app_base_url,
+        "parse_scopes": _parse_scopes,
+        "scopes_csv": _scopes_csv,
+    },
+)
+
 register_mcp(
     app,
     {
@@ -3133,6 +3173,7 @@ register_mcp(
         "role_editor": ROLE_EDITOR,
         "role_owner": ROLE_OWNER,
         "set_auth_context": _set_auth_context,
+        "unauthorized_headers": lambda: {"WWW-Authenticate": _mcp_oauth["www_authenticate"]()},
     },
 )
 

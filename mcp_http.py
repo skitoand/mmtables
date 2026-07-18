@@ -259,6 +259,7 @@ def register_mcp(app, deps: dict[str, Callable]):
     role_editor = deps["role_editor"]
     role_owner = deps.get("role_owner", "owner")
     set_auth_context = deps["set_auth_context"]
+    unauthorized_headers = deps.get("unauthorized_headers")
 
     def _rpc_error(id_value, code, message):
         return {"jsonrpc": "2.0", "id": id_value, "error": {"code": code, "message": message}}
@@ -474,6 +475,10 @@ def register_mcp(app, deps: dict[str, Callable]):
         email, scopes, token_row = authenticate()
         if not email:
             return None
+        # MCP accepts Bearer PAT / OAuth only — not browser session cookies.
+        via = getattr(g, "auth_via", None)
+        if via == "session" and token_row is None:
+            return None
         set_auth_context(email, scopes, token_row)
         return email
 
@@ -511,7 +516,11 @@ def register_mcp(app, deps: dict[str, Callable]):
             return make_response("", 204)
 
         if not _ensure_auth():
-            return jsonify({"error": "unauthorized"}), 401
+            resp = make_response(jsonify({"error": "unauthorized"}), 401)
+            headers = unauthorized_headers() if callable(unauthorized_headers) else (unauthorized_headers or {})
+            for key, value in (headers or {}).items():
+                resp.headers[key] = value
+            return resp
 
         session_id = request.headers.get("Mcp-Session-Id") or secrets.token_hex(16)
 
