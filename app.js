@@ -276,7 +276,7 @@ let viewportStabilizer = null;
 let viewportInteracted = false;
 let wheelZoomGesture = null;
 const ENABLE_TABLE_SHAPE_HANDLE_RESIZE = false;
-const APP_BUILD = "20260627-document-sheets";
+const APP_BUILD = "20260718-align-axes-independent";
 const LAYOUT_SCHEMA_VERSION = 2;
 const DOCUMENT_LAYOUT_SCHEMA_VERSION = 3;
 const DOC_ID_PATTERN = "(?:[0-9a-f]{12}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})";
@@ -4018,28 +4018,87 @@ function syncWorkspaceAccessMode() {
   syncConnectorModifierChrome();
 }
 
+function getPersonalAccessForCurrentPublicDoc() {
+  if (!currentUser || !currentDocumentId) return null;
+  return documentsCache.find((doc) => doc.id === currentDocumentId) || null;
+}
+
 function updateWorkspaceAccessBanner() {
   let banner = document.getElementById("workspaceAccessBanner");
-  if (guestPublicView) {
+  const ensureBanner = () => {
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = "workspaceAccessBanner";
+      banner.className = "workspace-access-banner";
+      const host = document.querySelector(".app") || document.body;
+      host.insertBefore(banner, host.firstChild);
+    }
+    return banner;
+  };
+  const removeBanner = () => {
     if (banner) banner.remove();
+  };
+
+  if (guestPublicView) {
+    const personal = getPersonalAccessForCurrentPublicDoc();
+    const el = ensureBanner();
+    el.replaceChildren();
+    if (personal && ["owner", "admin", "editor"].includes(String(personal.role || "").toLowerCase())) {
+      const text = document.createElement("span");
+      text.textContent = `Публичная ссылка — только просмотр. У вас есть доступ: ${roleLabel(personal.role)}.`;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "Открыть для редактирования";
+      btn.addEventListener("click", async () => {
+        try {
+          const opened = await openDocumentById(currentDocumentId, {
+            replace: true,
+            sheetId: currentSheetId || 1
+          });
+          if (opened) {
+            showHint(`Документ открыт с правами: ${roleLabel(currentDocumentRole)}.`, "warning", 2200);
+          }
+        } catch (err) {
+          console.error(err);
+          showHint("Не удалось открыть документ для редактирования.", "error", 2500);
+        }
+      });
+      el.append(text, btn);
+      return;
+    }
+    if (personal) {
+      const text = document.createElement("span");
+      text.textContent = `Публичная ссылка — только просмотр. Документ также есть в «Файл → Открыть → Доступные мне» (${roleLabel(personal.role)}).`;
+      el.append(text);
+      return;
+    }
+    if (currentUser) {
+      const text = document.createElement("span");
+      text.textContent = `Только просмотр. Вы вошли как ${currentUser.email || "пользователь"}. Если доступ выдали на другой email — войдите им: документ появится в «Файл → Открыть → Доступные мне».`;
+      el.append(text);
+      return;
+    }
+    const text = document.createElement("span");
+    text.textContent = "Только просмотр по ссылке. Если вам выдали доступ — войдите в свой аккаунт: документ появится в «Файл → Открыть → Доступные мне».";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "Войти";
+    btn.addEventListener("click", () => openAuthModal("login"));
+    el.append(text, btn);
     return;
   }
+
   const readonly = document.body.classList.contains("workspace-readonly");
   if (!readonly) {
-    if (banner) banner.remove();
+    removeBanner();
     return;
   }
-  if (!banner) {
-    banner = document.createElement("div");
-    banner.id = "workspaceAccessBanner";
-    banner.className = "workspace-access-banner";
-    const host = document.querySelector(".app") || document.body;
-    host.insertBefore(banner, host.firstChild);
-  }
+  const el = ensureBanner();
+  el.replaceChildren();
   const label = canCommentCurrentDocument() && !canEditCurrentDocument()
     ? "Режим комментирования: редактирование схемы отключено"
     : "Только просмотр";
-  banner.textContent = label;
+  el.textContent = label;
 }
 
 function escapeHtml(value) {
@@ -5384,9 +5443,13 @@ async function submitAuthForm() {
     await initAuth();
     setAuthLocked(false);
     await loadDocumentsIndex();
-    const pending = consumePendingRoute() || (parseAppRoute().mode === "document" ? parseAppRoute() : null);
+    const route = parseAppRoute();
+    const pending = consumePendingRoute() || (route.mode === "document" ? route : null);
     if (pending?.docId) {
-      await openDocumentById(pending.docId, { replace: true });
+      await openDocumentById(pending.docId, { replace: true, sheetId: pending.sheetId || 1 });
+    } else if (route.mode === "public") {
+      // Stay on the view-only public link; personal edit access is offered via the banner button.
+      await loadPublicDocument(route);
     } else {
       await loadCurrentDocument();
       if (currentDocumentId) navigateToDocument(currentDocumentId, { sheetId: currentSheetId, replace: true });
@@ -6971,14 +7034,23 @@ function isPrintableKeyEvent(e) {
   return typeof e.key === "string" && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey;
 }
 
-function setAlignButtons(h, v) {
-  [fpAlignLeft, fpAlignCenter, fpAlignRight, fpVTop, fpVMiddle, fpVBottom].forEach((b) => { if (b) b.classList.remove("active"); });
+function setHorizontalAlignButtons(h) {
+  [fpAlignLeft, fpAlignCenter, fpAlignRight].forEach((b) => { if (b) b.classList.remove("active"); });
   if (h === "left" && fpAlignLeft) fpAlignLeft.classList.add("active");
   if (h === "center" && fpAlignCenter) fpAlignCenter.classList.add("active");
   if (h === "right" && fpAlignRight) fpAlignRight.classList.add("active");
+}
+
+function setVerticalAlignButtons(v) {
+  [fpVTop, fpVMiddle, fpVBottom].forEach((b) => { if (b) b.classList.remove("active"); });
   if (v === "top" && fpVTop) fpVTop.classList.add("active");
   if (v === "middle" && fpVMiddle) fpVMiddle.classList.add("active");
   if (v === "bottom" && fpVBottom) fpVBottom.classList.add("active");
+}
+
+function setAlignButtons(h, v) {
+  setHorizontalAlignButtons(h);
+  setVerticalAlignButtons(v);
 }
 
 function setArrowShapeButtons(container, value) {
@@ -7082,12 +7154,15 @@ function setControlVisibilityByMode(mode) {
 }
 
 function applyTextAlign(text, h, v) {
-  text.style.display = "block";
+  // Keep CSS display:grid so data-valign can use align-content (middle/bottom).
+  // Inline display:block was overriding that and made H/V align fight each other.
+  text.style.display = "";
   text.style.textAlign = h || "left";
   text.dataset.halign = h || "left";
   text.dataset.valign = v || "top";
   text.style.justifyContent = "";
   text.style.alignItems = "";
+  text.style.alignContent = "";
   syncShapeTextVerticalAlign(text);
 }
 
@@ -17408,6 +17483,14 @@ function syncFormatPanel() {
       ));
       fpY.value = uniform && !mixed("textPaddingTop") ? String(first.textPaddingTop ?? DEFAULT_SHAPE_TEXT_PADDING) : "";
     }
+    if (!mixed("hAlign") && !mixed("vAlign")) {
+      setAlignButtons(first.hAlign || "left", first.vAlign || "top");
+    } else {
+      if (!mixed("hAlign")) setHorizontalAlignButtons(first.hAlign || "left");
+      else [fpAlignLeft, fpAlignCenter, fpAlignRight].forEach((b) => b?.classList.remove("active"));
+      if (!mixed("vAlign")) setVerticalAlignButtons(first.vAlign || "top");
+      else [fpVTop, fpVMiddle, fpVBottom].forEach((b) => b?.classList.remove("active"));
+    }
     updateFormatPanelVisuals();
     return;
   }
@@ -18391,24 +18474,41 @@ safeOn(fpResetBtn, "click", () => {
   }
 });
 
-function applyAlignButtonsForCurrentSelection(h, v) {
+function readUiHorizontalAlign() {
+  if (fpAlignCenter?.classList.contains("active")) return "center";
+  if (fpAlignRight?.classList.contains("active")) return "right";
+  return "left";
+}
+
+function readUiVerticalAlign() {
+  if (fpVMiddle?.classList.contains("active")) return "middle";
+  if (fpVBottom?.classList.contains("active")) return "bottom";
+  return "top";
+}
+
+function applyHorizontalAlignForCurrentSelection(h) {
+  const nextH = h || "left";
+  // Capture V from the UI BEFORE changing any buttons — H click must not touch V.
+  const keepVFromUi = readUiVerticalAlign();
   if (selectedConnector) {
     const conn = connectors.find((item) => item.id === selectedConnector);
     if (!conn) return;
-    setAlignButtons(h, v);
     const labelStyle = getConnectorLabelStyle(conn);
-    conn.labelStyle = { ...labelStyle, hAlign: h, vAlign: v };
+    conn.labelStyle = { ...labelStyle, hAlign: nextH, vAlign: labelStyle.vAlign || keepVFromUi };
+    setHorizontalAlignButtons(nextH);
     renderConnectors();
     saveLayout();
     return;
   }
   const shapes = getFormatPanelTargets();
   if (!shapes.length) return;
-  setAlignButtons(h, v);
+  setHorizontalAlignButtons(nextH);
   let changed = false;
   shapes.forEach((node) => {
     if (node.dataset.shapeType === "shape-bitrix-card" && window.BitrixChart?.applyCardTextAlign) {
-      changed = window.BitrixChart.applyCardTextAlign(node, h, v, { groupMode: shapes.length > 1 }) || changed;
+      const text = node.querySelector(".shape-text");
+      const keepV = text?.dataset?.valign || keepVFromUi;
+      changed = window.BitrixChart.applyCardTextAlign(node, nextH, keepV, { groupMode: shapes.length > 1 }) || changed;
       return;
     }
     if (node.dataset.shapeType === "shape-table" && node.__tableApi?.applyFromFormatPanel) {
@@ -18417,14 +18517,50 @@ function applyAlignButtonsForCurrentSelection(h, v) {
     }
     const text = node.querySelector(".shape-text");
     if (!text) return;
-    applyTextAlign(text, h, v);
+    // Keep shape V if set; otherwise keep whatever the V button currently shows.
+    applyTextAlign(text, nextH, text.dataset.valign || keepVFromUi);
     changed = true;
   });
-  if (changed) {
-    saveLayout();
-    syncFormatPanel();
-  }
+  if (changed) saveLayout();
 }
+
+function applyVerticalAlignForCurrentSelection(v) {
+  const nextV = v || "top";
+  // Capture H from the UI BEFORE changing any buttons — V click must not touch H.
+  const keepHFromUi = readUiHorizontalAlign();
+  if (selectedConnector) {
+    const conn = connectors.find((item) => item.id === selectedConnector);
+    if (!conn) return;
+    const labelStyle = getConnectorLabelStyle(conn);
+    conn.labelStyle = { ...labelStyle, hAlign: labelStyle.hAlign || keepHFromUi, vAlign: nextV };
+    setVerticalAlignButtons(nextV);
+    renderConnectors();
+    saveLayout();
+    return;
+  }
+  const shapes = getFormatPanelTargets();
+  if (!shapes.length) return;
+  setVerticalAlignButtons(nextV);
+  let changed = false;
+  shapes.forEach((node) => {
+    if (node.dataset.shapeType === "shape-bitrix-card" && window.BitrixChart?.applyCardTextAlign) {
+      const text = node.querySelector(".shape-text");
+      const keepH = text?.dataset?.halign || keepHFromUi;
+      changed = window.BitrixChart.applyCardTextAlign(node, keepH, nextV, { groupMode: shapes.length > 1 }) || changed;
+      return;
+    }
+    if (node.dataset.shapeType === "shape-table" && node.__tableApi?.applyFromFormatPanel) {
+      changed = node.__tableApi.applyFromFormatPanel() || changed;
+      return;
+    }
+    const text = node.querySelector(".shape-text");
+    if (!text) return;
+    applyTextAlign(text, text.dataset.halign || keepHFromUi, nextV);
+    changed = true;
+  });
+  if (changed) saveLayout();
+}
+
 function applyNumberFormatForCurrentSelection(numberFormat) {
   if (!fpNumberFormat) return;
   setNumberFormatButtons(fpNumberFormat, numberFormat);
@@ -18432,12 +18568,12 @@ function applyNumberFormatForCurrentSelection(numberFormat) {
   applyFormat();
   syncFormatPanel();
 }
-safeOn(fpAlignLeft, "click", () => applyAlignButtonsForCurrentSelection("left", (selectedShape && selectedShape.dataset.shapeType === "shape-table") ? (fpVTop && fpVTop.classList.contains("active") ? "top" : (fpVBottom && fpVBottom.classList.contains("active") ? "bottom" : "middle")) : ((selectedShape && selectedShape.querySelector(".shape-text")) ? (selectedShape.querySelector(".shape-text").dataset.valign || "top") : "top")));
-safeOn(fpAlignCenter, "click", () => applyAlignButtonsForCurrentSelection("center", (selectedShape && selectedShape.dataset.shapeType === "shape-table") ? (fpVTop && fpVTop.classList.contains("active") ? "top" : (fpVBottom && fpVBottom.classList.contains("active") ? "bottom" : "middle")) : ((selectedShape && selectedShape.querySelector(".shape-text")) ? (selectedShape.querySelector(".shape-text").dataset.valign || "top") : "top")));
-safeOn(fpAlignRight, "click", () => applyAlignButtonsForCurrentSelection("right", (selectedShape && selectedShape.dataset.shapeType === "shape-table") ? (fpVTop && fpVTop.classList.contains("active") ? "top" : (fpVBottom && fpVBottom.classList.contains("active") ? "bottom" : "middle")) : ((selectedShape && selectedShape.querySelector(".shape-text")) ? (selectedShape.querySelector(".shape-text").dataset.valign || "top") : "top")));
-safeOn(fpVTop, "click", () => applyAlignButtonsForCurrentSelection((selectedShape && selectedShape.dataset.shapeType === "shape-table") ? (fpAlignCenter && fpAlignCenter.classList.contains("active") ? "center" : (fpAlignRight && fpAlignRight.classList.contains("active") ? "right" : "left")) : ((selectedShape && selectedShape.querySelector(".shape-text")) ? (selectedShape.querySelector(".shape-text").dataset.halign || "left") : "left"), "top"));
-safeOn(fpVMiddle, "click", () => applyAlignButtonsForCurrentSelection((selectedShape && selectedShape.dataset.shapeType === "shape-table") ? (fpAlignCenter && fpAlignCenter.classList.contains("active") ? "center" : (fpAlignRight && fpAlignRight.classList.contains("active") ? "right" : "left")) : ((selectedShape && selectedShape.querySelector(".shape-text")) ? (selectedShape.querySelector(".shape-text").dataset.halign || "left") : "left"), "middle"));
-safeOn(fpVBottom, "click", () => applyAlignButtonsForCurrentSelection((selectedShape && selectedShape.dataset.shapeType === "shape-table") ? (fpAlignCenter && fpAlignCenter.classList.contains("active") ? "center" : (fpAlignRight && fpAlignRight.classList.contains("active") ? "right" : "left")) : ((selectedShape && selectedShape.querySelector(".shape-text")) ? (selectedShape.querySelector(".shape-text").dataset.halign || "left") : "left"), "bottom"));
+safeOn(fpAlignLeft, "click", () => applyHorizontalAlignForCurrentSelection("left"));
+safeOn(fpAlignCenter, "click", () => applyHorizontalAlignForCurrentSelection("center"));
+safeOn(fpAlignRight, "click", () => applyHorizontalAlignForCurrentSelection("right"));
+safeOn(fpVTop, "click", () => applyVerticalAlignForCurrentSelection("top"));
+safeOn(fpVMiddle, "click", () => applyVerticalAlignForCurrentSelection("middle"));
+safeOn(fpVBottom, "click", () => applyVerticalAlignForCurrentSelection("bottom"));
 fpNumberFormat?.querySelectorAll("[data-number-format]").forEach((btn) => {
   btn.addEventListener("click", () => applyNumberFormatForCurrentSelection(btn.dataset.numberFormat || NUMBER_FORMAT_NUMBER));
 });
