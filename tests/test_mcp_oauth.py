@@ -58,6 +58,25 @@ class McpOAuthTests(unittest.TestCase):
         self.assertIn("S256", r.json["code_challenge_methods_supported"])
         self.assertTrue(r.json["authorization_endpoint"].endswith("/oauth/authorize"))
 
+    def test_chatgpt_cimd_fallback_shows_login(self):
+        """ChatGPT CIMD URLs must work even when chatgpt.com returns 403 to the server."""
+        verifier, challenge = _pkce()
+        qs = {
+            "response_type": "code",
+            "client_id": "https://chatgpt.com/oauth/LgxzLfa9TdZi/client.json",
+            "redirect_uri": "https://chatgpt.com/connector/oauth/LgxzLfa9TdZi",
+            "scope": "docs:read docs:write",
+            "resource": "https://mmtable.test/mcp",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": "chatgpt-test",
+        }
+        r = self.client.get("/oauth/authorize", query_string=qs)
+        body = r.get_data(as_text=True)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue("Вход в MM Table" in body or "Разрешить доступ" in body)
+        self.assertNotIn("invalid_client", body)
+
     def test_mcp_401_has_www_authenticate(self):
         anon = app.test_client()
         r = anon.post(

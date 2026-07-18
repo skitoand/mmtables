@@ -183,13 +183,47 @@ def register_mcp_oauth(app, deps):
             return value in registered
         return False
 
+    def _is_chatgpt_cimd(client_id: str) -> bool:
+        parsed = urlparse(str(client_id or "").strip())
+        if parsed.scheme != "https":
+            return False
+        host = (parsed.hostname or "").lower()
+        if host not in {"chatgpt.com", "www.chatgpt.com", "chat.openai.com", "www.chat.openai.com"}:
+            return False
+        path = parsed.path or ""
+        return path.startswith("/oauth/") and path.endswith("/client.json")
+
+    def _chatgpt_cimd_fallback(client_id: str, redirect_uri: str | None = None) -> dict | None:
+        """ChatGPT CIMD is often blocked (403) from cloud IPs; accept known ChatGPT clients."""
+        if not _is_chatgpt_cimd(client_id):
+            return None
+        redirect_uris = []
+        if redirect_uri and _allowed_redirect(redirect_uri, None):
+            redirect_uris = [redirect_uri]
+        return {
+            "client_id": client_id,
+            "client_name": "ChatGPT",
+            "client_uri": "https://chatgpt.com/",
+            "redirect_uris": redirect_uris,
+            "token_endpoint_auth_methods_supported": ["none", "private_key_jwt"],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+        }
+
     def _fetch_cimd(client_id: str) -> dict | None:
         if not str(client_id).startswith("https://"):
             return None
         try:
             req = Request(
                 client_id,
-                headers={"Accept": "application/json", "User-Agent": "mmtable-mcp-oauth/1.0"},
+                headers={
+                    "Accept": "application/json",
+                    # Browser-like UA: datacenter fetches with custom UA often get CF 403.
+                    "User-Agent": (
+                        "Mozilla/5.0 (compatible; MMTable-MCP/1.0; +https://mmtable.crystalsystems.ru)"
+                    ),
+                },
             )
             with urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
@@ -199,19 +233,33 @@ def register_mcp_oauth(app, deps):
         except (HTTPError, URLError, TimeoutError, ValueError, json.JSONDecodeError):
             return None
 
-    def _resolve_client(conn, client_id: str):
+    def _resolve_client(conn, client_id: str, redirect_uri: str | None = None):
         client_id = str(client_id or "").strip()
         if not client_id:
             return None, None
         row = conn.execute("SELECT * FROM oauth_clients WHERE client_id = ?", (client_id,)).fetchone()
         if row:
-            return row, _json_list(row["redirect_uris"])
+            uris = _json_list(row["redirect_uris"])
+            # Keep ChatGPT redirect from current request if missing in stored metadata.
+            if redirect_uri and _allowed_redirect(redirect_uri, None) and redirect_uri not in uris:
+                uris.append(redirect_uri)
+                conn.execute(
+                    "UPDATE oauth_clients SET redirect_uris = ? WHERE client_id = ?",
+                    (json.dumps(uris, ensure_ascii=False), client_id),
+                )
+                conn.commit()
+                row = conn.execute("SELECT * FROM oauth_clients WHERE client_id = ?", (client_id,)).fetchone()
+            return row, uris
 
         # CIMD: client_id is an HTTPS metadata URL.
         meta = _fetch_cimd(client_id)
         if not meta:
+            meta = _chatgpt_cimd_fallback(client_id, redirect_uri)
+        if not meta:
             return None, None
         redirect_uris = _json_list(meta.get("redirect_uris"))
+        if redirect_uri and _allowed_redirect(redirect_uri, None) and redirect_uri not in redirect_uris:
+            redirect_uris.append(redirect_uri)
         auth_methods = meta.get("token_endpoint_auth_methods_supported") or meta.get("token_endpoint_auth_method")
         if isinstance(auth_methods, list) and auth_methods:
             method = "none" if "none" in auth_methods else str(auth_methods[0])
@@ -460,7 +508,7 @@ def register_mcp_oauth(app, deps):
 
         conn = db()
         init_oauth_tables(conn)
-        client, redirect_uris = _resolve_client(conn, client_id)
+        client, redirect_uris = _resolve_client(conn, client_id, redirect_uri=redirect_uri)
         if not client:
             conn.close()
             return _error_redirect(redirect_uri, "invalid_client", "Unknown client_id", state)
