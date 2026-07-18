@@ -68,6 +68,12 @@ require_local_file "$ROOT_DIR/app.js"
 require_local_file "$ROOT_DIR/index.html"
 require_local_file "$ROOT_DIR/styles.css"
 require_local_file "$ROOT_DIR/server.py"
+require_local_file "$ROOT_DIR/api_v1.py"
+require_local_file "$ROOT_DIR/mcp_http.py"
+require_local_file "$ROOT_DIR/layout_engine/__init__.py"
+require_local_file "$ROOT_DIR/layout_engine/constants.py"
+require_local_file "$ROOT_DIR/layout_engine/document.py"
+require_local_file "$ROOT_DIR/layout_engine/ops.py"
 require_local_file "$ROOT_DIR/bitrix-chart.js"
 require_local_file "$ROOT_DIR/draw-tools.js"
 require_local_file "$ROOT_DIR/vendor/laser-pointer.js"
@@ -93,6 +99,15 @@ retry 6 remote_scp "$ROOT_DIR/vendor/laser-pointer.js" "${USER_NAME}@${HOST}:/tm
 retry 6 remote_scp "$ROOT_DIR/index.html" "${USER_NAME}@${HOST}:/tmp/mmtable_index.html"
 retry 6 remote_scp "$ROOT_DIR/styles.css" "${USER_NAME}@${HOST}:/tmp/mmtable_styles.css"
 retry 6 remote_scp "$ROOT_DIR/server.py" "${USER_NAME}@${HOST}:/tmp/mmtable_server.py"
+retry 6 remote_scp "$ROOT_DIR/api_v1.py" "${USER_NAME}@${HOST}:/tmp/mmtable_api_v1.py"
+retry 6 remote_scp "$ROOT_DIR/mcp_http.py" "${USER_NAME}@${HOST}:/tmp/mmtable_mcp_http.py"
+retry 6 remote_ssh "rm -rf /tmp/mmtable_layout_engine && mkdir -p /tmp/mmtable_layout_engine"
+retry 6 remote_scp \
+  "$ROOT_DIR/layout_engine/__init__.py" \
+  "$ROOT_DIR/layout_engine/constants.py" \
+  "$ROOT_DIR/layout_engine/document.py" \
+  "$ROOT_DIR/layout_engine/ops.py" \
+  "${USER_NAME}@${HOST}:/tmp/mmtable_layout_engine/"
 retry 6 remote_scp "$ROOT_DIR/assets/favicon.png" "${USER_NAME}@${HOST}:/tmp/mmtable_favicon.png"
 retry 6 remote_scp "$ROOT_DIR/assets/apple-touch-icon.png" "${USER_NAME}@${HOST}:/tmp/mmtable_apple_touch_icon.png"
 retry 6 remote_ssh "rm -rf /tmp/mmtable_whiteboard_icons && mkdir -p /tmp/mmtable_whiteboard_icons"
@@ -109,6 +124,14 @@ retry 6 remote_ssh "
   install -m 644 /tmp/mmtable_index.html '${REMOTE_APP_DIR}/index.html' &&
   install -m 644 /tmp/mmtable_styles.css '${REMOTE_APP_DIR}/styles.css' &&
   install -m 644 /tmp/mmtable_server.py '${REMOTE_APP_DIR}/server.py' &&
+  install -m 644 /tmp/mmtable_api_v1.py '${REMOTE_APP_DIR}/api_v1.py' &&
+  install -m 644 /tmp/mmtable_mcp_http.py '${REMOTE_APP_DIR}/mcp_http.py' &&
+  rm -rf '${REMOTE_APP_DIR}/layout_engine' &&
+  mkdir -p '${REMOTE_APP_DIR}/layout_engine' &&
+  install -m 644 /tmp/mmtable_layout_engine/__init__.py '${REMOTE_APP_DIR}/layout_engine/__init__.py' &&
+  install -m 644 /tmp/mmtable_layout_engine/constants.py '${REMOTE_APP_DIR}/layout_engine/constants.py' &&
+  install -m 644 /tmp/mmtable_layout_engine/document.py '${REMOTE_APP_DIR}/layout_engine/document.py' &&
+  install -m 644 /tmp/mmtable_layout_engine/ops.py '${REMOTE_APP_DIR}/layout_engine/ops.py' &&
   mkdir -p '${REMOTE_APP_DIR}/assets' &&
   install -m 644 /tmp/mmtable_favicon.png '${REMOTE_APP_DIR}/assets/favicon.png' &&
   install -m 644 /tmp/mmtable_apple_touch_icon.png '${REMOTE_APP_DIR}/assets/apple-touch-icon.png' &&
@@ -116,9 +139,13 @@ retry 6 remote_ssh "
   mkdir -p '${REMOTE_APP_DIR}/assets/whiteboard-icons' &&
   cp -R /tmp/mmtable_whiteboard_icons/. '${REMOTE_APP_DIR}/assets/whiteboard-icons/' &&
   mkdir -p /root/.gunicorn &&
-  pkill -f \"${GUNICORN_CMD}\" || true &&
-  cd '${REMOTE_APP_DIR}' &&
-  nohup ${GUNICORN_CMD} >/root/.gunicorn/mmtable.log 2>&1 &
+  if systemctl list-unit-files | grep -q '^mmtable.service'; then
+    systemctl restart mmtable.service
+  else
+    pkill -f \"${GUNICORN_CMD}\" || true &&
+    cd '${REMOTE_APP_DIR}' &&
+    nohup ${GUNICORN_CMD} >/root/.gunicorn/mmtable.log 2>&1 &
+  fi
   sleep 2
 "
 
@@ -130,7 +157,7 @@ remote_ssh "
   echo ---
   curl -I --max-time 10 http://127.0.0.1:4173/ | sed -n '1,10p'
   echo ---
-  stat -c '%y %n' '${REMOTE_APP_DIR}/app.js' '${REMOTE_APP_DIR}/bitrix-chart.js' '${REMOTE_APP_DIR}/index.html' '${REMOTE_APP_DIR}/styles.css' '${REMOTE_APP_DIR}/server.py'
+  stat -c '%y %n' '${REMOTE_APP_DIR}/app.js' '${REMOTE_APP_DIR}/bitrix-chart.js' '${REMOTE_APP_DIR}/index.html' '${REMOTE_APP_DIR}/styles.css' '${REMOTE_APP_DIR}/server.py' '${REMOTE_APP_DIR}/api_v1.py' '${REMOTE_APP_DIR}/mcp_http.py'
 "
 
 echo "4/4 Checking public URL"
