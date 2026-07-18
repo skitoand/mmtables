@@ -10,6 +10,28 @@
 
 ---
 
+## 2026-07-18 — инструкция ChatGPT MCP со скриншотами
+
+**Commit:** `7f8b656` — Add illustrated ChatGPT MCP setup guide with annotated screenshots.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260718-185404-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29656755064](https://github.com/skitoand/mmtables/actions/runs/29656755064)  
+**Статус:** OK
+
+### Выкатано
+
+| Файл | Назначение |
+|------|------------|
+| `docs/chatgpt-mcp-guide/` | HTML + README + 6 аннотированных скриншотов |
+| `docs/MCP.md` | ссылка на гайд |
+| `index.html` | ссылка из Профиля → MCP |
+| `scripts/deploy_prod.sh` | выкладка гайда |
+
+### Проверка на проде
+
+- [x] https://mmtable.crystalsystems.ru/docs/chatgpt-mcp-guide/index.html → 200
+
+---
+
 ## 2026-07-18 — OAuth refresh tokens (как у Notion)
 
 **Commit:** `cbfe067` — Add OAuth refresh tokens with rotation for MCP sessions.  
