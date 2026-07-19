@@ -81,6 +81,8 @@ require_local_file "$ROOT_DIR/vendor/laser-pointer.js"
 require_local_file "$ROOT_DIR/vendor/perfect-freehand.js"
 require_local_file "$ROOT_DIR/assets/favicon.png"
 require_local_file "$ROOT_DIR/assets/apple-touch-icon.png"
+require_local_file "$ROOT_DIR/assets/bp-task-check-icon.svg"
+require_local_file "$ROOT_DIR/assets/bp-automation-gear-icon.svg"
 
 TS="$(date +%Y%m%d-%H%M%S)"
 BACKUP_NAME="mmtable-PROD-BACKUP-${TS}-before-deploy.tar.gz"
@@ -124,6 +126,9 @@ retry 6 remote_scp \
   "${USER_NAME}@${HOST}:/tmp/mmtable_layout_engine/"
 retry 6 remote_scp "$ROOT_DIR/assets/favicon.png" "${USER_NAME}@${HOST}:/tmp/mmtable_favicon.png"
 retry 6 remote_scp "$ROOT_DIR/assets/apple-touch-icon.png" "${USER_NAME}@${HOST}:/tmp/mmtable_apple_touch_icon.png"
+retry 6 remote_scp "$ROOT_DIR/assets/bp-task-check-icon.svg" "${USER_NAME}@${HOST}:/tmp/mmtable_bp_task_check_icon.svg"
+retry 6 remote_scp "$ROOT_DIR/assets/bp-task-check-icon.png" "${USER_NAME}@${HOST}:/tmp/mmtable_bp_task_check_icon.png"
+retry 6 remote_scp "$ROOT_DIR/assets/bp-automation-gear-icon.svg" "${USER_NAME}@${HOST}:/tmp/mmtable_bp_automation_gear_icon.svg"
 retry 6 remote_ssh "rm -rf /tmp/mmtable_whiteboard_icons && mkdir -p /tmp/mmtable_whiteboard_icons"
 retry 6 remote_scp "$ROOT_DIR/assets/whiteboard-icons/"*.svg "${USER_NAME}@${HOST}:/tmp/mmtable_whiteboard_icons/"
 
@@ -158,6 +163,9 @@ retry 6 remote_ssh "
   mkdir -p '${REMOTE_APP_DIR}/assets' &&
   install -m 644 /tmp/mmtable_favicon.png '${REMOTE_APP_DIR}/assets/favicon.png' &&
   install -m 644 /tmp/mmtable_apple_touch_icon.png '${REMOTE_APP_DIR}/assets/apple-touch-icon.png' &&
+  install -m 644 /tmp/mmtable_bp_task_check_icon.svg '${REMOTE_APP_DIR}/assets/bp-task-check-icon.svg' &&
+  install -m 644 /tmp/mmtable_bp_task_check_icon.png '${REMOTE_APP_DIR}/assets/bp-task-check-icon.png' &&
+  install -m 644 /tmp/mmtable_bp_automation_gear_icon.svg '${REMOTE_APP_DIR}/assets/bp-automation-gear-icon.svg' &&
   rm -rf '${REMOTE_APP_DIR}/assets/whiteboard-icons' &&
   mkdir -p '${REMOTE_APP_DIR}/assets/whiteboard-icons' &&
   cp -R /tmp/mmtable_whiteboard_icons/. '${REMOTE_APP_DIR}/assets/whiteboard-icons/' &&

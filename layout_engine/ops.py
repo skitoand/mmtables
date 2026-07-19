@@ -258,6 +258,11 @@ def create_shape(doc: dict, sheet_id: int | None, payload: dict) -> tuple[dict, 
         shape["border"] = str(payload.get("border") or "#94a3b8")
         shape["borderStyle"] = "dashed"
         shape["radius"] = 12
+        frame_name = str(
+            payload.get("frameName") or payload.get("name") or payload.get("text") or ""
+        ).strip()
+        if frame_name:
+            shape["frameName"] = frame_name
 
     layout["shapes"].append(shape)
     document = set_sheet_layout(document, sheet["id"], layout)
@@ -292,6 +297,7 @@ def update_shape(doc: dict, sheet_id: int | None, shape_id: str, patch: dict) ->
         "radius": "radius",
         "variant": "shapeVariant",
         "shapeVariant": "shapeVariant",
+        "frameName": "frameName",
     }
     for src, dst in mapping.items():
         if src not in patch:
@@ -303,6 +309,17 @@ def update_shape(doc: dict, sheet_id: int | None, shape_id: str, patch: dict) ->
             shape[dst] = value
     if "fill" in patch and "fill2" not in patch:
         shape["fill2"] = shape["fill"]
+    # Frame label in UI is `frameName` (shown as "Фрейм" by default), not `text`.
+    if shape.get("type") == "shape-frame":
+        label = ""
+        if "frameName" in patch:
+            label = str(patch.get("frameName") or "").strip()
+        elif "name" in patch:
+            label = str(patch.get("name") or "").strip()
+        elif "text" in patch:
+            label = str(patch.get("text") or "").strip()
+        if label:
+            shape["frameName"] = label
     document = set_sheet_layout(document, sheet["id"], layout)
     return document, {"id": shape["id"], "type": shape.get("type"), "sheetId": sheet["id"]}
 
@@ -1259,6 +1276,8 @@ def describe_sheet(doc: dict, sheet_id: int | None = None) -> dict:
             "height": parse_px(shape.get("height")),
             "text": str(shape.get("text") or "")[:120],
         }
+        if shape.get("type") == "shape-frame":
+            item["frameName"] = str(shape.get("frameName") or shape.get("text") or "")[:120]
         if shape.get("bpProcessId"):
             item["bpProcessId"] = shape.get("bpProcessId")
             item["bpRole"] = shape.get("bpRole")

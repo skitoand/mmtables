@@ -44,7 +44,7 @@ Engine may keep internal `_connCounter` for connector ids (`conn_N`).
 | `shape-rect` | `shapeVariant`: rectangle, rounded, circle, chevron, diamond, … |
 | `shape-note` | sticky / BP task card |
 | `shape-line` | segment |
-| `shape-frame` | dashed container |
+| `shape-frame` | dashed container; label via `frameName` (aliases: `name`, `text` on create/update) |
 | `shape-table` | spreadsheet; payload in `tableData` |
 
 Common fields: `id`, `connId`, `left/top/width/height` (px strings), `zIndex`, fill/border/text fields.

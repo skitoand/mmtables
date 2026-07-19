@@ -7581,7 +7581,49 @@ function getFrameShapeById(frameId) {
 function getFrameChildren(frameId) {
   const target = String(frameId || "").trim();
   if (!target) return [];
-  return Array.from(desktop.querySelectorAll(".shape")).filter((node) => !isFrameShape(node) && getShapeFrameId(node) === target);
+  return Array.from(desktop.querySelectorAll(".shape")).filter((node) => node && getShapeFrameId(node) === target);
+}
+
+function getFrameDescendants(frameId) {
+  const result = [];
+  const queue = [String(frameId || "").trim()];
+  const seen = new Set();
+  while (queue.length) {
+    const current = queue.shift();
+    if (!current || seen.has(current)) continue;
+    seen.add(current);
+    getFrameChildren(current).forEach((child) => {
+      result.push(child);
+      if (isFrameShape(child) && child.dataset.shapeId) queue.push(child.dataset.shapeId);
+    });
+  }
+  return result;
+}
+
+function isFrameAncestorOf(ancestorFrameId, descendantFrameId) {
+  const ancestor = String(ancestorFrameId || "").trim();
+  let currentId = String(descendantFrameId || "").trim();
+  if (!ancestor || !currentId || ancestor === currentId) return false;
+  const seen = new Set();
+  while (currentId) {
+    if (seen.has(currentId)) return false;
+    seen.add(currentId);
+    const current = getFrameShapeById(currentId);
+    if (!current) return false;
+    const parentId = getShapeFrameId(current);
+    if (!parentId) return false;
+    if (parentId === ancestor) return true;
+    currentId = parentId;
+  }
+  return false;
+}
+
+function canAssignShapeToFrame(node, frameId) {
+  const target = String(frameId || "").trim();
+  if (!node?.dataset || !target) return false;
+  if (node.dataset.shapeId === target) return false;
+  if (isFrameShape(node) && isFrameAncestorOf(node.dataset.shapeId, target)) return false;
+  return true;
 }
 
 function isShapeInsideFrameById(shapeNode, frameId) {
@@ -7602,14 +7644,44 @@ function boundsOverlap(a, b) {
   return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
 }
 
+function getFrameBoundsArea(bounds) {
+  return Math.max(0, bounds.right - bounds.left) * Math.max(0, bounds.bottom - bounds.top);
+}
+
+function findContainingFrameForShape(node) {
+  if (!node) return null;
+  const shapeBounds = getElementLogicalBox(node);
+  let best = null;
+  let bestArea = Infinity;
+  Array.from(desktop.querySelectorAll('.shape[data-shape-type="shape-frame"]')).forEach((frame) => {
+    if (!frame || frame === node) return;
+    const frameId = frame.dataset.shapeId;
+    if (!canAssignShapeToFrame(node, frameId)) return;
+    const frameBounds = getElementLogicalBox(frame);
+    if (!boundsContainShape(frameBounds, shapeBounds)) return;
+    const area = getFrameBoundsArea(frameBounds);
+    if (area < bestArea) {
+      bestArea = area;
+      best = frame;
+    }
+  });
+  return best;
+}
+
 function getEligibleFrameChildCandidates(frame) {
   const frameId = frame?.dataset?.shapeId || "";
+  if (!frameId) return [];
+  const frameBounds = getElementLogicalBox(frame);
   return Array.from(desktop.querySelectorAll(".shape")).filter((node) => {
-    if (!node || node === frame || isFrameShape(node)) return false;
+    if (!node || node === frame) return false;
+    if (!canAssignShapeToFrame(node, frameId)) return false;
     const existingFrameId = getShapeFrameId(node);
     if (existingFrameId && existingFrameId !== frameId) {
       const existingFrame = getFrameShapeById(existingFrameId);
-      if (existingFrame) return false;
+      if (existingFrame) {
+        // Allow reclaiming into a nested frame that sits inside the current parent.
+        if (!boundsContainShape(getElementLogicalBox(existingFrame), frameBounds)) return false;
+      }
     }
     return true;
   });
@@ -7620,26 +7692,42 @@ function getElementsCompletelyInFrame(frame) {
   return getEligibleFrameChildCandidates(frame).filter((node) => boundsContainShape(frameBounds, getElementLogicalBox(node)));
 }
 
-function reorderFrameBehindChildren(frame) {
+function reorderFrameBehindChildren(frame, visited = null) {
   if (!frame) return;
-  const children = getFrameChildren(frame.dataset.shapeId);
-  if (!children.length) return;
-  const minZ = Math.min(...children.map((child) => Number(child.style.zIndex) || 0));
-  frame.style.zIndex = String(Math.max(1, minZ - 1));
-  const origin = getDesktopContentRoot();
-  if (!origin) return;
-  const firstChild = children.reduce((min, child) => {
-    if (!min) return child;
-    return (Number(child.style.zIndex) || 0) < (Number(min.style.zIndex) || 0) ? child : min;
-  }, null);
-  if (firstChild && firstChild.parentElement === origin) origin.insertBefore(frame, firstChild);
+  const frameId = frame.dataset?.shapeId || "";
+  if (!frameId) return;
+  const seen = visited || new Set();
+  if (seen.has(frameId)) return;
+  seen.add(frameId);
+
+  const children = getFrameChildren(frameId);
+  children.forEach((child) => {
+    if (isFrameShape(child)) reorderFrameBehindChildren(child, seen);
+  });
+  if (children.length) {
+    const minZ = Math.min(...children.map((child) => Number(child.style.zIndex) || 0));
+    frame.style.zIndex = String(Math.max(1, minZ - 1));
+    const origin = getDesktopContentRoot();
+    if (origin) {
+      const firstChild = children.reduce((min, child) => {
+        if (!min) return child;
+        return (Number(child.style.zIndex) || 0) < (Number(min.style.zIndex) || 0) ? child : min;
+      }, null);
+      if (firstChild && firstChild.parentElement === origin) origin.insertBefore(frame, firstChild);
+    }
+  }
+
+  const parentId = getShapeFrameId(frame);
+  if (!parentId) return;
+  const parent = getFrameShapeById(parentId);
+  if (parent) reorderFrameBehindChildren(parent, seen);
 }
 
 function addElementsToFrame(frame, elements) {
   if (!frame || !isFrameShape(frame) || !elements?.length) return;
   const frameId = frame.dataset.shapeId;
   elements.forEach((node) => {
-    if (!node || isFrameShape(node)) return;
+    if (!node || !canAssignShapeToFrame(node, frameId)) return;
     setShapeFrameId(node, frameId);
   });
   reorderFrameBehindChildren(frame);
@@ -7668,7 +7756,7 @@ function updateFrameMembership(frame) {
 }
 
 function updateShapeFrameMembershipAfterMove(node) {
-  if (!node || isFrameShape(node)) return;
+  if (!node) return;
   const shapeBounds = getElementLogicalBox(node);
   const currentFrameId = getShapeFrameId(node);
   if (currentFrameId) {
@@ -7678,21 +7766,24 @@ function updateShapeFrameMembershipAfterMove(node) {
       if (!boundsOverlap(frameBounds, shapeBounds) || !boundsContainShape(frameBounds, shapeBounds)) {
         setShapeFrameId(node, null);
       } else {
-        reorderFrameBehindChildren(frame);
+        const nested = findContainingFrameForShape(node);
+        if (nested && nested.dataset.shapeId !== currentFrameId) {
+          setShapeFrameId(node, nested.dataset.shapeId);
+          reorderFrameBehindChildren(nested);
+        } else {
+          reorderFrameBehindChildren(frame);
+        }
+        return;
       }
-      return;
+    } else {
+      setShapeFrameId(node, null);
     }
-    setShapeFrameId(node, null);
   }
-  Array.from(desktop.querySelectorAll('.shape[data-shape-type="shape-frame"]')).some((frame) => {
-    const frameBounds = getElementLogicalBox(frame);
-    if (boundsContainShape(frameBounds, shapeBounds)) {
-      setShapeFrameId(node, frame.dataset.shapeId);
-      reorderFrameBehindChildren(frame);
-      return true;
-    }
-    return false;
-  });
+  const frame = findContainingFrameForShape(node);
+  if (frame) {
+    setShapeFrameId(node, frame.dataset.shapeId);
+    reorderFrameBehindChildren(frame);
+  }
 }
 
 function getDefaultFrameName() {
@@ -8223,9 +8314,9 @@ function wrapSelectionInFrame() {
 
 function getWrapSelectionTargets() {
   if (multiSelectedShapeIds.size) {
-    return getMultiSelectedShapes().filter((node) => !isFrameShape(node));
+    return getMultiSelectedShapes().filter((node) => !!node);
   }
-  if (selectedShape && !isFrameShape(selectedShape)) return [selectedShape];
+  if (selectedShape) return [selectedShape];
   return [];
 }
 
@@ -9726,6 +9817,9 @@ function finishBulkSelectionDrag(lastDrag) {
       layoutAllBpTasksInProcess(processId);
       layoutAllBpAutomationsInProcess(processId);
     });
+    const movedNodes = lastDrag.members.map((entry) => entry.node).filter(Boolean);
+    movedNodes.filter((node) => isFrameShape(node)).forEach((node) => updateFrameMembership(node));
+    movedNodes.forEach((node) => updateShapeFrameMembershipAfterMove(node));
   }
   updateDesktopExtent();
   saveLayout();
@@ -9815,7 +9909,7 @@ function attachDrag(node, handle, opts = {}) {
         });
       }
       if (isFrameShape(node)) {
-        drag.frameChildren = getFrameChildren(node.dataset.shapeId).map((child) => {
+        drag.frameChildren = getFrameDescendants(node.dataset.shapeId).map((child) => {
           const box = getElementLogicalBox(child);
           return { node: child, left: box.left, top: box.top };
         });
@@ -9927,8 +10021,12 @@ function attachDrag(node, handle, opts = {}) {
       }
     }
     if (draggedBpProcessId) repairBpProcessStageOrder(draggedBpProcessId);
-    if (isFrameShape(node)) updateFrameMembership(node);
-    else updateShapeFrameMembershipAfterMove(node);
+    if (isFrameShape(node)) {
+      updateFrameMembership(node);
+      updateShapeFrameMembershipAfterMove(node);
+    } else {
+      updateShapeFrameMembershipAfterMove(node);
+    }
     updateDesktopExtent();
     saveLayout();
   };
@@ -10159,7 +10257,10 @@ function addShapeHandles(node, isLine = false, opts = {}) {
       }
       finalizeBpTaskManualResize(node, resizeState);
       finalizeBpAutomationManualResize(node, resizeState);
-      if (isFrameShape(node)) updateFrameMembership(node);
+      if (isFrameShape(node)) {
+        updateFrameMembership(node);
+        updateShapeFrameMembershipAfterMove(node);
+      }
       saveLayout();
     };
     h.addEventListener("pointerup", stop);
@@ -18316,7 +18417,7 @@ function applyLayout(data) {
       else if (s.type === "shape-line") createShapeLine(s, false);
       else if (s.type === "shape-table") createShapeTable(s, false);
       else if (s.type === "shape-image") createShapeImage(s, false);
-      else if (s.type === "shape-frame") createShapeFrame(s, false);
+      else if (s.type === "shape-frame") createShapeFrame({ ...s, collectChildren: false }, false);
       else if (s.type === "shape-chart" && window.BitrixChart) window.BitrixChart.restoreShapeChart(s, false);
       else if (s.type === "shape-bitrix-card" && window.BitrixChart) window.BitrixChart.restoreShapeCard(s, false);
       else if (s.type === "shape-bitrix-date-filter" && window.BitrixChart) window.BitrixChart.restoreShapeDateFilter(s, false);
@@ -20123,12 +20224,13 @@ document.addEventListener("contextmenu", (e) => {
   const groupId = getShapeGroupId(shape);
   const frameMenuItems = [];
   if (isFrameShape(shape)) {
+    const frameChildCount = getFrameChildren(shape.dataset.shapeId).length;
     frameMenuItems.push(
       {
         label: "Выбрать всё во фрейме",
-        disabled: !getFrameChildren(shape.dataset.shapeId).length,
+        disabled: !frameChildCount,
         action: () => {
-          const children = getFrameChildren(shape.dataset.shapeId);
+          const children = getFrameDescendants(shape.dataset.shapeId);
           clearSelection();
           children.forEach((node) => multiSelectedShapeIds.add(node.dataset.shapeId));
           syncMultiSelectionClasses();
@@ -20140,7 +20242,7 @@ document.addEventListener("contextmenu", (e) => {
       },
       {
         label: "Убрать элементы из фрейма",
-        disabled: !getFrameChildren(shape.dataset.shapeId).length,
+        disabled: !frameChildCount,
         action: () => {
           removeAllElementsFromFrame(shape);
           saveLayout();
