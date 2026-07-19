@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-07-19 — MCP: полный CRUD задач и автоматизаций BP
+
+**Commit:** `b93c30e` — Expose full BP task and automation CRUD through MCP.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260719-130242-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29688125999](https://github.com/skitoand/mmtables/actions/runs/29688125999)  
+**Статус:** OK
+
+### Было / стало
+Раньше: create BP, add stage, add/update task.  
+Не было: автоматизации, delete task/stage/process, update stage, полные поля results/conditions.
+
+### Tools
+`add/update/delete_bp_automation`, `delete_bp_task`, `update/delete_bp_stage`, `delete_business_process`; расширены task fields и `list_business_processes`.
+
+### Проверка
+- [x] unit tests BP CRUD
+- [x] `add_bp_automation` на проде
+
+---
+
 ## 2026-07-19 — MCP: создание листов
 
 **Commit:** `0389cd8` — Add MCP/API tools to create, rename, and delete document sheets.  
