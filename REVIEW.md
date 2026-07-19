@@ -10,6 +10,22 @@
 
 ---
 
+## 2026-07-19 — инструкция Cursor MCP для сотрудников
+
+**Commit:** `25a4145` — Add simple Cursor MCP setup guide for employees.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260719-114026-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29685513354](https://github.com/skitoand/mmtables/actions/runs/29685513354)  
+**Статус:** OK
+
+### Что сделано
+Простая пошаговая инструкция: токен в Профиле → копировать конфиг → вставить в Cursor `mcp.json` → проверка.
+
+### Проверка
+- [x] https://mmtable.crystalsystems.ru/docs/cursor-mcp-guide/index.html → 200
+- [x] ссылка из Профиль → MCP
+
+---
+
 ## 2026-07-19 — BP автоматизации, тогглы секций, growing lists
 
 **Commit:** `1a95ca2` — Add BP automations with section toggles and growing-list cleanup.  
