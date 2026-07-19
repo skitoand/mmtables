@@ -400,6 +400,13 @@ const BP_TASK_STAGE_GAP = 15;
 const BP_TASK_STACK_GAP = 15;
 const BP_TASK_RADIUS = 5;
 const BP_TASK_DEFAULT_HEIGHT = 40;
+const BP_AUTOMATION_FILL = "#fddd68";
+const BP_AUTOMATION_DEFAULT_HEIGHT = 40;
+const BP_AUTOMATION_TOGGLE_ICON_SRC = "assets/bp-automation-gear-icon.svg";
+/** Fixed tip depth in px (independent of width). Smaller than h/2 → blunter (obtuse) tip angle. */
+const BP_AUTOMATION_TIP_PX = 12;
+/** Gap between stacked automations (half of task stack gap). */
+const BP_AUTOMATION_STACK_GAP = BP_TASK_STACK_GAP / 2;
 const SHAPE_REF_PATTERN = "@([A-Za-z][A-Za-z0-9_]*)";
 const SHAPE_REF_RE = new RegExp(SHAPE_REF_PATTERN, "g");
 const TABLE_CELL_ADDRESS_PATTERN = "\\$?[A-Za-z]+\\$?[1-9]\\d*";
@@ -845,6 +852,7 @@ function liftShapeControlsToOverlay(node) {
     const el = node.querySelector(sel);
     if (!el) return;
     el.dataset.liftedFromShape = shapeId;
+    el.classList.toggle("bp-automation-handles", isBpProcessAutomation(node) && el.classList.contains("shape-handles"));
     layer.appendChild(el);
   });
   syncLiftedControlsPosition(node);
@@ -2516,7 +2524,7 @@ function selectionSupportsNumberFormatting() {
     const selection = selectedShape.__tableApi.getSelection();
     return !!(selection?.activeCell || (Array.isArray(selection?.cells) && selection.cells.length));
   }
-  if (isBpProcessTask(selectedShape)) return false;
+  if (isBpProcessTask(selectedShape) || isBpProcessAutomation(selectedShape)) return false;
   return !!selectedShape.querySelector(".shape-text");
 }
 function getNumberGroupingEnabled(node) {
@@ -6376,6 +6384,7 @@ function applyStyleDataToShape(node, data = {}, opts = {}) {
   syncShapeVisualStyle(node);
   if (isBpProcessStage(node)) onChevronShapeResized(node);
   else if (isBpProcessTask(node)) onBpTaskResized(node);
+  else if (isBpProcessAutomation(node)) onBpAutomationResized(node);
   layoutConnectorPoints(node);
   return true;
 }
@@ -6527,6 +6536,25 @@ function applyBpFactoryVisualStyle(node) {
     layoutConnectorPoints(node);
     return true;
   }
+  if (role === "automation") {
+    applyFillStyle(node, {
+      fillEnabled: false,
+      gradientEnabled: false,
+      fill1: BP_AUTOMATION_FILL,
+      fill2: BP_AUTOMATION_FILL,
+      fillDirection: "horizontal"
+    });
+    node.dataset.borderEnabled = "0";
+    node.dataset.borderWidth = "0";
+    node.style.borderWidth = "0px";
+    node.style.border = "0px solid transparent";
+    node.style.opacity = "1";
+    applyNodeShadow(node, 0);
+    applyBpAutomationTypography(node, { title: 15, label: 10.5, field: 14 });
+    applyBpAutomationStyle(node);
+    layoutConnectorPoints(node);
+    return true;
+  }
   let data = null;
   if (role === "base") data = buildBpBaseFactoryStyleData();
   else if (role === "stage") data = buildBpStageFactoryStyleData(node);
@@ -6545,6 +6573,7 @@ function restoreBpProcessFactoryStyles(processId) {
   if (!changed) return false;
   layoutBpProcessBase(processId);
   layoutAllBpTasksInProcess(processId);
+  layoutAllBpAutomationsInProcess(processId);
   renderConnectors();
   updateDesktopExtent();
   return true;
@@ -7403,6 +7432,7 @@ function getZOrderTargets() {
 
 function markBpTaskManualPosition(node) {
   if (isBpProcessTask(node)) node.dataset.bpTaskManualPosition = "1";
+  if (isBpProcessAutomation(node)) node.dataset.bpAutomationManualPosition = "1";
 }
 
 function alignObjectSelection(mode) {
@@ -8374,6 +8404,7 @@ function finalizePastedBpProcessCopies(processMap) {
     relayoutBpStagesAfter(processId, 1);
     layoutBpProcessBase(processId);
     layoutAllBpTasksInProcess(processId);
+    layoutAllBpAutomationsInProcess(processId);
   });
   updateDesktopExtent();
   renderConnectors();
@@ -9549,6 +9580,10 @@ function finishInlineShapeEditing(text, { revert = false } = {}) {
     owner.dataset.bpTaskAutoHeight = "1";
     fitBpTaskHeightToText(owner);
     layoutAllBpTasksInProcess(owner.dataset.bpProcessId);
+  } else if (isBpProcessAutomation(owner)) {
+    owner.dataset.bpAutomationAutoHeight = "1";
+    fitBpAutomationHeightToText(owner);
+    layoutAllBpAutomationsInProcess(owner.dataset.bpProcessId);
   }
   refreshAllFormulaDisplays();
   saveLayout();
@@ -9679,11 +9714,18 @@ function finishBulkSelectionDrag(lastDrag) {
         delete entry.node.dataset.bpTaskManualPosition;
         const processId = entry.node.dataset.bpProcessId;
         if (processId) bpProcessIds.add(processId);
+      } else if (isBpProcessAutomation(entry.node)) {
+        delete entry.node.dataset.bpAutomationManualPosition;
+        const processId = entry.node.dataset.bpProcessId;
+        if (processId) bpProcessIds.add(processId);
       } else {
         markBpTaskManualPosition(entry.node);
       }
     });
-    bpProcessIds.forEach((processId) => layoutAllBpTasksInProcess(processId));
+    bpProcessIds.forEach((processId) => {
+      layoutAllBpTasksInProcess(processId);
+      layoutAllBpAutomationsInProcess(processId);
+    });
   }
   updateDesktopExtent();
   saveLayout();
@@ -9729,7 +9771,9 @@ function attachDrag(node, handle, opts = {}) {
     if (event.target.closest(".table-cell-toolbar")) return;
     if (event.target.closest(".h") || event.target.closest(".shape-line-handle") || event.target.closest(".shape-param-handle") || event.target.closest(".resize-handle")) return;
     if (event.target.closest(".conn-arrow, .conn-point")) return;
+    if (event.target.closest(".bp-process-section-toggle")) return;
     if (event.target.closest(".bp-task-title, .bp-task-toggle, .bp-task-field")) return;
+    if (event.target.closest(".bp-automation-title, .bp-automation-toggle, .bp-automation-field")) return;
     if (event.target.closest(".bitrix-kpi-value, .bitrix-kpi-label, .bitrix-kpi-actions, .bitrix-kpi-status")) return;
     if (event.target.closest(".bitrix-date-filter-inputs, .bitrix-date-filter-slider, .bitrix-date-filter-actions, .bitrix-date-filter-input")) return;
     if (event.target.closest(".bitrix-chart-icon-btn, .bitrix-chart-actions")) return;
@@ -9744,6 +9788,8 @@ function attachDrag(node, handle, opts = {}) {
       const startBox = getElementLogicalBox(node);
       const bpTaskReassign = isBpProcessTask(node)
         && (node.dataset.bpTaskReassignReady === "1" || selectedShape === node);
+      const bpAutomationReassign = isBpProcessAutomation(node)
+        && (node.dataset.bpAutomationReassignReady === "1" || selectedShape === node);
       drag = {
         type: "single",
         x: event.clientX,
@@ -9751,7 +9797,9 @@ function attachDrag(node, handle, opts = {}) {
         l: startBox.left,
         t: startBox.top,
         bpTaskReassign,
-        bpTaskDropTarget: null
+        bpTaskDropTarget: null,
+        bpAutomationReassign,
+        bpAutomationDropTarget: null
       };
       if (isBpProcessStage(node)) {
         const processId = node.dataset.bpProcessId;
@@ -9761,6 +9809,10 @@ function attachDrag(node, handle, opts = {}) {
           const box = getElementLogicalBox(task);
           return { node: task, left: box.left, top: box.top };
         });
+        drag.bpStageAutomations = getBpAutomationsForStage(processId, stageIndex).map((auto) => {
+          const box = getElementLogicalBox(auto);
+          return { node: auto, left: box.left, top: box.top };
+        });
       }
       if (isFrameShape(node)) {
         drag.frameChildren = getFrameChildren(node.dataset.shapeId).map((child) => {
@@ -9768,9 +9820,14 @@ function attachDrag(node, handle, opts = {}) {
           return { node: child, left: box.left, top: box.top };
         });
       }
-      if (raiseOnDrag && !bpTaskReassign && !isFrameShape(node)) {
-        if (drag.bpStageReorder) bringNodesToFront([node, ...(drag.bpStageTasks || []).map((entry) => entry.node)]);
-        else bringToFront(node);
+      if (raiseOnDrag && !bpTaskReassign && !bpAutomationReassign && !isFrameShape(node)) {
+        if (drag.bpStageReorder) {
+          bringNodesToFront([
+            node,
+            ...(drag.bpStageTasks || []).map((entry) => entry.node),
+            ...(drag.bpStageAutomations || []).map((entry) => entry.node)
+          ]);
+        } else bringToFront(node);
       }
     }
     handle.setPointerCapture(event.pointerId);
@@ -9790,18 +9847,25 @@ function attachDrag(node, handle, opts = {}) {
           layoutConnectorPoints(entry.node);
         });
       }
+      if (drag.bpStageAutomations?.length) {
+        drag.bpStageAutomations.forEach((entry) => {
+          setNodePosition(entry.node, entry.left + dx, drag.bpStageReorder ? entry.top : entry.top + dy);
+          layoutConnectorPoints(entry.node);
+        });
+      }
       if (drag.frameChildren?.length) {
         drag.frameChildren.forEach((entry) => {
           setNodePosition(entry.node, entry.left + dx, entry.top + dy);
           layoutConnectorPoints(entry.node);
         });
       }
-      if (drag.bpTaskReassign) {
+      if (drag.bpTaskReassign || drag.bpAutomationReassign) {
         const target = findBpProcessStageAtClientPoint(event.clientX, event.clientY, node.dataset.bpProcessId, {
           ignoreNode: node,
           columnSnap: true
         });
-        drag.bpTaskDropTarget = target;
+        if (drag.bpTaskReassign) drag.bpTaskDropTarget = target;
+        if (drag.bpAutomationReassign) drag.bpAutomationDropTarget = target;
         setBpStageDropHighlight(target);
       } else if (isBpProcessStage(node)) {
         layoutConnectorPoints(node);
@@ -9839,6 +9903,28 @@ function attachDrag(node, handle, opts = {}) {
         const processId = node.dataset.bpProcessId;
         if (processId) layoutAllBpTasksInProcess(processId);
       }
+    } else if (isBpProcessAutomation(node)) {
+      if (lastDrag.bpAutomationReassign) {
+        const target = lastDrag.bpAutomationDropTarget;
+        clearBpStageDropHighlight();
+        if (target) {
+          reassignBpAutomationToStage(node, target);
+          armBpAutomationReassign(node);
+        } else {
+          const processId = node.dataset.bpProcessId;
+          const stageIndex = Number(node.dataset.bpAutomationStageIndex);
+          resequenceBpAutomationsByVisualY(processId, stageIndex);
+          delete node.dataset.bpAutomationManualPosition;
+          layoutAllBpAutomationsInProcess(processId);
+          armBpAutomationReassign(node);
+        }
+      } else {
+        const processId = node.dataset.bpProcessId;
+        const stageIndex = Number(node.dataset.bpAutomationStageIndex);
+        resequenceBpAutomationsByVisualY(processId, stageIndex);
+        delete node.dataset.bpAutomationManualPosition;
+        if (processId) layoutAllBpAutomationsInProcess(processId);
+      }
     }
     if (draggedBpProcessId) repairBpProcessStageOrder(draggedBpProcessId);
     if (isFrameShape(node)) updateFrameMembership(node);
@@ -9856,6 +9942,7 @@ function attachResize(node, handle, minW, minH, opts = {}) {
   handle.addEventListener("pointerdown", (event) => {
     if (!canEditCurrentDocument()) return;
     if (event.button !== 0) return;
+    if (isBpProcessAutomation(node)) return;
     event.stopPropagation();
     if (node.dataset.shapeType === "shape-table" && node.__tableApi?.createResizeSnapshot) {
       state = node.__tableApi.createResizeSnapshot("se", event);
@@ -9868,6 +9955,7 @@ function attachResize(node, handle, minW, minH, opts = {}) {
   });
   handle.addEventListener("pointermove", (event) => {
     if (!state || (event.buttons & 1) !== 1) return;
+    if (isBpProcessAutomation(node)) return;
     if (node.dataset.shapeType === "shape-table" && node.__tableApi?.applyHandleResize) {
       const dx = (event.clientX - state.x) / zoom;
       const dy = (event.clientY - state.y) / zoom;
@@ -10020,6 +10108,7 @@ function addShapeHandles(node, isLine = false, opts = {}) {
       if (e.button !== 0) return;
       e.stopPropagation();
       if (!canEditCurrentDocument()) return;
+      if (isBpProcessAutomation(node)) return;
       const bulkDrag = createBulkSelectionDrag(node, e);
       if (bulkDrag && runBulkSelectionDragSession(node, bulkDrag, e, h)) return;
       if (node.dataset.shapeType === "shape-table" && node.__tableApi?.createResizeSnapshot) {
@@ -10031,9 +10120,9 @@ function addShapeHandles(node, isLine = false, opts = {}) {
     });
     h.addEventListener("pointermove", (e) => {
       if (!rs || (e.buttons & 1) !== 1) return;
+      if (isBpProcessAutomation(node)) return;
       const dx = (e.clientX - rs.x) / zoom;
       const dy = (e.clientY - rs.y) / zoom;
-      const isTableResize = node.dataset.shapeType === "shape-table" && node.__tableApi?.applyHandleResize;
       if (node.dataset.shapeType === "shape-table" && node.__tableApi?.applyHandleResize) {
         node.__tableApi.applyHandleResize(rs, dx, dy);
       } else {
@@ -10061,13 +10150,15 @@ function addShapeHandles(node, isLine = false, opts = {}) {
     });
     const stop = (e) => {
       if (!rs) return;
+      const resizeState = rs;
       rs = null;
       if (e.pointerId != null) h.releasePointerCapture(e.pointerId);
       if (node.dataset.shapeType === "shape-table") {
         node.dataset.tablePixelWidth = String(Math.round(node.offsetWidth || parseFloat(node.style.width || "0") || 0));
         node.dataset.tablePixelHeight = String(Math.round(node.offsetHeight || parseFloat(node.style.height || "0") || 0));
       }
-      finalizeBpTaskManualResize(node, rs);
+      finalizeBpTaskManualResize(node, resizeState);
+      finalizeBpAutomationManualResize(node, resizeState);
       if (isFrameShape(node)) updateFrameMembership(node);
       saveLayout();
     };
@@ -10083,6 +10174,7 @@ function selectShape(node) {
     window.BitrixChart.clearAllBitrixCardTextSelections(node);
   }
   const preserveBpTaskReassign = selectedShape === node && node?.dataset?.bpTaskReassignReady === "1";
+  const preserveBpAutomationReassign = selectedShape === node && node?.dataset?.bpAutomationReassignReady === "1";
   clearAllTableCellSelections();
   clearSelectedShape();
   clearSelectedGroup();
@@ -10091,7 +10183,9 @@ function selectShape(node) {
   clearMultiSelection();
   selectedShape = node;
   if (isBpProcessTask(node) && canEditCurrentDocument()) armBpTaskReassign(node);
+  if (isBpProcessAutomation(node) && canEditCurrentDocument()) armBpAutomationReassign(node);
   if (preserveBpTaskReassign) node.dataset.bpTaskReassignReady = "1";
+  if (preserveBpAutomationReassign) node.dataset.bpAutomationReassignReady = "1";
   if (selectedShape && selectedShape.dataset && selectedShape.dataset.shapeType === "shape-table") {
     selectedShape.__tableSelectionScope = "shape";
   }
@@ -10109,6 +10203,7 @@ function clearSelectedShape() {
       window.BitrixChart.clearBitrixCardTextPart(selectedShape, { sync: false });
     }
     if (selectedShape.dataset.bpTaskReassignReady === "1") delete selectedShape.dataset.bpTaskReassignReady;
+    if (selectedShape.dataset.bpAutomationReassignReady === "1") delete selectedShape.dataset.bpAutomationReassignReady;
     restoreLiftedShapeControls(selectedShape.dataset.shapeId);
     selectedShape.classList.remove("selected");
   }
@@ -10253,7 +10348,7 @@ function deleteSelected() {
   const noteBpProcessFromNode = (node) => {
     if (!node?.dataset?.bpProcessId) return;
     if (node.dataset.bpRole === "stage") noteBpStage(node);
-    else if (node.dataset.bpRole === "base" || node.dataset.bpRole === "task") {
+    else if (node.dataset.bpRole === "base" || node.dataset.bpRole === "task" || node.dataset.bpRole === "automation") {
       bpProcessesToRepair.add(node.dataset.bpProcessId);
     }
   };
@@ -10507,6 +10602,14 @@ function createShapeFromData(shapeData, offsetX = 0, offsetY = 0, opts = {}) {
     delete copy.bpTaskManualPosition;
     delete copy.bpTaskData;
     delete copy.bpTaskTypography;
+    delete copy.bpAutomationStageIndex;
+    delete copy.bpAutomationOrder;
+    delete copy.bpAutomationAutoHeight;
+    delete copy.bpAutomationManualPosition;
+    delete copy.bpAutomationData;
+    delete copy.bpAutomationTypography;
+    delete copy.bpTasksHidden;
+    delete copy.bpAutomationsHidden;
   }
   const left = (parseFloat(copy.left || "0") || 0) + offsetX;
   const top = (parseFloat(copy.top || "0") || 0) + offsetY;
@@ -10863,6 +10966,14 @@ function createShapeBase(type, opts = {}) {
         || selectedShape?.dataset?.bpTaskReassignReady === "1";
       selectShape(node);
       if (transferReassign) armBpTaskReassign(node);
+      return;
+    }
+    if (isBpProcessAutomation(node) && canEditCurrentDocument()) {
+      const processId = node.dataset.bpProcessId;
+      const transferReassign = isBpReassignSessionActive(processId)
+        || selectedShape?.dataset?.bpAutomationReassignReady === "1";
+      selectShape(node);
+      if (transferReassign) armBpAutomationReassign(node);
       return;
     }
     selectShape(node);
@@ -12154,7 +12265,7 @@ function startConnectorFromPoint(shape, anchor, event, opts = {}) {
   const fromAnchor = fromCell ? anchor : (fromArrow ? "c" : anchor);
   const groupId = getShapeGroupId(shape);
   const useMemberEndpoint = fromArrow || fromCell || selectedShape === shape
-    || isBpProcessStage(shape) || isBpProcessTask(shape) || shape?.dataset?.bpRole === "base";
+    || isBpProcessStage(shape) || isBpProcessTask(shape) || isBpProcessAutomation(shape) || shape?.dataset?.bpRole === "base";
   const fromNodeId = useMemberEndpoint
     ? shape.dataset.connId
     : (groupId ? getGroupConnId(groupId) : shape.dataset.connId);
@@ -12432,6 +12543,24 @@ function applyBpProcessMeta(node, opts = {}) {
   if (opts.bpTaskManualPosition != null) {
     node.dataset.bpTaskManualPosition = opts.bpTaskManualPosition ? "1" : "0";
   }
+  if (opts.bpAutomationStageIndex != null) node.dataset.bpAutomationStageIndex = String(opts.bpAutomationStageIndex);
+  if (opts.bpAutomationOrder != null) node.dataset.bpAutomationOrder = String(opts.bpAutomationOrder);
+  if (opts.bpAutomationAutoHeight != null) {
+    node.dataset.bpAutomationAutoHeight = opts.bpAutomationAutoHeight ? "1" : "0";
+  } else if (opts.bpRole === "automation") {
+    node.dataset.bpAutomationAutoHeight = "1";
+  }
+  if (opts.bpAutomationManualPosition != null) {
+    node.dataset.bpAutomationManualPosition = opts.bpAutomationManualPosition ? "1" : "0";
+  }
+  if (opts.bpTasksHidden != null) {
+    if (opts.bpTasksHidden) node.dataset.bpTasksHidden = "1";
+    else delete node.dataset.bpTasksHidden;
+  }
+  if (opts.bpAutomationsHidden != null) {
+    if (opts.bpAutomationsHidden) node.dataset.bpAutomationsHidden = "1";
+    else delete node.dataset.bpAutomationsHidden;
+  }
 }
 
 function getBpStages(processId) {
@@ -12468,6 +12597,14 @@ function compactBpStageIndices(processId) {
     }
     task.dataset.bpTaskStageIndex = String(oldToNew.get(old));
   });
+  getAllBpAutomationsInProcess(processId).forEach((auto) => {
+    const old = Number(auto.dataset.bpAutomationStageIndex);
+    if (!Number.isFinite(old) || !oldToNew.has(old)) {
+      auto.remove();
+      return;
+    }
+    auto.dataset.bpAutomationStageIndex = String(oldToNew.get(old));
+  });
   return stages;
 }
 
@@ -12498,6 +12635,7 @@ function repairBpProcessStageOrder(processId) {
   }
   relayoutBpStagesAfter(id, 1);
   layoutAllBpTasksInProcess(id);
+  layoutAllBpAutomationsInProcess(id);
 }
 
 function getBpBase(processId) {
@@ -12521,11 +12659,13 @@ function getBpStagesSpan(stageCount, width = BP_STAGE_WIDTH, inset = BP_CHEVRON_
 
 function relayoutAllBpProcesses() {
   const processIds = new Set();
-  desktop.querySelectorAll(".shape[data-bp-process-id][data-bp-role='stage'], .shape[data-bp-process-id][data-bp-role='task']").forEach((node) => {
+  desktop.querySelectorAll(".shape[data-bp-process-id][data-bp-role='stage'], .shape[data-bp-process-id][data-bp-role='task'], .shape[data-bp-process-id][data-bp-role='automation']").forEach((node) => {
     if (node.dataset.bpProcessId) processIds.add(node.dataset.bpProcessId);
   });
   processIds.forEach((processId) => relayoutBpStagesAfter(processId, 1));
   processIds.forEach((processId) => layoutAllBpTasksInProcess(processId));
+  processIds.forEach((processId) => layoutAllBpAutomationsInProcess(processId));
+  syncAllBpProcessSectionToggles();
 }
 
 function layoutBpProcessBase(processId) {
@@ -12556,7 +12696,12 @@ function isBpProcessTask(node) {
 }
 
 function isBpProcessMember(node) {
-  return !!node?.dataset?.bpProcessId && (node.dataset.bpRole === "stage" || node.dataset.bpRole === "task" || node.dataset.bpRole === "base");
+  return !!node?.dataset?.bpProcessId && (
+    node.dataset.bpRole === "stage"
+    || node.dataset.bpRole === "task"
+    || node.dataset.bpRole === "automation"
+    || node.dataset.bpRole === "base"
+  );
 }
 
 function isBpProcessGroupId(groupId) {
@@ -12581,6 +12726,20 @@ function getBpTaskLeftForStage(stageNode) {
 }
 
 function getBpTaskWidthForStage(stageNode) {
+  return getBpStageBodyWidth(stageNode);
+}
+
+/**
+ * Automation aligns to the chevron outline:
+ * - left tip → outer-left corner of the stage (bbox left)
+ * - right tip → top-right shoulder (where the stage tip begins), not the tip itself
+ */
+function getBpAutomationLeftForStage(stageNode) {
+  const box = getElementLogicalBox(stageNode);
+  return box.left;
+}
+
+function getBpAutomationWidthForStage(stageNode) {
   return getBpStageBodyWidth(stageNode);
 }
 
@@ -12618,12 +12777,16 @@ function clearBpTaskReassignInProcess(processId, exceptNode = null) {
 function isBpReassignSessionActive(processId) {
   const id = String(processId || "").trim();
   if (!id) return false;
-  return !!document.querySelector(`.shape[data-bp-process-id="${id}"][data-bp-role="task"][data-bp-task-reassign-ready="1"]`);
+  return !!(
+    document.querySelector(`.shape[data-bp-process-id="${id}"][data-bp-role="task"][data-bp-task-reassign-ready="1"]`)
+    || document.querySelector(`.shape[data-bp-process-id="${id}"][data-bp-role="automation"][data-bp-automation-reassign-ready="1"]`)
+  );
 }
 
 function armBpTaskReassign(taskNode) {
   if (!isBpProcessTask(taskNode)) return;
   clearBpTaskReassignInProcess(taskNode.dataset.bpProcessId, taskNode);
+  clearBpAutomationReassignInProcess(taskNode.dataset.bpProcessId);
   taskNode.dataset.bpTaskReassignReady = "1";
 }
 
@@ -12783,12 +12946,21 @@ const BP_TASK_FORM_SECTIONS = [
   { key: "tags", className: "bp-task-form-section-meta", rows: BP_TASK_FORM_ROWS.slice(6, 8) }
 ];
 
-const BP_TASK_TOGGLE_ICON_SRC = "assets/bp-task-check-icon.png";
+const BP_TASK_TOGGLE_ICON_SRC = "assets/bp-task-check-icon.svg";
 
 function decorateBpTaskToggleButton(btn) {
   if (!btn) return;
   btn.textContent = "";
   btn.innerHTML = `<img class="bp-task-toggle-icon" src="${BP_TASK_TOGGLE_ICON_SRC}" width="16" height="16" alt="" draggable="false">`;
+}
+
+/** Growing lists: keep non-empty values in order, then exactly one trailing empty field. */
+function normalizeGrowingTextList(values) {
+  const filled = (Array.isArray(values) ? values : [])
+    .map((v) => String(v ?? ""))
+    .filter((v) => v.trim());
+  filled.push("");
+  return filled;
 }
 
 function normalizeBpTaskData(raw, fallbackTitle = "") {
@@ -12797,9 +12969,7 @@ function normalizeBpTaskData(raw, fallbackTitle = "") {
   const subtitle = String(base.subtitle || "").trim();
   if (!title) title = String(fallbackTitle || "Задача").replace(/^☑\s*/, "").trim() || "Задача";
   if (subtitle && (!title || /^Задача(?:\s+\d+)?$/.test(title))) title = subtitle;
-  let results = Array.isArray(base.results) ? base.results.map((v) => String(v ?? "")) : [""];
-  if (!results.length) results = [""];
-  if (results.every((v) => v.trim()) || results[results.length - 1].trim()) results.push("");
+  const results = normalizeGrowingTextList(base.results);
   return {
     title,
     subtitle: String(base.subtitle || ""),
@@ -12920,21 +13090,20 @@ function onBpTaskFieldInput(node, fieldKey, fieldEl) {
 
 function ensureBpTaskResultFields(node, listEl) {
   const data = getBpTaskData(node);
-  if (!Array.isArray(data.results) || !data.results.length) data.results = [""];
-  while (listEl.children.length > data.results.length && listEl.children.length > 1) {
+  data.results = normalizeGrowingTextList(data.results);
+  while (listEl.children.length > data.results.length) {
     listEl.lastElementChild?.remove();
   }
-  const appendResultField = (idx) => {
+  const appendResultField = () => {
     const ta = document.createElement("textarea");
     ta.className = "bp-task-field bp-task-result-field";
-    ta.dataset.resultIndex = String(idx);
     ta.rows = 1;
     ta.placeholder = "";
     ta.addEventListener("input", () => {
+      if (isWorkspaceReadOnly()) return;
       const d = getBpTaskData(node);
-      if (!Array.isArray(d.results)) d.results = [""];
-      d.results[idx] = ta.value;
-      if (idx === d.results.length - 1 && ta.value.trim()) d.results.push("");
+      const fields = Array.from(listEl.querySelectorAll(".bp-task-result-field"));
+      d.results = normalizeGrowingTextList(fields.map((field) => field.value));
       syncBpTaskDataToDataset(node);
       ensureBpTaskResultFields(node, listEl);
       renderBpTaskCardValues(node);
@@ -12945,13 +13114,11 @@ function ensureBpTaskResultFields(node, listEl) {
     listEl.appendChild(ta);
   };
   while (listEl.children.length < data.results.length) {
-    appendResultField(listEl.children.length);
+    appendResultField();
   }
-  const lastIdx = data.results.length - 1;
-  if (data.results[lastIdx].trim() && listEl.children.length === data.results.length) {
-    data.results.push("");
-    appendResultField(listEl.children.length);
-  }
+  Array.from(listEl.querySelectorAll(".bp-task-result-field")).forEach((field, idx) => {
+    field.dataset.resultIndex = String(idx);
+  });
 }
 
 function renderBpTaskCardValues(node) {
@@ -13315,8 +13482,13 @@ function getPrimaryBpTaskOnStage(processId, stageIndex) {
 function layoutAllBpTasksInProcess(processId) {
   removeBpTaskConnectors(processId);
   const tasks = getAllBpTasksInProcess(processId);
-  if (!tasks.length) return;
+  if (!tasks.length) {
+    syncBpProcessSectionToggles(processId);
+    return;
+  }
+  const sectionHidden = isBpTasksSectionHidden(processId);
   tasks.forEach((task) => {
+    task.classList.remove("bp-section-hidden");
     upgradeLegacyBpTaskNode(task);
     upgradeBpTaskCardDesign(task);
     bindBpTaskSelection(task);
@@ -13395,10 +13567,12 @@ function layoutAllBpTasksInProcess(processId) {
   tasks.forEach((task) => {
     applyBpTaskStyle(task);
     layoutConnectorPoints(task);
+    task.classList.toggle("bp-section-hidden", sectionHidden);
   });
 
   renderConnectors();
   updateDesktopExtent();
+  syncBpProcessSectionToggles(processId);
 }
 
 function layoutBpTaskAboveStage(taskNode, stageNode) {
@@ -13409,10 +13583,12 @@ function layoutBpTaskAboveStage(taskNode, stageNode) {
 function syncBpTasksForStage(stageNode) {
   if (!stageNode?.dataset?.bpProcessId) return;
   layoutAllBpTasksInProcess(stageNode.dataset.bpProcessId);
+  layoutAllBpAutomationsInProcess(stageNode.dataset.bpProcessId);
 }
 
 function syncAllBpTasksInProcess(processId) {
   layoutAllBpTasksInProcess(processId);
+  layoutAllBpAutomationsInProcess(processId);
 }
 
 function onBpTaskResized(taskNode) {
@@ -13420,6 +13596,1012 @@ function onBpTaskResized(taskNode) {
   const processId = taskNode.dataset.bpProcessId;
   if (!processId) return;
   layoutAllBpTasksInProcess(processId);
+}
+
+function isBpProcessAutomation(node) {
+  return node?.dataset?.bpRole === "automation" && !!node?.dataset?.bpProcessId;
+}
+
+function getBpAutomationsForStage(processId, stageIndex) {
+  const id = String(processId || "").trim();
+  if (!id) return [];
+  const idx = Number(stageIndex);
+  return Array.from(desktop.querySelectorAll(`.shape[data-bp-process-id="${id}"][data-bp-role="automation"]`))
+    .filter((node) => Number(node.dataset.bpAutomationStageIndex) === idx);
+}
+
+function getBpStageForAutomation(autoNode) {
+  if (!isBpProcessAutomation(autoNode)) return null;
+  const processId = autoNode.dataset.bpProcessId;
+  const stageIndex = Number(autoNode.dataset.bpAutomationStageIndex);
+  return getBpStages(processId).find((node) => Number(node.dataset.bpStageIndex) === stageIndex) || null;
+}
+
+function getAllBpAutomationsInProcess(processId) {
+  const id = String(processId || "").trim();
+  if (!id) return [];
+  return Array.from(desktop.querySelectorAll(`.shape[data-bp-process-id="${id}"][data-bp-role="automation"]`))
+    .sort((a, b) => {
+      const stageA = Number(a.dataset.bpAutomationStageIndex) || 0;
+      const stageB = Number(b.dataset.bpAutomationStageIndex) || 0;
+      if (stageA !== stageB) return stageA - stageB;
+      const orderA = Number(a.dataset.bpAutomationOrder) || 0;
+      const orderB = Number(b.dataset.bpAutomationOrder) || 0;
+      if (orderA !== orderB) return orderA - orderB;
+      return String(a.dataset.shapeId || "").localeCompare(String(b.dataset.shapeId || ""));
+    });
+}
+
+function getBpAutomationHeight(autoNode) {
+  const styleH = parseFloat(autoNode.style.height);
+  if (Number.isFinite(styleH) && styleH > 0 && autoNode.dataset.bpAutomationAutoHeight !== "0") return styleH;
+  return Math.max(20, autoNode.offsetHeight || styleH || BP_AUTOMATION_DEFAULT_HEIGHT);
+}
+
+function getBpProcessBackgroundTop(processId) {
+  const stages = getBpStages(processId);
+  if (stages.length) return getBpStageRowTop(processId);
+  const base = getBpBase(processId);
+  if (base) return base.offsetTop + BP_BASE_PAD_Y;
+  return 0;
+}
+
+/** Visual gap from stage edge to first task row (base pad below stage + stage→task gap). */
+function getBpStageAttachGap(processId) {
+  const stages = getBpStages(processId);
+  if (!stages.length) return BP_BASE_PAD_Y + BP_TASK_STAGE_GAP;
+  const stage = stages[0];
+  const stageBottom = stage.offsetTop + stage.offsetHeight;
+  return Math.max(BP_TASK_STAGE_GAP, getBpProcessBackgroundBottom(processId) + BP_TASK_STAGE_GAP - stageBottom);
+}
+
+const BP_SECTION_TOGGLE_SIZE = 16;
+const BP_SECTION_TASK_TOGGLE_SIZE = Math.round(BP_SECTION_TOGGLE_SIZE * 0.85);
+/** Gap between stage edge and section toggle icons (near stage corners). */
+const BP_SECTION_TOGGLE_EDGE = 4;
+
+function isBpTasksSectionHidden(processId) {
+  return getBpBase(processId)?.dataset?.bpTasksHidden === "1";
+}
+
+function isBpAutomationsSectionHidden(processId) {
+  return getBpBase(processId)?.dataset?.bpAutomationsHidden === "1";
+}
+
+function setBpSectionHidden(processId, section, hidden) {
+  const base = getBpBase(processId);
+  if (!base) return;
+  const key = section === "automations" ? "bpAutomationsHidden" : "bpTasksHidden";
+  if (hidden) base.dataset[key] = "1";
+  else delete base.dataset[key];
+}
+
+function applyBpSectionVisibility(processId) {
+  const tasksHidden = isBpTasksSectionHidden(processId);
+  const autosHidden = isBpAutomationsSectionHidden(processId);
+  getAllBpTasksInProcess(processId).forEach((node) => {
+    node.classList.toggle("bp-section-hidden", tasksHidden);
+  });
+  getAllBpAutomationsInProcess(processId).forEach((node) => {
+    node.classList.toggle("bp-section-hidden", autosHidden);
+  });
+}
+
+function toggleBpProcessSection(processId, section) {
+  if (!processId) return;
+  if (section === "automations") {
+    setBpSectionHidden(processId, "automations", !isBpAutomationsSectionHidden(processId));
+    layoutAllBpAutomationsInProcess(processId);
+  } else {
+    setBpSectionHidden(processId, "tasks", !isBpTasksSectionHidden(processId));
+    layoutAllBpTasksInProcess(processId);
+  }
+  syncBpProcessSectionToggles(processId);
+  if (!isWorkspaceReadOnly()) saveLayout();
+}
+
+function syncAllBpProcessSectionToggles() {
+  const ids = new Set();
+  desktop.querySelectorAll('.shape[data-bp-role="base"][data-bp-process-id]').forEach((node) => {
+    if (node.dataset.bpProcessId) ids.add(node.dataset.bpProcessId);
+  });
+  ids.forEach((id) => syncBpProcessSectionToggles(id));
+}
+
+function syncBpProcessSectionToggles(processId) {
+  const id = String(processId || "").trim();
+  const base = getBpBase(id);
+  if (!base) return;
+  applyBpSectionVisibility(id);
+
+  // Remove stale layers from base (older placement) and non-first stages.
+  base.querySelector(":scope > .bp-process-section-toggles")?.remove();
+  const stages = getBpStages(id);
+  stages.forEach((stage, index) => {
+    if (index !== 0) stage.querySelector(":scope > .bp-process-section-toggles")?.remove();
+  });
+
+  const stage0 = stages[0];
+  let layer = stage0?.querySelector(":scope > .bp-process-section-toggles");
+  const tasks = getAllBpTasksInProcess(id);
+  const autos = getAllBpAutomationsInProcess(id);
+  const showTasks = tasks.length > 0;
+  const showAutos = autos.length > 0;
+  if (!stage0 || (!showTasks && !showAutos)) {
+    layer?.remove();
+    if (!showTasks) delete base.dataset.bpTasksHidden;
+    if (!showAutos) delete base.dataset.bpAutomationsHidden;
+    return;
+  }
+
+  if (!layer) {
+    layer = document.createElement("div");
+    layer.className = "bp-process-section-toggles";
+    stage0.appendChild(layer);
+  }
+
+  // Sit on the left tip of stage 1: just above / just below the stage edge.
+  const left = 0;
+  const autoTop = -(BP_SECTION_TOGGLE_SIZE + BP_SECTION_TOGGLE_EDGE);
+  const taskTop = stage0.offsetHeight + BP_SECTION_TOGGLE_EDGE;
+
+  const ensureBtn = (kind, title, iconSrc, top, size, collapsed, onClick) => {
+    let btn = layer.querySelector(`.bp-process-section-toggle[data-bp-section="${kind}"]`);
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "bp-process-section-toggle";
+      btn.dataset.bpSection = kind;
+      btn.innerHTML = `<img class="bp-process-section-toggle-icon" src="${iconSrc}" width="${size}" height="${size}" alt="" draggable="false">`;
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick();
+      });
+      layer.appendChild(btn);
+    }
+    btn.title = title;
+    btn.setAttribute("aria-label", title);
+    btn.setAttribute("aria-pressed", collapsed ? "true" : "false");
+    btn.classList.toggle("is-collapsed", collapsed);
+    btn.classList.toggle("bp-process-section-toggle-task", kind === "tasks");
+    btn.style.left = `${left}px`;
+    btn.style.top = `${top}px`;
+    btn.style.width = `${size}px`;
+    btn.style.height = `${size}px`;
+    const icon = btn.querySelector(".bp-process-section-toggle-icon");
+    if (icon) {
+      icon.setAttribute("width", String(size));
+      icon.setAttribute("height", String(size));
+      icon.style.width = `${size}px`;
+      icon.style.height = `${size}px`;
+    }
+    btn.hidden = false;
+    return btn;
+  };
+
+  if (showAutos) {
+    ensureBtn(
+      "automations",
+      isBpAutomationsSectionHidden(id) ? "Показать автоматизации" : "Скрыть автоматизации",
+      BP_AUTOMATION_TOGGLE_ICON_SRC,
+      autoTop,
+      BP_SECTION_TOGGLE_SIZE,
+      isBpAutomationsSectionHidden(id),
+      () => toggleBpProcessSection(id, "automations")
+    );
+  } else {
+    layer.querySelector('.bp-process-section-toggle[data-bp-section="automations"]')?.remove();
+  }
+
+  if (showTasks) {
+    ensureBtn(
+      "tasks",
+      isBpTasksSectionHidden(id) ? "Показать задачи" : "Скрыть задачи",
+      BP_TASK_TOGGLE_ICON_SRC,
+      taskTop,
+      BP_SECTION_TASK_TOGGLE_SIZE,
+      isBpTasksSectionHidden(id),
+      () => toggleBpProcessSection(id, "tasks")
+    );
+  } else {
+    layer.querySelector('.bp-process-section-toggle[data-bp-section="tasks"]')?.remove();
+  }
+}
+
+function clearBpAutomationReassignInProcess(processId, exceptNode = null) {
+  const id = String(processId || "").trim();
+  if (!id) return;
+  document.querySelectorAll(`.shape[data-bp-process-id="${id}"][data-bp-role="automation"][data-bp-automation-reassign-ready="1"]`).forEach((node) => {
+    if (node !== exceptNode) delete node.dataset.bpAutomationReassignReady;
+  });
+}
+
+function armBpAutomationReassign(autoNode) {
+  if (!isBpProcessAutomation(autoNode)) return;
+  clearBpAutomationReassignInProcess(autoNode.dataset.bpProcessId, autoNode);
+  clearBpTaskReassignInProcess(autoNode.dataset.bpProcessId);
+  autoNode.dataset.bpAutomationReassignReady = "1";
+}
+
+function renormalizeBpAutomationOrdersForStage(processId, stageIndex, excludeNode = null) {
+  const autos = getBpAutomationsForStage(processId, stageIndex)
+    .filter((node) => node !== excludeNode)
+    .sort((a, b) => (Number(a.dataset.bpAutomationOrder) || 0) - (Number(b.dataset.bpAutomationOrder) || 0));
+  autos.forEach((node, index) => {
+    node.dataset.bpAutomationOrder = String(index);
+    if (node.dataset.bpAutomationManualPosition === "1") delete node.dataset.bpAutomationManualPosition;
+  });
+}
+
+function resequenceBpAutomationsByVisualY(processId, stageIndex) {
+  const autos = getBpAutomationsForStage(processId, stageIndex);
+  if (!autos.length) return;
+  autos.sort((a, b) => getElementLogicalBox(a).top - getElementLogicalBox(b).top);
+  autos.reverse();
+  autos.forEach((node, index) => {
+    node.dataset.bpAutomationOrder = String(index);
+    if (node.dataset.bpAutomationManualPosition === "1") delete node.dataset.bpAutomationManualPosition;
+  });
+}
+
+function reassignBpAutomationToStage(autoNode, targetStageNode) {
+  if (!autoNode || !targetStageNode || !isBpProcessAutomation(autoNode) || !isBpProcessStage(targetStageNode)) return false;
+  const processId = autoNode.dataset.bpProcessId;
+  if (processId !== targetStageNode.dataset.bpProcessId) return false;
+  const oldStageIndex = Number(autoNode.dataset.bpAutomationStageIndex);
+  const newStageIndex = Number(targetStageNode.dataset.bpStageIndex);
+  if (oldStageIndex === newStageIndex) {
+    resequenceBpAutomationsByVisualY(processId, newStageIndex);
+    delete autoNode.dataset.bpAutomationManualPosition;
+    layoutAllBpAutomationsInProcess(processId);
+    return false;
+  }
+  renormalizeBpAutomationOrdersForStage(processId, oldStageIndex, autoNode);
+  const newOrder = getBpAutomationsForStage(processId, newStageIndex).filter((node) => node !== autoNode).length;
+  autoNode.dataset.bpAutomationStageIndex = String(newStageIndex);
+  autoNode.dataset.bpAutomationOrder = String(newOrder);
+  delete autoNode.dataset.bpAutomationManualPosition;
+  resequenceBpAutomationsByVisualY(processId, newStageIndex);
+  layoutAllBpAutomationsInProcess(processId);
+  return true;
+}
+
+function applyBpAutomationStyle(autoNode) {
+  if (!isBpProcessAutomation(autoNode)) return;
+  autoNode.classList.add("bp-automation-card");
+  autoNode.style.borderRadius = "0";
+  autoNode.style.background = "transparent";
+  syncBpAutomationHeaderShape(autoNode);
+}
+
+function getBpAutomationTipPx(header, widthHint = 0) {
+  const h = Math.max(1, header?.offsetHeight || BP_AUTOMATION_DEFAULT_HEIGHT);
+  const w = Math.max(1, widthHint || header?.offsetWidth || 1);
+  // Keep tip depth fixed in px (not % of width). Cap so tips never collide on very narrow cards.
+  return Math.max(8, Math.min(BP_AUTOMATION_TIP_PX, Math.floor(w / 2) - 1, Math.floor(h / 2)));
+}
+
+function syncBpAutomationHeaderShape(node) {
+  if (!isBpProcessAutomation(node)) return;
+  const header = node.querySelector(".bp-automation-header");
+  if (!header) return;
+  const width = Math.max(1, header.offsetWidth || parseFloat(node.style.width) || 1);
+  const height = Math.max(1, header.offsetHeight || BP_AUTOMATION_DEFAULT_HEIGHT);
+  const tip = getBpAutomationTipPx(header, width);
+  let svg = header.querySelector(":scope > .bp-automation-hex-fill");
+  if (!svg) {
+    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "bp-automation-hex-fill");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("preserveAspectRatio", "none");
+    const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+    poly.setAttribute("class", "bp-automation-hex-poly");
+    svg.appendChild(poly);
+    header.insertBefore(svg, header.firstChild);
+  }
+  // viewBox matches current pixel size so tip depth stays constant when width changes
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  const poly = svg.querySelector("polygon");
+  if (poly) {
+    poly.setAttribute(
+      "points",
+      `${tip},0 ${width - tip},0 ${width},${height / 2} ${width - tip},${height} ${tip},${height} 0,${height / 2}`
+    );
+  }
+  header.style.clipPath = "none";
+  header.style.background = "transparent";
+  // Same left inset as .bp-task-header (7px); right keeps text clear of the tip.
+  header.style.paddingLeft = "7px";
+  header.style.paddingRight = `${tip + 7}px`;
+}
+
+function decorateBpAutomationToggleButton(btn) {
+  if (!btn) return;
+  btn.textContent = "";
+  btn.innerHTML = `<img class="bp-automation-toggle-icon" src="${BP_AUTOMATION_TOGGLE_ICON_SRC}" width="18" height="18" alt="" draggable="false">`;
+}
+
+function normalizeBpAutomationList(values) {
+  return normalizeGrowingTextList(values);
+}
+
+function normalizeBpAutomationData(raw, fallbackTitle = "") {
+  const base = raw && typeof raw === "object" ? raw : {};
+  let title = String(base.title || "").trim();
+  if (!title) title = String(fallbackTitle || "Автоматизация").trim() || "Автоматизация";
+  return {
+    title,
+    expanded: !!base.expanded,
+    when: String(base.when || ""),
+    conditions: normalizeBpAutomationList(base.conditions),
+    description: String(base.description || ""),
+    results: normalizeBpAutomationList(base.results)
+  };
+}
+
+function getBpAutomationData(node) {
+  if (!node) return normalizeBpAutomationData(null);
+  if (node.__bpAutomationData) return node.__bpAutomationData;
+  try {
+    const raw = node.dataset.bpAutomationData ? JSON.parse(node.dataset.bpAutomationData) : null;
+    node.__bpAutomationData = normalizeBpAutomationData(
+      raw,
+      node.querySelector(".bp-automation-title")?.textContent || node.querySelector(".shape-text")?.dataset?.rawText
+    );
+    return node.__bpAutomationData;
+  } catch {
+    node.__bpAutomationData = normalizeBpAutomationData(null);
+    return node.__bpAutomationData;
+  }
+}
+
+function syncBpAutomationDataToDataset(node) {
+  if (!node) return;
+  const data = getBpAutomationData(node);
+  node.dataset.bpAutomationData = JSON.stringify(data);
+  const hidden = node.querySelector(".shape-text");
+  if (hidden) hidden.dataset.rawText = data.title;
+}
+
+function autoGrowBpAutomationField(field) {
+  if (!field) return;
+  field.style.height = "auto";
+  field.style.height = `${Math.max(28, field.scrollHeight)}px`;
+}
+
+function getBpAutomationTypography(node) {
+  const fallback = { title: 15, label: 10.5, field: 14 };
+  if (!node) return fallback;
+  try {
+    const raw = node.dataset.bpAutomationTypography ? JSON.parse(node.dataset.bpAutomationTypography) : null;
+    if (raw && typeof raw === "object") {
+      return {
+        title: clampFontSizeStep(raw.title, fallback.title),
+        label: clampFontSizeStep(raw.label, fallback.label),
+        field: clampFontSizeStep(raw.field, fallback.field)
+      };
+    }
+  } catch {}
+  return fallback;
+}
+
+function syncBpAutomationTypographyToDataset(node, typography = null) {
+  if (!node) return;
+  const next = typography || getBpAutomationTypography(node);
+  node.dataset.bpAutomationTypography = JSON.stringify(next);
+}
+
+function applyBpAutomationTypography(node, typography = null) {
+  if (!isBpProcessAutomation(node)) return;
+  const next = typography || getBpAutomationTypography(node);
+  const title = node.querySelector(".bp-automation-title");
+  if (title) title.style.fontSize = `${next.title}px`;
+  node.querySelectorAll(".bp-automation-form-label, .bp-automation-form-label-block").forEach((el) => {
+    el.style.fontSize = `${next.label}px`;
+  });
+  node.querySelectorAll(".bp-automation-field").forEach((el) => {
+    el.style.fontSize = `${next.field}px`;
+  });
+  syncBpAutomationTypographyToDataset(node, next);
+}
+
+function refreshBpAutomationCardHeight(node, doLayout = true) {
+  if (!isBpProcessAutomation(node)) return;
+  const heightChanged = node.dataset.bpAutomationAutoHeight !== "0"
+    ? fitBpAutomationHeightToText(node)
+    : false;
+  // Relayout whenever height changes so the yellow header stays stage-anchored
+  // while the form grows/shrinks upward (also keeps stacked automations in place).
+  if ((doLayout || heightChanged) && node.dataset.bpProcessId) {
+    layoutAllBpAutomationsInProcess(node.dataset.bpProcessId);
+  }
+  syncAllLiftedControlsPositions();
+}
+
+function onBpAutomationFieldInput(node, fieldKey, fieldEl) {
+  if (!node || isWorkspaceReadOnly()) return;
+  const data = getBpAutomationData(node);
+  data[fieldKey] = fieldEl.value;
+  autoGrowBpAutomationField(fieldEl);
+  syncBpAutomationDataToDataset(node);
+  refreshBpAutomationCardHeight(node);
+  saveLayout({ recordHistory: false });
+}
+
+function ensureBpAutomationMultiFields(node, listEl, listKey) {
+  const data = getBpAutomationData(node);
+  data[listKey] = normalizeGrowingTextList(data[listKey]);
+  while (listEl.children.length > data[listKey].length) {
+    listEl.lastElementChild?.remove();
+  }
+  const fieldSelector = `.bp-automation-${listKey}-field`;
+  const appendField = () => {
+    const ta = document.createElement("textarea");
+    ta.className = `bp-automation-field bp-automation-${listKey}-field`;
+    ta.rows = 1;
+    ta.placeholder = "";
+    ta.addEventListener("input", () => {
+      if (isWorkspaceReadOnly()) return;
+      const d = getBpAutomationData(node);
+      const fields = Array.from(listEl.querySelectorAll(fieldSelector));
+      d[listKey] = normalizeGrowingTextList(fields.map((field) => field.value));
+      syncBpAutomationDataToDataset(node);
+      ensureBpAutomationMultiFields(node, listEl, listKey);
+      renderBpAutomationCardValues(node);
+      refreshBpAutomationCardHeight(node, false);
+      saveLayout({ recordHistory: false });
+    });
+    ta.addEventListener("pointerdown", (e) => e.stopPropagation());
+    listEl.appendChild(ta);
+  };
+  while (listEl.children.length < data[listKey].length) {
+    appendField();
+  }
+  Array.from(listEl.querySelectorAll(fieldSelector)).forEach((field, idx) => {
+    field.dataset[`${listKey}Index`] = String(idx);
+  });
+}
+
+function renderBpAutomationCardValues(node) {
+  const data = getBpAutomationData(node);
+  const title = node.querySelector(".bp-automation-title");
+  if (title && title.contentEditable !== "true") title.textContent = data.title;
+  node.querySelectorAll("[data-bp-auto-field]").forEach((field) => {
+    const key = field.dataset.bpAutoField;
+    if (!key || key === "title") return;
+    if (field.tagName === "TEXTAREA") {
+      field.value = data[key] ?? "";
+      autoGrowBpAutomationField(field);
+    }
+  });
+  const conditionsList = node.querySelector(".bp-automation-conditions-list");
+  if (conditionsList) {
+    ensureBpAutomationMultiFields(node, conditionsList, "conditions");
+    Array.from(conditionsList.querySelectorAll(".bp-automation-conditions-field")).forEach((field, idx) => {
+      field.value = data.conditions[idx] ?? "";
+      autoGrowBpAutomationField(field);
+    });
+  }
+  const resultsList = node.querySelector(".bp-automation-results-list");
+  if (resultsList) {
+    ensureBpAutomationMultiFields(node, resultsList, "results");
+    Array.from(resultsList.querySelectorAll(".bp-automation-results-field")).forEach((field, idx) => {
+      field.value = data.results[idx] ?? "";
+      autoGrowBpAutomationField(field);
+    });
+  }
+  node.classList.toggle("bp-automation-expanded", !!data.expanded);
+  const form = node.querySelector(".bp-automation-form");
+  if (form) form.classList.toggle("hidden", !data.expanded);
+  const toggle = node.querySelector(".bp-automation-toggle");
+  if (toggle) {
+    const label = data.expanded ? "Свернуть автоматизацию" : "Подробности автоматизации";
+    toggle.title = label;
+    toggle.setAttribute("aria-label", label);
+  }
+  const readOnly = isWorkspaceReadOnly();
+  node.querySelectorAll(".bp-automation-field").forEach((field) => {
+    field.disabled = readOnly;
+  });
+  if (title && title.contentEditable !== "true") title.contentEditable = "false";
+  applyBpAutomationTypography(node);
+  syncBpAutomationDataToDataset(node);
+}
+
+function toggleBpAutomationExpanded(node) {
+  if (!node) return;
+  const data = getBpAutomationData(node);
+  data.expanded = !data.expanded;
+  if (!data.expanded) node.dataset.bpAutomationAutoHeight = "1";
+  syncBpAutomationDataToDataset(node);
+  renderBpAutomationCardValues(node);
+  refreshBpAutomationCardHeight(node);
+  if (!isWorkspaceReadOnly()) saveLayout();
+}
+
+function bindBpAutomationToggleButton(node, btn) {
+  if (!btn || btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+  btn.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleBpAutomationExpanded(node);
+  });
+}
+
+function beginBpAutomationTitleEdit(node, titleEl) {
+  if (!titleEl || isWorkspaceReadOnly() || titleEl.contentEditable === "true") return;
+  titleEl.contentEditable = "true";
+  titleEl.classList.add("is-editing");
+  titleEl.focus();
+  placeCaretAtEnd(titleEl);
+}
+
+function startBpAutomationTitleTypingEdit(node, initialText = null) {
+  if (!canEditCurrentDocument() || !node || !isBpProcessAutomation(node)) return false;
+  const titleEl = node.querySelector(".bp-automation-title");
+  if (!titleEl || titleEl.contentEditable === "true") return false;
+  if (selectedShape !== node) {
+    selectShape(node);
+    armBpAutomationReassign(node);
+  }
+  beginBpAutomationTitleEdit(node, titleEl);
+  if (initialText != null) {
+    titleEl.textContent = initialText;
+    placeCaretAtEnd(titleEl);
+  }
+  return true;
+}
+
+function bindBpAutomationSelection(node) {
+  if (!node || node.dataset.bpAutomationSelectionBound === "1") return;
+  node.dataset.bpAutomationSelectionBound = "1";
+  node.addEventListener("dblclick", (e) => {
+    if (!canEditCurrentDocument()) return;
+    if (e.target.closest(".bp-automation-toggle, .bp-automation-field, .bp-automation-title")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    selectShape(node);
+    armBpAutomationReassign(node);
+  }, true);
+}
+
+function bindBpAutomationTitleEdit(node, titleEl) {
+  if (!titleEl || titleEl.dataset.bound === "1") return;
+  titleEl.dataset.bound = "1";
+  titleEl.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (selectedShape !== node) {
+      selectShape(node);
+      armBpAutomationReassign(node);
+    }
+    beginBpAutomationTitleEdit(node, titleEl);
+  });
+  titleEl.addEventListener("blur", () => {
+    if (titleEl.contentEditable !== "true") return;
+    titleEl.contentEditable = "false";
+    titleEl.classList.remove("is-editing");
+    const data = getBpAutomationData(node);
+    data.title = (titleEl.innerText || "").trim() || data.title;
+    syncBpAutomationDataToDataset(node);
+    renderBpAutomationCardValues(node);
+    refreshBpAutomationCardHeight(node);
+    saveLayout();
+  });
+  titleEl.addEventListener("keydown", (e) => {
+    if (titleEl.contentEditable !== "true") return;
+    if (e.key === "Enter") {
+      if (e.shiftKey) return;
+      e.preventDefault();
+      titleEl.blur();
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      renderBpAutomationCardValues(node);
+      titleEl.contentEditable = "false";
+      titleEl.classList.remove("is-editing");
+      titleEl.blur();
+    }
+  });
+  titleEl.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    if (titleEl.contentEditable === "true") e.stopPropagation();
+  });
+}
+
+function appendBpAutomationFormField(node, parent, key, className = "") {
+  const field = document.createElement("textarea");
+  field.className = className ? `bp-automation-field ${className}` : "bp-automation-field";
+  field.dataset.bpAutoField = key;
+  field.rows = 1;
+  field.addEventListener("input", () => onBpAutomationFieldInput(node, key, field));
+  field.addEventListener("pointerdown", (e) => e.stopPropagation());
+  parent.appendChild(field);
+  return field;
+}
+
+function buildBpAutomationCardUI(node) {
+  if (!node || node.querySelector(".bp-automation-card-inner")) return;
+  node.classList.add("bp-automation-card");
+  const data = getBpAutomationData(node);
+  const inner = document.createElement("div");
+  inner.className = "bp-automation-card-inner";
+
+  const header = document.createElement("div");
+  header.className = "bp-automation-header";
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "bp-automation-toggle";
+  toggle.title = data.expanded ? "Свернуть автоматизацию" : "Подробности автоматизации";
+  toggle.setAttribute("aria-label", toggle.title);
+  decorateBpAutomationToggleButton(toggle);
+  const title = document.createElement("div");
+  title.className = "bp-automation-title";
+  title.textContent = data.title;
+  title.setAttribute("tabindex", "0");
+  header.appendChild(toggle);
+  header.appendChild(title);
+
+  const form = document.createElement("div");
+  form.className = `bp-automation-form${data.expanded ? "" : " hidden"}`;
+  const formBody = document.createElement("div");
+  formBody.className = "bp-automation-form-body";
+
+  const whenSection = document.createElement("div");
+  whenSection.className = "bp-automation-form-section";
+  const whenLabel = document.createElement("div");
+  whenLabel.className = "bp-automation-form-label bp-automation-form-label-block";
+  whenLabel.textContent = "Когда";
+  whenSection.appendChild(whenLabel);
+  appendBpAutomationFormField(node, whenSection, "when");
+  formBody.appendChild(whenSection);
+
+  const conditionsSection = document.createElement("div");
+  conditionsSection.className = "bp-automation-form-section";
+  const conditionsLabel = document.createElement("div");
+  conditionsLabel.className = "bp-automation-form-label bp-automation-form-label-block";
+  conditionsLabel.textContent = "Условие";
+  const conditionsList = document.createElement("div");
+  conditionsList.className = "bp-automation-conditions-list";
+  conditionsSection.appendChild(conditionsLabel);
+  conditionsSection.appendChild(conditionsList);
+  formBody.appendChild(conditionsSection);
+
+  const descSection = document.createElement("div");
+  descSection.className = "bp-automation-form-section";
+  const descLabel = document.createElement("div");
+  descLabel.className = "bp-automation-form-label bp-automation-form-label-block";
+  descLabel.textContent = "Описание";
+  descSection.appendChild(descLabel);
+  appendBpAutomationFormField(node, descSection, "description", "bp-automation-field-area");
+  formBody.appendChild(descSection);
+
+  const resultsSection = document.createElement("div");
+  resultsSection.className = "bp-automation-form-section";
+  const resultsLabel = document.createElement("div");
+  resultsLabel.className = "bp-automation-form-label bp-automation-form-label-block";
+  resultsLabel.textContent = "Результат (ЦКП, DoD)";
+  const resultsList = document.createElement("div");
+  resultsList.className = "bp-automation-results-list";
+  resultsSection.appendChild(resultsLabel);
+  resultsSection.appendChild(resultsList);
+  formBody.appendChild(resultsSection);
+
+  form.appendChild(formBody);
+  inner.appendChild(header);
+  inner.appendChild(form);
+
+  const hiddenText = document.createElement("div");
+  hiddenText.className = "shape-text bp-automation-hidden-text";
+  hiddenText.style.display = "none";
+  hiddenText.dataset.rawText = data.title;
+
+  const existingText = node.querySelector(".shape-text:not(.bp-automation-hidden-text)");
+  if (existingText) existingText.remove();
+
+  node.insertBefore(inner, node.firstChild);
+  node.appendChild(hiddenText);
+
+  node.dataset.bpAutomationDesignRev = "1";
+  bindBpAutomationToggleButton(node, toggle);
+  bindBpAutomationTitleEdit(node, title);
+  bindBpAutomationSelection(node);
+  ensureBpAutomationMultiFields(node, conditionsList, "conditions");
+  ensureBpAutomationMultiFields(node, resultsList, "results");
+  renderBpAutomationCardValues(node);
+  applyBpAutomationTypography(node);
+  syncBpAutomationHeaderShape(node);
+}
+
+function upgradeLegacyBpAutomationNode(node) {
+  if (!isBpProcessAutomation(node) || node.querySelector(".bp-automation-card-inner")) return;
+  try {
+    const legacyText = node.querySelector(".shape-text");
+    const fallback = legacyText?.dataset?.rawText || legacyText?.textContent || "";
+    let raw = null;
+    try {
+      raw = node.dataset.bpAutomationData ? JSON.parse(node.dataset.bpAutomationData) : null;
+    } catch {
+      raw = null;
+    }
+    node.__bpAutomationData = normalizeBpAutomationData(raw, fallback);
+    syncBpAutomationDataToDataset(node);
+    buildBpAutomationCardUI(node);
+  } catch (err) {
+    console.error("Failed to upgrade BP automation:", node?.dataset?.shapeId, err);
+  }
+}
+
+function measureBpAutomationContentHeight(autoNode) {
+  const inner = autoNode.querySelector(".bp-automation-card-inner");
+  if (!inner) return BP_AUTOMATION_DEFAULT_HEIGHT;
+  const width = Math.max(40, autoNode.offsetWidth || parseFloat(autoNode.style.width) || BP_STAGE_WIDTH);
+  inner.style.width = `${width}px`;
+  const prevHeight = autoNode.style.height;
+  autoNode.style.height = "auto";
+  const measured = Math.ceil(autoNode.offsetHeight || inner.offsetHeight || BP_AUTOMATION_DEFAULT_HEIGHT);
+  autoNode.style.height = prevHeight;
+  return measured;
+}
+
+function fitBpAutomationHeightToText(autoNode) {
+  if (!isBpProcessAutomation(autoNode) || autoNode.dataset.bpAutomationAutoHeight === "0") return false;
+  if (!autoNode.querySelector(".bp-automation-title.is-editing")) {
+    renderBpAutomationCardValues(autoNode);
+  }
+  const expanded = autoNode.classList.contains("bp-automation-expanded");
+  const nextH = Math.max(expanded ? 36 : 28, measureBpAutomationContentHeight(autoNode));
+  const prevH = getBpAutomationHeight(autoNode);
+  const prevTop = getElementLogicalBox(autoNode).top;
+  if (Math.abs(prevH - nextH) < 0.5) {
+    syncBpAutomationHeaderShape(autoNode);
+    return false;
+  }
+  autoNode.style.height = `${nextH}px`;
+  // Anchor the yellow header (bottom edge); content expands/contracts upward.
+  autoNode.style.top = `${prevTop + prevH - nextH}px`;
+  syncBpAutomationHeaderShape(autoNode);
+  return true;
+}
+
+function beginBpAutomationResizeState(autoNode, event, dir = "se") {
+  const stage = getBpStageForAutomation(autoNode);
+  const box = getElementLogicalBox(autoNode);
+  return {
+    x: event.clientX,
+    y: event.clientY,
+    l: box.left,
+    t: box.top,
+    w: box.width,
+    h: box.height,
+    dir,
+    stageW: stage ? (stage.offsetWidth || parseFloat(stage.style.width) || BP_STAGE_WIDTH) : 0,
+    stageNode: stage
+  };
+}
+
+/** Width is bound to the stage: horizontal resize changes the stage (tasks follow). Height stays on the automation. */
+function applyBpAutomationLinkedResize(autoNode, rs, event, minH = 28) {
+  if (!isBpProcessAutomation(autoNode) || !rs) return false;
+  const dx = (event.clientX - rs.x) / zoom;
+  const dy = (event.clientY - rs.y) / zoom;
+  const dir = String(rs.dir || "se");
+  const stage = rs.stageNode && rs.stageNode.isConnected ? rs.stageNode : getBpStageForAutomation(autoNode);
+  const processId = autoNode.dataset.bpProcessId;
+  const wantsWidth = /[ew]/.test(dir);
+  const wantsHeight = /[ns]/.test(dir);
+
+  if (stage && wantsWidth && Number.isFinite(rs.stageW)) {
+    let nextStageW = rs.stageW;
+    if (dir.includes("e")) nextStageW = rs.stageW + dx;
+    else if (dir.includes("w")) nextStageW = rs.stageW - dx;
+    nextStageW = Math.max(80, nextStageW);
+    stage.style.width = `${nextStageW}px`;
+    renderShapeVisual(stage);
+    layoutConnectorPoints(stage);
+    syncBpProcessStageHeights(stage);
+    if (processId) relayoutBpStagesAfter(processId, Number(stage.dataset.bpStageIndex) + 1);
+  }
+
+  if (wantsHeight) {
+    let nextH = rs.h;
+    if (dir.includes("s")) nextH = rs.h + dy;
+    if (dir.includes("n")) nextH = rs.h - dy;
+    nextH = Math.max(minH, nextH);
+    autoNode.dataset.bpAutomationAutoHeight = "0";
+    autoNode.style.height = `${nextH}px`;
+  }
+
+  if (processId) {
+    // relayoutBpStagesAfter already syncs tasks+automations when width changed;
+    // height-only still needs an automation pass.
+    if (!wantsWidth) layoutAllBpAutomationsInProcess(processId);
+    else {
+      layoutAllBpTasksInProcess(processId);
+      layoutAllBpAutomationsInProcess(processId);
+    }
+  } else {
+    syncBpAutomationHeaderShape(autoNode);
+  }
+  return true;
+}
+
+function finalizeBpAutomationManualResize(autoNode, resizeState) {
+  if (!isBpProcessAutomation(autoNode) || !resizeState) return;
+  const processId = autoNode.dataset.bpProcessId;
+  const nextH = getBpAutomationHeight(autoNode);
+  const heightChanged = Math.abs(nextH - (resizeState.h ?? nextH)) > 0.5;
+  if (heightChanged) autoNode.dataset.bpAutomationAutoHeight = "0";
+  if (processId) {
+    layoutAllBpTasksInProcess(processId);
+    layoutAllBpAutomationsInProcess(processId);
+  }
+}
+
+function onBpAutomationResized(autoNode) {
+  if (!isBpProcessAutomation(autoNode)) return;
+  const processId = autoNode.dataset.bpProcessId;
+  if (!processId) return;
+  layoutAllBpAutomationsInProcess(processId);
+}
+
+function layoutAllBpAutomationsInProcess(processId) {
+  const autos = getAllBpAutomationsInProcess(processId);
+  if (!autos.length) {
+    syncBpProcessSectionToggles(processId);
+    return;
+  }
+  const sectionHidden = isBpAutomationsSectionHidden(processId);
+  autos.forEach((node) => {
+    node.classList.remove("bp-section-hidden");
+    upgradeLegacyBpAutomationNode(node);
+    bindBpAutomationSelection(node);
+  });
+  const stageTop = getBpProcessBackgroundTop(processId);
+  const stageAttachGap = getBpStageAttachGap(processId);
+  const sharedBottom = stageTop - stageAttachGap;
+  const byStage = new Map();
+  autos.forEach((node) => {
+    const stageIndex = Number(node.dataset.bpAutomationStageIndex);
+    if (!byStage.has(stageIndex)) byStage.set(stageIndex, []);
+    byStage.get(stageIndex).push(node);
+  });
+  byStage.forEach((stageAutos) => {
+    stageAutos.sort((a, b) => (Number(a.dataset.bpAutomationOrder) || 0) - (Number(b.dataset.bpAutomationOrder) || 0));
+  });
+
+  const sortedStageIndices = [...byStage.keys()].sort((a, b) => a - b);
+  sortedStageIndices.forEach((stageIndex) => {
+    const stageAutos = byStage.get(stageIndex);
+    const stage = getBpStageForIndex(processId, stageIndex);
+    if (!stage || !stageAutos?.length) return;
+    const width = getBpAutomationWidthForStage(stage);
+    const left = getBpAutomationLeftForStage(stage);
+    const stageZ = Math.max(1, Number(stage.style.zIndex) || 0);
+    const stackTopZ = stageZ + stageAutos.length;
+    let cursorBottom = sharedBottom;
+    stageAutos.forEach((node, index) => {
+      // Width follows stage; height follows content — never keep a manual stretch size.
+      node.dataset.bpAutomationAutoHeight = "1";
+      delete node.dataset.bpAutomationManualPosition;
+      node.querySelector(":scope > .resize-handle")?.remove();
+      fitBpAutomationHeightToText(node);
+      const height = getBpAutomationHeight(node);
+      const top = cursorBottom - height;
+      node.style.left = `${left}px`;
+      node.style.width = `${width}px`;
+      node.style.top = `${top}px`;
+      const layoutZ = stackTopZ - index;
+      const currentZ = Number(node.style.zIndex) || 0;
+      node.style.zIndex = String(currentZ > stackTopZ ? currentZ : layoutZ);
+      applyBpAutomationStyle(node);
+      syncBpAutomationHeaderShape(node);
+      layoutConnectorPoints(node);
+      node.classList.toggle("bp-section-hidden", sectionHidden);
+      cursorBottom = top - BP_AUTOMATION_STACK_GAP;
+    });
+  });
+
+  renderConnectors();
+  updateDesktopExtent();
+  syncBpProcessSectionToggles(processId);
+}
+
+function bumpBpAutomationStageIndicesFrom(processId, fromIndex) {
+  const start = Number(fromIndex);
+  if (!Number.isFinite(start)) return;
+  getAllBpAutomationsInProcess(processId).forEach((node) => {
+    const idx = Number(node.dataset.bpAutomationStageIndex);
+    if (idx >= start) node.dataset.bpAutomationStageIndex = String(idx + 1);
+  });
+}
+
+function addBpAutomationForStage(stageNode) {
+  if (!canEditCurrentDocument() || !stageNode) return;
+  try {
+    const processId = stageNode.dataset.bpProcessId;
+    const groupId = getShapeGroupId(stageNode);
+    const stageIndex = Number(stageNode.dataset.bpStageIndex);
+    if (!processId || !groupId) return;
+    const autoCount = desktop.querySelectorAll(`.shape[data-bp-process-id="${processId}"][data-bp-role="automation"]`).length;
+    const stageTop = getElementLogicalBox(stageNode).top;
+    const attachGap = getBpStageAttachGap(processId);
+    const note = createBpAutomationNote({
+      left: `${getBpAutomationLeftForStage(stageNode)}px`,
+      top: `${stageTop - attachGap - BP_AUTOMATION_DEFAULT_HEIGHT}px`,
+      width: `${getBpAutomationWidthForStage(stageNode)}px`,
+      height: `${BP_AUTOMATION_DEFAULT_HEIGHT}px`,
+      title: `Автоматизация ${autoCount + 1}`,
+      fill: BP_AUTOMATION_FILL,
+      borderEnabled: false,
+      hAlign: "left",
+      vAlign: "top",
+      fontSize: 14,
+      bpAutomationAutoHeight: true,
+      groupId,
+      bpProcessId: processId,
+      bpRole: "automation",
+      bpAutomationStageIndex: stageIndex,
+      bpAutomationOrder: getBpAutomationsForStage(processId, stageIndex).length,
+      zIndex: ++zCounter
+    }, false);
+    layoutAllBpAutomationsInProcess(processId);
+    selectShape(note);
+    saveLayout();
+  } catch (err) {
+    console.error("Failed to add BP automation:", err);
+    showHint(`Не удалось создать автоматизацию: ${err && err.message ? err.message : err}`, "error", 5000);
+  }
+}
+
+function createBpAutomationNote(opts = {}, doSave = true) {
+  opts = { ...BP_FACTORY_VISUAL_OPTS, ...opts, bpRole: "automation", borderEnabled: false, radius: 0 };
+  const node = createShapeBase("shape-note", opts);
+  applyBpProcessMeta(node, opts);
+  node.__bpAutomationData = normalizeBpAutomationData(opts.bpAutomationData, opts.title || opts.text || "Автоматизация");
+  syncBpAutomationDataToDataset(node);
+  if (opts.bpAutomationTypography && typeof opts.bpAutomationTypography === "object") {
+    node.dataset.bpAutomationTypography = JSON.stringify({
+      title: clampFontSizeStep(opts.bpAutomationTypography.title, 15),
+      label: clampFontSizeStep(opts.bpAutomationTypography.label, 10.5),
+      field: clampFontSizeStep(opts.bpAutomationTypography.field, 14)
+    });
+  }
+
+  buildBpAutomationCardUI(node);
+  // Size is bound to stage width + content height — no manual resize (same idea as BP tasks' locked width).
+  addShapeHandles(node, false, { disableResize: true });
+  attachConnectorPoints(node);
+  applyFillStyle(node, {
+    fillEnabled: false,
+    gradientEnabled: false,
+    fill1: BP_AUTOMATION_FILL,
+    fill2: BP_AUTOMATION_FILL,
+    fillDirection: "horizontal"
+  });
+  node.style.borderColor = "transparent";
+  node.style.borderWidth = "0px";
+  node.dataset.borderEnabled = "0";
+  node.dataset.borderStyle = "solid";
+  node.style.borderStyle = "solid";
+  applyBpAutomationStyle(node);
+  appendToDesktop(node);
+  fitBpAutomationHeightToText(node);
+  updateDesktopExtent();
+  layoutConnectorPoints(node);
+  renderConnectors();
+  if (doSave) saveLayout();
+  return node;
 }
 
 function getSortedBpStagesForSteppedFill(nodes) {
@@ -13573,6 +14755,7 @@ function bumpBpTaskStageIndicesFrom(processId, fromIndex) {
     const idx = Number(task.dataset.bpTaskStageIndex);
     if (idx >= start) task.dataset.bpTaskStageIndex = String(idx + 1);
   });
+  bumpBpAutomationStageIndicesFrom(processId, fromIndex);
 }
 
 function insertBpStageAt(processId, groupId, atIndex, refStageNode = null) {
@@ -13674,6 +14857,7 @@ function syncBpProcessControls() {
   [
     { dir: "left", title: "Вставить стадию слева", action: () => insertBpStageRelative(selectedShape, "left") },
     { dir: "right", title: "Вставить стадию справа", action: () => insertBpStageRelative(selectedShape, "right") },
+    { dir: "top", title: "Добавить автоматизацию", action: () => addBpAutomationForStage(selectedShape) },
     { dir: "bottom", title: "Добавить задачу", action: () => addBpTaskForStage(selectedShape) }
   ].forEach(({ dir, title, action }) => {
     const btn = document.createElement("button");
@@ -13956,7 +15140,8 @@ function isAttachedAnnotationNote(node) {
   return !!(node
     && node.dataset?.shapeType === "shape-note"
     && node.dataset.attachedNote === "1"
-    && node.dataset.bpRole !== "task");
+    && node.dataset.bpRole !== "task"
+    && node.dataset.bpRole !== "automation");
 }
 
 function getAttachedNoteForOwner(owner) {
@@ -13974,7 +15159,7 @@ function getNoteOwnerShape(note) {
 function canAttachNoteToShape(node) {
   if (!node || isWorkspaceReadOnly() || !canEditCurrentDocument()) return false;
   if (isAttachedAnnotationNote(node)) return false;
-  if (node.dataset?.bpRole === "task") return false;
+  if (node.dataset?.bpRole === "task" || node.dataset?.bpRole === "automation") return false;
   if (node.dataset?.shapeType === "shape-line") return false;
   return !!node.dataset?.shapeId;
 }
@@ -14252,6 +15437,7 @@ function createBpTaskNote(opts = {}, doSave = true) {
 
 function createShapeNote(opts = {}, doSave = true) {
   if (opts.bpRole === "task") return createBpTaskNote(opts, doSave);
+  if (opts.bpRole === "automation") return createBpAutomationNote(opts, doSave);
   const isAttached = !!(opts.attachedNote || opts.noteOwnerId);
   if (!isAttached) opts = applyCreationStylePreset("shape-note", opts);
   else {
@@ -16989,6 +18175,14 @@ function readShapeData(node) {
     bpTaskManualPosition: node.dataset.bpTaskManualPosition === "1",
     bpTaskData: isBpProcessTask(node) ? getBpTaskData(node) : undefined,
     bpTaskTypography: isBpProcessTask(node) ? getBpTaskTypography(node) : undefined,
+    bpAutomationStageIndex: node.dataset.bpAutomationStageIndex != null ? Number(node.dataset.bpAutomationStageIndex) : undefined,
+    bpAutomationOrder: node.dataset.bpAutomationOrder != null ? Number(node.dataset.bpAutomationOrder) : undefined,
+    bpAutomationAutoHeight: node.dataset.bpAutomationAutoHeight !== "0",
+    bpAutomationManualPosition: node.dataset.bpAutomationManualPosition === "1",
+    bpAutomationData: isBpProcessAutomation(node) ? getBpAutomationData(node) : undefined,
+    bpAutomationTypography: isBpProcessAutomation(node) ? getBpAutomationTypography(node) : undefined,
+    bpTasksHidden: node.dataset.bpRole === "base" && node.dataset.bpTasksHidden === "1" ? true : undefined,
+    bpAutomationsHidden: node.dataset.bpRole === "base" && node.dataset.bpAutomationsHidden === "1" ? true : undefined,
     attachedNoteId: node.dataset.attachedNoteId || undefined,
     attachedNote: isAttachedAnnotationNote(node) || undefined,
     noteOwnerId: node.dataset.noteOwnerId || undefined,
@@ -17482,6 +18676,7 @@ function applyFormatPanelToShape(node, opts = {}) {
   syncShapeVisualStyle(node);
   if (isBpProcessStage(node)) onChevronShapeResized(node);
   else if (isBpProcessTask(node)) onBpTaskResized(node);
+  else if (isBpProcessAutomation(node)) onBpAutomationResized(node);
   layoutConnectorPoints(node);
   return true;
 }
@@ -17778,6 +18973,17 @@ function adjustShapeTextFontSizesBy(delta) {
       changed = true;
       return;
     }
+    if (isBpProcessAutomation(node)) {
+      const typography = getBpAutomationTypography(node);
+      applyBpAutomationTypography(node, {
+        title: clampFontSizeStep(typography.title + step, typography.title),
+        label: clampFontSizeStep(typography.label + step, typography.label),
+        field: clampFontSizeStep(typography.field + step, typography.field)
+      });
+      bpProcessIds.add(node.dataset.bpProcessId);
+      changed = true;
+      return;
+    }
     const text = node.querySelector(".shape-text");
     if (!text) return;
     adjustShapeTextContentFontSizesBy(text, step);
@@ -17786,7 +18992,10 @@ function adjustShapeTextFontSizesBy(delta) {
   });
 
   bpProcessIds.forEach((processId) => {
-    if (processId) layoutAllBpTasksInProcess(processId);
+    if (processId) {
+      layoutAllBpTasksInProcess(processId);
+      layoutAllBpAutomationsInProcess(processId);
+    }
   });
   if (!bpProcessIds.size) {
     renderConnectors();
@@ -17948,6 +19157,8 @@ function applyFormat(opts = {}) {
     onChevronShapeResized(selectedShape);
   } else if (isBpProcessTask(selectedShape)) {
     onBpTaskResized(selectedShape);
+  } else if (isBpProcessAutomation(selectedShape)) {
+    onBpAutomationResized(selectedShape);
   }
   selectedShape.dataset.rotate = String(Number(fpAngle.value) || 0);
   applyTransformState(selectedShape);
@@ -19197,8 +20408,22 @@ document.addEventListener("keydown", (e) => {
       startBpTaskTitleTypingEdit(selectedShape, e.key);
       return;
     }
-  } else if (!typing && selectedShape && selectedShape.querySelector(".shape-text:not(.bp-task-hidden-text)")) {
-    const text = selectedShape.querySelector(".shape-text:not(.bp-task-hidden-text)");
+  } else if (!typing && selectedShape && isBpProcessAutomation(selectedShape)) {
+    const titleEl = selectedShape.querySelector(".bp-automation-title");
+    if (!titleEl || titleEl.contentEditable === "true") return;
+    if (!editable) return;
+    if (e.key === " " || e.code === "Space" || (e.key === "Enter" && !e.shiftKey)) {
+      e.preventDefault();
+      startBpAutomationTitleTypingEdit(selectedShape, titleEl.textContent || "");
+      return;
+    }
+    if (isPrintableKeyEvent(e)) {
+      e.preventDefault();
+      startBpAutomationTitleTypingEdit(selectedShape, e.key);
+      return;
+    }
+  } else if (!typing && selectedShape && selectedShape.querySelector(".shape-text:not(.bp-task-hidden-text):not(.bp-automation-hidden-text)")) {
+    const text = selectedShape.querySelector(".shape-text:not(.bp-task-hidden-text):not(.bp-automation-hidden-text)");
     const currentText = text ? (text.dataset.rawText || text.innerText || "") : "";
     if (!text) return;
     if (e.metaKey || e.ctrlKey) {
@@ -19238,7 +20463,12 @@ document.addEventListener("keydown", (e) => {
         startBpTaskTitleTypingEdit(selectedShape, e.key);
         return;
       }
-      const text = selectedShape.querySelector(".shape-text:not(.bp-task-hidden-text)");
+      if (isBpProcessAutomation(selectedShape)) {
+        e.preventDefault();
+        startBpAutomationTitleTypingEdit(selectedShape, e.key);
+        return;
+      }
+      const text = selectedShape.querySelector(".shape-text:not(.bp-task-hidden-text):not(.bp-automation-hidden-text)");
       if (text) {
         e.preventDefault();
         startInlineShapeEditing(selectedShape, e.key);

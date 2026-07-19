@@ -443,7 +443,30 @@ body.workspace-readonly .bp-stage-controls{display:none!important}
 .bp-stage-control:hover{background:#dc2626}
 .bp-stage-control-left{left:0;top:50%;transform:translate(-50%,-50%)}
 .bp-stage-control-right{right:0;top:50%;transform:translate(50%,-50%)}
+.bp-stage-control-top{left:50%;top:0;transform:translate(-50%,-50%)}
 .bp-stage-control-bottom{left:50%;bottom:0;transform:translate(-50%,50%)}
+.bp-process-section-toggles{position:absolute;inset:0;pointer-events:none;z-index:20010}
+.bp-process-section-toggle{
+  position:absolute;
+  width:18px;
+  height:18px;
+  margin:0;
+  padding:0;
+  border:none;
+  border-radius:0;
+  background:transparent;
+  cursor:pointer;
+  pointer-events:auto;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:20011;
+}
+.bp-process-section-toggle:hover{opacity:.85}
+.bp-process-section-toggle.is-collapsed{opacity:.45}
+.bp-process-section-toggle-icon{display:block;width:16px;height:16px;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-select:none}
+.bp-process-section-toggle-task,.bp-process-section-toggle-task .bp-process-section-toggle-icon{width:14px;height:14px}
+.shape.bp-section-hidden{display:none !important}
 .shape.bp-stage-drop-target{
   outline:3px solid rgba(34,197,94,.95);
   outline-offset:2px;
@@ -471,6 +494,8 @@ body.dark .workspace-access-banner button{background:#1e293b;border-color:#d9770
 body.ctrl-connector-mode .shape.selected .conn-points,
 body.ctrl-connector-mode .shape.multi-selected .conn-points,
 body.ctrl-connector-mode .sheet-window.selected-window .conn-points{display:block}
+.shape[data-bp-role="base"]{overflow:visible !important}
+.shape[data-bp-role="stage"]{overflow:visible !important}
 .shape[data-bp-role="base"] .conn-points{display:none!important}
 body.ctrl-connector-mode .shape.selected .conn-points,
 body.ctrl-connector-mode .shape.multi-selected .conn-points{z-index:10065;overflow:visible}
@@ -627,6 +652,62 @@ body.dark .bp-task-result-field{
   color:#e5e7eb;
 }
 body.dark .bp-task-field:disabled{
+  background:#1e293b;
+  color:#64748b;
+  border-color:#334155;
+}
+.shape-note.bp-automation-card{box-sizing:border-box;padding:0;overflow:visible;border-width:0 !important;background:transparent !important;background-image:none !important;box-shadow:none !important;font-family:Arial,Helvetica,sans-serif;border-radius:0 !important}
+.bp-automation-hidden-text{display:none !important}
+.bp-automation-card-inner{box-sizing:border-box;width:100%;display:flex;flex-direction:column-reverse;align-items:stretch;flex:0 0 auto;height:auto;min-height:0}
+.bp-automation-header{position:relative;display:flex;align-items:center;gap:9px;padding:7px;box-sizing:border-box;flex:0 0 auto;background:transparent;min-height:40px;overflow:visible}
+.bp-automation-hex-fill{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:visible}
+.bp-automation-hex-poly{fill:#fddd68}
+.bp-automation-header > .bp-automation-toggle,
+.bp-automation-header > .bp-automation-title{position:relative;z-index:1}
+.bp-automation-toggle{flex:0 0 auto;width:18px;height:18px;margin:0;padding:0;border:none;border-radius:0;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit}
+.bp-automation-toggle:hover{opacity:.85}
+.bp-automation-toggle-icon{display:block;width:18px;height:18px;flex:0 0 auto;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-select:none}
+.bp-automation-title{flex:1 1 auto;min-width:0;font-size:15px;line-height:1.25;color:#0f172a;white-space:pre-wrap;word-break:break-word;outline:none;font-weight:700;font-family:inherit;cursor:default}
+.bp-automation-title.is-editing{cursor:text;user-select:text;-webkit-user-select:text}
+.bp-automation-form{display:flex;flex-direction:column;border-radius:5px 5px 0 0;overflow:hidden;background:#e4e8ed;box-shadow:0 -2px 14px rgba(15,23,42,.11),0 0 0 1px rgba(15,23,42,.04);font-family:inherit;margin-bottom:0}
+.bp-automation-form-body{display:flex;flex-direction:column;gap:7px;padding:7px}
+.bp-automation-form-section{background:#fff;border:none;border-radius:5px;padding:7px;box-shadow:none;display:flex;flex-direction:column;gap:2px}
+.bp-automation-form-label,.bp-automation-form-label-block{margin:0;padding:0;font-size:10.5px;line-height:1;color:#3a5368;font-weight:500;white-space:pre-wrap;font-family:inherit}
+.bp-automation-field{width:100%;box-sizing:border-box;border:1px solid #e8e8e8;border-radius:5px;padding:6px 10px;font:inherit;font-size:14px;line-height:1.3;color:#1e293b;background:#fff;resize:none;overflow:hidden;min-height:30px;font-family:inherit}
+.bp-automation-field:focus{outline:none;border-color:#d0d0d0;background:#fff}
+.bp-automation-field:disabled{background:#eef2f6;color:#64748b}
+.bp-automation-field-area{min-height:104px;background:#fff}
+.bp-automation-conditions-list,.bp-automation-results-list{display:flex;flex-direction:column;gap:4px}
+.bp-automation-conditions-field,.bp-automation-results-field{min-height:30px;background:#fff}
+.shape-note.bp-automation-card .shape-text{display:none}
+/* Keep selection frame; hide resize grips — size is bound to stage/content */
+.shape-note.bp-automation-card .resize-handle,
+.shape-note.bp-automation-card .shape-handles .h,
+.interaction-controls-layer .shape-handles.bp-automation-handles .h,
+.interaction-controls-layer .shape-handles.bp-automation-handles .resize-handle{
+  display:none !important;
+  pointer-events:none !important;
+}
+body.dark .bp-automation-hex-poly{fill:#ca8a04}
+body.dark .bp-automation-header{background:transparent}
+body.dark .bp-automation-title{color:#0f172a}
+body.dark .bp-automation-form{
+  background:#1f2937;
+  box-shadow:0 -2px 14px rgba(2,6,23,.45),0 0 0 1px rgba(148,163,184,.12);
+}
+body.dark .bp-automation-form-section{background:#111827}
+body.dark .bp-automation-form-label,
+body.dark .bp-automation-form-label-block{color:#94a3b8}
+body.dark .bp-automation-field,
+body.dark .bp-automation-field:focus,
+body.dark .bp-automation-field-area,
+body.dark .bp-automation-conditions-field,
+body.dark .bp-automation-results-field{
+  background:#0f172a;
+  border-color:#334155;
+  color:#e5e7eb;
+}
+body.dark .bp-automation-field:disabled{
   background:#1e293b;
   color:#64748b;
   border-color:#334155;
