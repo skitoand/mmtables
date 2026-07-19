@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-07-19 — вложенные фреймы
+
+**Commit:** `492d288` — Allow nesting frames inside frames on the canvas.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260719-133643-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29689210807](https://github.com/skitoand/mmtables/actions/runs/29689210807)  
+**Статус:** OK
+
+### Что сделано
+- Фреймы можно вкладывать друг в друга (drag, обводка, «Поместить в фрейм»)
+- При перетаскивании внешнего фрейма двигаются все потомки
+- Защита от циклов; выбор самого глубокого родителя
+- MCP: `frameName` на create/update; cache-buster `app.js?v=20260719-nested-frames-v1`
+
+### Проверка
+- [x] Deploy Production #29689210807 success
+- [x] https://mmtable.crystalsystems.ru → 200
+- [x] `app.js?v=20260719-nested-frames-v1` отдаёт `getFrameDescendants`
+
+---
+
 ## 2026-07-19 — MCP: полный CRUD задач и автоматизаций BP
 
 **Commit:** `b93c30e` — Expose full BP task and automation CRUD through MCP.  
