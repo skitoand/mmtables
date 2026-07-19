@@ -10,6 +10,27 @@
 
 ---
 
+## 2026-07-19 — BP автоматизации, тогглы секций, growing lists
+
+**Commit:** `1a95ca2` — Add BP automations with section toggles and growing-list cleanup.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260719-113755-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29685478769](https://github.com/skitoand/mmtables/actions/runs/29685478769)  
+**Статус:** OK
+
+### Что сделано
+- Карточки **Автоматизация** над стадиями (жёлтый header, форма вверх, без самостоятельного resize)
+- Тогглы слева у стадии 1: скрыть/показать все задачи и все автоматизации
+- Восстановлена оригинальная иконка задачи (`bp-task-check-icon.svg`)
+- Growing lists (результаты задач, условия/результаты автоматизаций): лишние пустые поля убираются
+- При росте/сжатии формы автоматизации жёлтая кнопка остаётся якорем у стадии
+
+### Проверка
+- [x] Deploy Production #29685478769 success
+- [x] CI post-deploy HTTP 200 (корень сайта)
+- [ ] Ручная проверка UI: автоматизация/задача → тогглы → growing list → якорь header
+
+---
+
 ## 2026-07-18 — Claude.ai OAuth для MCP
 
 **Commit:** `aab125a` — Add Claude.ai OAuth support for MM Table MCP connectors.  
