@@ -5,10 +5,12 @@
 
 ## Cursor (Bearer PAT)
 
+**Инструкция для сотрудников:** [cursor-mcp-guide/](./cursor-mcp-guide/) · [открыть HTML](./cursor-mcp-guide/index.html)
+
 1. Войдите в MM Table.
-2. Меню → **Профиль** → блок **MCP / Cursor**.
+2. Меню → **Профиль** → блок **MCP / Cursor / Claude**.
 3. **Создать токен** → скопировать `mmt_...` (один раз).
-4. Вставить в Cursor MCP config:
+4. **Копировать конфиг** → вставить в Cursor (`Settings → Tools & MCP` → `mcp.json`):
 
 ```json
 {

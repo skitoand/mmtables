@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MM Table → Cursor MCP — инструкция для сотрудников</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --card: #ffffff;
+      --ink: #0f172a;
+      --muted: #475569;
+      --line: #e2e8f0;
+      --accent: #2563eb;
+      --ok: #166534;
+      --ok-bg: #ecfdf5;
+      --ok-line: #a7f3d0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #dbeafe 0%, transparent 55%),
+        var(--bg);
+      color: var(--ink);
+      line-height: 1.55;
+    }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 32px 20px 72px; }
+    h1 { font-size: 1.85rem; margin: 0 0 8px; letter-spacing: -0.02em; }
+    .lead { color: var(--muted); font-size: 1.05rem; margin: 0 0 20px; }
+    .pill {
+      display: inline-block;
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 0.9rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      margin: 0 0 16px;
+    }
+    .note, .ok {
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin: 0 0 24px;
+      font-size: 0.95rem;
+    }
+    .note {
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      color: #78350f;
+    }
+    .ok {
+      background: var(--ok-bg);
+      border: 1px solid var(--ok-line);
+      color: var(--ok);
+    }
+    .step {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 20px;
+      margin: 0 0 18px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+    }
+    .step h2 {
+      margin: 0 0 10px;
+      font-size: 1.2rem;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .num {
+      width: 28px; height: 28px; border-radius: 999px;
+      background: var(--accent); color: #fff;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 0.9rem; font-weight: 700; flex: 0 0 auto;
+    }
+    .step p, .step ol, .step ul { margin: 0 0 12px; color: var(--muted); }
+    .step ol, .step ul { padding-left: 1.25rem; }
+    .step li { margin: 0 0 6px; }
+    .step li:last-child { margin-bottom: 0; }
+    table {
+      width: 100%; border-collapse: collapse; margin: 8px 0 12px;
+      font-size: 0.95rem;
+    }
+    th, td {
+      border: 1px solid var(--line); padding: 8px 10px; text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f8fafc; width: 38%; }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    code {
+      background: #f1f5f9; padding: 1px 6px; border-radius: 6px;
+      font-size: 0.9em;
+    }
+    pre {
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 12px;
+      padding: 14px 16px;
+      overflow: auto;
+      font-size: 0.85rem;
+      line-height: 1.45;
+      margin: 10px 0 12px;
+    }
+    .copy-row {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+      margin: 8px 0 4px;
+    }
+    .copy-row input {
+      flex: 1 1 260px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 0.85rem;
+    }
+    .copy-row button, .btn {
+      border: 0;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn.secondary { background: #475569; }
+    .faq details {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin: 0 0 10px;
+    }
+    .faq summary {
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .faq details p { color: var(--muted); margin: 8px 0 0; }
+    footer { color: var(--muted); font-size: 0.9rem; margin-top: 28px; }
+    a { color: var(--accent); }
+    .time { font-size: 0.9rem; color: var(--muted); margin: 0 0 20px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Подключить MM Table к Cursor</h1>
+    <p class="lead">
+      Короткая инструкция для сотрудников: после настройки Cursor сможет читать и менять ваши таблицы в MM Table через чат с агентом.
+    </p>
+    <div class="pill">https://mmtable.crystalsystems.ru/mcp</div>
+    <p class="time">Обычно занимает 3–5 минут.</p>
+
+    <div class="note">
+      Нужны: аккаунт в <a href="https://mmtable.crystalsystems.ru" target="_blank" rel="noopener">MM Table</a>
+      и установленный <strong>Cursor</strong>.
+      Токен <code>mmt_…</code> — как пароль: никому не пересылайте и не выкладывайте в чаты/Git.
+    </div>
+
+    <div class="step">
+      <h2><span class="num">1</span> Войдите в MM Table</h2>
+      <ol>
+        <li>Откройте <a href="https://mmtable.crystalsystems.ru" target="_blank" rel="noopener">https://mmtable.crystalsystems.ru</a></li>
+        <li>Войдите своим корпоративным email и паролем</li>
+      </ol>
+    </div>
+
+    <div class="step">
+      <h2><span class="num">2</span> Создайте токен MCP</h2>
+      <ol>
+        <li>Вверху слева откройте меню → <strong>Профиль</strong></li>
+        <li>Найдите блок <strong>MCP / Cursor / Claude</strong></li>
+        <li>В поле «Имя токена» можно написать, например: <code>Мой Cursor</code></li>
+        <li>Нажмите <strong>Создать токен</strong></li>
+        <li>Появится строка вида <code>mmt_…</code> — сразу нажмите <strong>Копировать токен</strong></li>
+      </ol>
+      <div class="note" style="margin:12px 0 0">
+        Токен показывается <strong>только один раз</strong>. Если закрыли окно — создайте новый.
+      </div>
+    </div>
+
+    <div class="step">
+      <h2><span class="num">3</span> Скопируйте готовый конфиг</h2>
+      <p>В том же блоке профиля нажмите <strong>Копировать конфиг</strong>.</p>
+      <p>В буфере окажется JSON примерно такого вида (у вас будет ваш токен вместо примера):</p>
+      <pre>{
+  "mcpServers": {
+    "mmtable": {
+      "url": "https://mmtable.crystalsystems.ru/mcp",
+      "headers": {
+        "Authorization": "Bearer mmt_ваш_токен"
+      }
+    }
+  }
+}</pre>
+      <p>Если токен ещё не создали — в конфиге будет плейсхолдер <code>&lt;PASTE_TOKEN_HERE&gt;</code>. Замените его на свой <code>mmt_…</code>.</p>
+    </div>
+
+    <div class="step">
+      <h2><span class="num">4</span> Вставьте конфиг в Cursor</h2>
+      <p><strong>Самый простой способ:</strong></p>
+      <ol>
+        <li>Откройте Cursor</li>
+        <li>Нажмите <strong>Cmd + Shift + J</strong> (Mac) или <strong>Ctrl + Shift + J</strong> (Windows)</li>
+        <li>Слева выберите <strong>Tools &amp; MCP</strong></li>
+        <li>Нажмите <strong>New MCP Server</strong> / откройте файл конфигурации <code>mcp.json</code></li>
+        <li>Вставьте скопированный JSON и сохраните файл</li>
+      </ol>
+
+      <p style="margin-top:14px"><strong>Где лежит файл, если открывать вручную:</strong></p>
+      <table>
+        <tr><th>Mac</th><td><code>~/.cursor/mcp.json</code></td></tr>
+        <tr><th>Windows</th><td><code>%USERPROFILE%\.cursor\mcp.json</code></td></tr>
+      </table>
+
+      <div class="note" style="margin:12px 0 0">
+        Если в файле уже есть другие MCP-серверы — <strong>не затирайте весь файл</strong>.
+        Добавьте блок <code>"mmtable": { ... }</code> внутрь существующего <code>"mcpServers"</code>
+        и поставьте запятую между серверами.
+      </div>
+    </div>
+
+    <div class="step">
+      <h2><span class="num">5</span> Перезапустите и проверьте</h2>
+      <ol>
+        <li>Полностью закройте Cursor и откройте снова (или Reload Window)</li>
+        <li>Снова: Settings → <strong>Tools &amp; MCP</strong></li>
+        <li>У сервера <code>mmtable</code> должен быть зелёный индикатор / список tools</li>
+        <li>В Agent-чате напишите, например:</li>
+      </ol>
+      <pre>Покажи мои документы в MM Table</pre>
+      <div class="ok">
+        Если агент вызвал инструмент вроде <code>list_documents</code> и показал список — всё работает.
+      </div>
+    </div>
+
+    <div class="step">
+      <h2><span class="num">?</span> Частые проблемы</h2>
+      <div class="faq">
+        <details>
+          <summary>Красный индикатор / не подключается</summary>
+          <p>Проверьте, что в <code>Authorization</code> есть слово <code>Bearer</code> и пробел перед токеном.
+          Пример: <code>Bearer mmt_...</code>. Перезапустите Cursor после сохранения.</p>
+        </details>
+        <details>
+          <summary>Токен потерялся</summary>
+          <p>Создайте новый в Профиле MM Table. Старый при желании отзовите в списке токенов.</p>
+        </details>
+        <details>
+          <summary>Агент не видит документы</summary>
+          <p>Убедитесь, что вошли в MM Table тем же аккаунтом, для которого создан токен.
+          Документы другого человека агент не увидит, пока вам не выдадут доступ.</p>
+        </details>
+        <details>
+          <summary>Ошибка JSON в mcp.json</summary>
+          <p>Чаще всего лишняя запятая в конце. Проверьте запятые между серверами и кавычки.</p>
+        </details>
+      </div>
+    </div>
+
+    <div class="step">
+      <h2>Быстрая шпаргалка</h2>
+      <div class="copy-row">
+        <input id="mcpUrl" readonly value="https://mmtable.crystalsystems.ru/mcp" />
+        <button type="button" onclick="copy('mcpUrl')">Копировать URL</button>
+      </div>
+      <p style="margin-top:12px;margin-bottom:0">
+        Приложение: <a href="https://mmtable.crystalsystems.ru" target="_blank" rel="noopener">mmtable.crystalsystems.ru</a><br />
+        Техническая документация: <a href="../MCP.md">docs/MCP.md</a>
+      </p>
+    </div>
+
+    <footer>
+      Для команды Crystal Systems · MM Table MCP · Cursor
+    </footer>
+  </div>
+  <script>
+    function copy(id) {
+      var el = document.getElementById(id);
+      navigator.clipboard.writeText(el.value).then(function () {
+        alert("Скопировано");
+      });
+    }
+  </script>
+</body>
+</html>

@@ -110,6 +110,11 @@ retry 6 remote_scp \
   "$ROOT_DIR/docs/chatgpt-mcp-guide/"*.jpg \
   "$ROOT_DIR/docs/MCP.md" \
   "${USER_NAME}@${HOST}:/tmp/mmtable_chatgpt_mcp_guide/"
+retry 6 remote_ssh "rm -rf /tmp/mmtable_cursor_mcp_guide && mkdir -p /tmp/mmtable_cursor_mcp_guide"
+retry 6 remote_scp \
+  "$ROOT_DIR/docs/cursor-mcp-guide/index.html" \
+  "$ROOT_DIR/docs/cursor-mcp-guide/README.md" \
+  "${USER_NAME}@${HOST}:/tmp/mmtable_cursor_mcp_guide/"
 retry 6 remote_ssh "rm -rf /tmp/mmtable_layout_engine && mkdir -p /tmp/mmtable_layout_engine"
 retry 6 remote_scp \
   "$ROOT_DIR/layout_engine/__init__.py" \
@@ -141,6 +146,9 @@ retry 6 remote_ssh "
   install -m 644 /tmp/mmtable_chatgpt_mcp_guide/README.md '${REMOTE_APP_DIR}/docs/chatgpt-mcp-guide/README.md' &&
   install -m 644 /tmp/mmtable_chatgpt_mcp_guide/MCP.md '${REMOTE_APP_DIR}/docs/MCP.md' &&
   cp /tmp/mmtable_chatgpt_mcp_guide/*.jpg '${REMOTE_APP_DIR}/docs/chatgpt-mcp-guide/' &&
+  mkdir -p '${REMOTE_APP_DIR}/docs/cursor-mcp-guide' &&
+  install -m 644 /tmp/mmtable_cursor_mcp_guide/index.html '${REMOTE_APP_DIR}/docs/cursor-mcp-guide/index.html' &&
+  install -m 644 /tmp/mmtable_cursor_mcp_guide/README.md '${REMOTE_APP_DIR}/docs/cursor-mcp-guide/README.md' &&
   rm -rf '${REMOTE_APP_DIR}/layout_engine' &&
   mkdir -p '${REMOTE_APP_DIR}/layout_engine' &&
   install -m 644 /tmp/mmtable_layout_engine/__init__.py '${REMOTE_APP_DIR}/layout_engine/__init__.py' &&
