@@ -10,6 +10,22 @@
 
 ---
 
+## 2026-07-19 — MCP: создание листов
+
+**Commit:** `0389cd8` — Add MCP/API tools to create, rename, and delete document sheets.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260719-125749-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29687962596](https://github.com/skitoand/mmtables/actions/runs/29687962596)  
+**Статус:** OK
+
+### Что сделано
+Tools `create_sheet` / `rename_sheet` / `delete_sheet` + REST `POST/PATCH/DELETE /api/v1/docs/<id>/sheets`.
+
+### Проверка
+- [x] unit tests layout_engine
+- [x] deploy OK, `create_sheet` на проде
+
+---
+
 ## 2026-07-19 — инструкция Cursor MCP для сотрудников
 
 **Commit:** `25a4145` — Add simple Cursor MCP setup guide for employees.  
