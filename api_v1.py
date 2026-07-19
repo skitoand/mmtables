@@ -385,6 +385,40 @@ def register_api_v1(app, deps):
         except Exception as exc:
             return _err(exc)
 
+    @app.patch("/api/v1/docs/<doc_id>/stages/<stage_id>")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_update_stage(doc_id, stage_id):
+        payload = _json()
+        try:
+            return jsonify(
+                _mutate(
+                    doc_id,
+                    lambda document, p: eng.update_bp_stage(document, p.get("sheetId"), stage_id, p),
+                    payload,
+                )
+            )
+        except Exception as exc:
+            return _err(exc)
+
+    @app.delete("/api/v1/docs/<doc_id>/business-processes/<process_id>/stages/<stage_id>")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_delete_stage(doc_id, process_id, stage_id):
+        payload = _json()
+        try:
+            return jsonify(
+                _mutate(
+                    doc_id,
+                    lambda document, p: eng.delete_bp_stage(
+                        document, p.get("sheetId"), process_id, stage_id=stage_id
+                    ),
+                    payload,
+                )
+            )
+        except Exception as exc:
+            return _err(exc)
+
     @app.post("/api/v1/docs/<doc_id>/business-processes/<process_id>/tasks")
     @require_auth
     @require_scope("docs:write")
@@ -411,6 +445,86 @@ def register_api_v1(app, deps):
                 _mutate(
                     doc_id,
                     lambda document, p: eng.update_bp_task(document, p.get("sheetId"), task_id, p),
+                    payload,
+                )
+            )
+        except Exception as exc:
+            return _err(exc)
+
+    @app.delete("/api/v1/docs/<doc_id>/tasks/<task_id>")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_delete_task(doc_id, task_id):
+        payload = _json()
+        try:
+            return jsonify(
+                _mutate(
+                    doc_id,
+                    lambda document, p: eng.delete_bp_task(document, p.get("sheetId"), task_id),
+                    payload,
+                )
+            )
+        except Exception as exc:
+            return _err(exc)
+
+    @app.post("/api/v1/docs/<doc_id>/business-processes/<process_id>/automations")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_add_automation(doc_id, process_id):
+        payload = _json()
+        try:
+            return jsonify(
+                _mutate(
+                    doc_id,
+                    lambda document, p: eng.add_bp_automation(document, p.get("sheetId"), process_id, p),
+                    payload,
+                )
+            )
+        except Exception as exc:
+            return _err(exc)
+
+    @app.patch("/api/v1/docs/<doc_id>/automations/<automation_id>")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_update_automation(doc_id, automation_id):
+        payload = _json()
+        try:
+            return jsonify(
+                _mutate(
+                    doc_id,
+                    lambda document, p: eng.update_bp_automation(document, p.get("sheetId"), automation_id, p),
+                    payload,
+                )
+            )
+        except Exception as exc:
+            return _err(exc)
+
+    @app.delete("/api/v1/docs/<doc_id>/automations/<automation_id>")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_delete_automation(doc_id, automation_id):
+        payload = _json()
+        try:
+            return jsonify(
+                _mutate(
+                    doc_id,
+                    lambda document, p: eng.delete_bp_automation(document, p.get("sheetId"), automation_id),
+                    payload,
+                )
+            )
+        except Exception as exc:
+            return _err(exc)
+
+    @app.delete("/api/v1/docs/<doc_id>/business-processes/<process_id>")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_delete_bp(doc_id, process_id):
+        payload = _json()
+        try:
+            return jsonify(
+                _mutate(
+                    doc_id,
+                    lambda document, p: eng.delete_business_process(document, p.get("sheetId"), process_id),
                     payload,
                 )
             )

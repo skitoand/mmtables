@@ -2,6 +2,7 @@
 
 from .document import blank_document, normalize_document, parse_layout
 from .ops import (
+    add_bp_automation,
     add_bp_stage,
     add_bp_task,
     connect_shapes,
@@ -9,6 +10,10 @@ from .ops import (
     create_shape,
     create_sheet,
     create_table,
+    delete_bp_automation,
+    delete_bp_stage,
+    delete_bp_task,
+    delete_business_process,
     delete_shapes,
     delete_sheet,
     describe_sheet,
@@ -18,6 +23,8 @@ from .ops import (
     move_shapes,
     rename_sheet,
     set_table_cells,
+    update_bp_automation,
+    update_bp_stage,
     update_bp_task,
     update_shape,
 )
@@ -26,6 +33,7 @@ __all__ = [
     "blank_document",
     "normalize_document",
     "parse_layout",
+    "add_bp_automation",
     "add_bp_stage",
     "add_bp_task",
     "connect_shapes",
@@ -33,6 +41,10 @@ __all__ = [
     "create_shape",
     "create_sheet",
     "create_table",
+    "delete_bp_automation",
+    "delete_bp_stage",
+    "delete_bp_task",
+    "delete_business_process",
     "delete_shapes",
     "delete_sheet",
     "describe_sheet",
@@ -42,6 +54,8 @@ __all__ = [
     "move_shapes",
     "rename_sheet",
     "set_table_cells",
+    "update_bp_automation",
+    "update_bp_stage",
     "update_bp_task",
     "update_shape",
 ]

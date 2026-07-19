@@ -71,11 +71,22 @@ Composite of shapes sharing `bpProcessId` + `groupId`:
 
 | bpRole | type | Fields |
 |--------|------|--------|
-| `base` | `shape-rect` chevron | container |
+| `base` | `shape-rect` chevron | container; optional `bpTasksHidden` / `bpAutomationsHidden` |
 | `stage` | `shape-rect` chevron | `bpStageIndex` |
 | `task` | `shape-note` | `bpTaskStageIndex`, `bpTaskOrder`, `bpTaskData` |
+| `automation` | `shape-note` | `bpAutomationStageIndex`, `bpAutomationOrder`, `bpAutomationData` |
 
-After structural edits the engine runs `relayout_bp` (same geometry rules as `FormalLayoutBuilder`).
+`bpTaskData`: title, subtitle, description, assigner, executor, deadline, timeTracking, project, crmElements, conditions, tags, results[], additional, expanded.
+
+`bpAutomationData`: title, when, conditions[], description, results[], expanded.
+
+MCP CRUD:
+- stages: `add_bp_stage` / `update_bp_stage` / `delete_bp_stage`
+- tasks: `add_bp_task` / `update_bp_task` / `delete_bp_task`
+- automations: `add_bp_automation` / `update_bp_automation` / `delete_bp_automation`
+- process: `create_business_process` / `delete_business_process` / `list_business_processes`
+
+After structural edits the engine runs `relayout_bp` (tasks below stages, automations stacked above).
 
 ## Connectors
 

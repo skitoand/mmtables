@@ -107,6 +107,68 @@ class LayoutEngineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             eng.delete_sheet(doc, 1)
 
+    def test_bp_tasks_and_automations_crud(self):
+        doc = eng.blank_document()
+        doc, bp = eng.create_business_process(
+            doc,
+            1,
+            {
+                "stages": ["A", "B", "C"],
+                "tasks": [{"stageIndex": 0, "title": "T1", "results": ["Done", ""]}],
+                "automations": [
+                    {
+                        "stageIndex": 1,
+                        "title": "Auto 1",
+                        "when": "on enter",
+                        "conditions": ["x > 0"],
+                        "results": ["ok"],
+                    }
+                ],
+            },
+        )
+        listed = eng.list_business_processes(doc, 1)[0]
+        self.assertEqual(len(listed["tasks"]), 1)
+        self.assertEqual(len(listed["automations"]), 1)
+        self.assertEqual(listed["automations"][0]["title"], "Auto 1")
+        self.assertIn("ok", listed["automations"][0]["results"])
+
+        task_id = listed["tasks"][0]["id"]
+        doc, updated = eng.update_bp_task(
+            doc, 1, task_id, {"executor": "Иван", "results": ["ЦКП 1", "ЦКП 2"], "stageIndex": 1}
+        )
+        self.assertEqual(updated["data"]["executor"], "Иван")
+        self.assertEqual(updated["stageIndex"], 1)
+
+        doc, auto = eng.add_bp_automation(
+            doc, 1, bp["processId"], {"stageIndex": 0, "title": "Auto 2", "description": "desc"}
+        )
+        self.assertEqual(auto["title"], "Auto 2")
+        doc, auto_u = eng.update_bp_automation(doc, 1, auto["id"], {"when": "daily", "conditions": ["a", "b"]})
+        self.assertEqual(auto_u["data"]["when"], "daily")
+        self.assertEqual(auto_u["data"]["conditions"][:2], ["a", "b"])
+
+        # Automations sit above stage tops.
+        layout = doc["sheets"][0]["layout"]
+        stage_b = next(s for s in layout["shapes"] if s.get("bpRole") == "stage" and int(s.get("bpStageIndex") or 0) == 1)
+        auto1 = next(s for s in layout["shapes"] if s.get("id") == listed["automations"][0]["id"])
+        self.assertLess(float(str(auto1["top"]).replace("px", "")), float(str(stage_b["top"]).replace("px", "")))
+
+        doc, _ = eng.delete_bp_task(doc, 1, task_id)
+        doc, _ = eng.delete_bp_automation(doc, 1, auto["id"])
+        listed2 = eng.list_business_processes(doc, 1)[0]
+        self.assertEqual(len(listed2["tasks"]), 0)
+        self.assertEqual(len(listed2["automations"]), 1)
+
+        stage0 = listed2["stages"][0]["id"]
+        doc, _ = eng.update_bp_stage(doc, 1, stage0, {"name": "Старт"})
+        doc, _ = eng.delete_bp_stage(doc, 1, bp["processId"], stage_id=listed2["stages"][1]["id"])
+        listed3 = eng.list_business_processes(doc, 1)[0]
+        self.assertEqual([s["name"] for s in listed3["stages"]], ["Старт", "C"])
+
+        doc, deleted = eng.delete_business_process(doc, 1, bp["processId"])
+        self.assertEqual(deleted["deletedProcessId"], bp["processId"])
+        self.assertEqual(eng.list_business_processes(doc, 1), [])
+
 
 if __name__ == "__main__":
     unittest.main()

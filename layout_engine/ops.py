@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from .constants import (
+    BP_AUTOMATION_DEFAULT_HEIGHT,
+    BP_AUTOMATION_FILL,
+    BP_AUTOMATION_STACK_GAP,
     BP_BASE_FILL,
     BP_BASE_PAD_X,
     BP_BASE_PAD_Y,
@@ -111,6 +114,13 @@ def _empty_table_data(rows: int, cols: int, data: list[list[Any]] | None = None)
     }
 
 
+def _normalize_text_list(values: Any) -> list[str]:
+    """Growing lists: keep non-empty values in order, then one trailing empty field."""
+    filled = [str(v or "") for v in (values if isinstance(values, list) else []) if str(v or "").strip()]
+    filled.append("")
+    return filled
+
+
 def _bp_task_data(title: str, extra: dict | None = None) -> dict:
     base = {
         "title": title or "",
@@ -130,9 +140,60 @@ def _bp_task_data(title: str, extra: dict | None = None) -> dict:
     }
     if isinstance(extra, dict):
         for key, value in extra.items():
-            if key in base:
+            if key not in base:
+                continue
+            if key == "results":
+                base[key] = _normalize_text_list(value)
+            else:
                 base[key] = value
+    else:
+        base["results"] = _normalize_text_list(base["results"])
     return base
+
+
+def _bp_automation_data(title: str, extra: dict | None = None) -> dict:
+    base = {
+        "title": title or "Автоматизация",
+        "expanded": False,
+        "when": "",
+        "conditions": [""],
+        "description": "",
+        "results": [""],
+    }
+    if isinstance(extra, dict):
+        for key, value in extra.items():
+            if key not in base:
+                continue
+            if key in {"conditions", "results"}:
+                base[key] = _normalize_text_list(value)
+            else:
+                base[key] = value
+    else:
+        base["conditions"] = _normalize_text_list(base["conditions"])
+        base["results"] = _normalize_text_list(base["results"])
+    title_text = str(base.get("title") or "").strip() or "Автоматизация"
+    base["title"] = title_text
+    return base
+
+
+def _bp_shapes(layout: dict, process_id: str, role: str | None = None) -> list[dict]:
+    pid = str(process_id)
+    out = []
+    for shape in layout.get("shapes") or []:
+        if str(shape.get("bpProcessId") or "") != pid:
+            continue
+        if role is not None and shape.get("bpRole") != role:
+            continue
+        out.append(shape)
+    return out
+
+
+def _stage_body_width(stage: dict) -> float:
+    width = parse_px(stage.get("width"), BP_STAGE_WIDTH)
+    inset = int(stage.get("shapeInsetDepthPx") or BP_CHEVRON_INSET_PX)
+    if str(stage.get("shapeVariant") or "") == "chevron":
+        return max(40.0, width - inset)
+    return width
 
 
 def create_shape(doc: dict, sheet_id: int | None, payload: dict) -> tuple[dict, dict]:
@@ -394,13 +455,10 @@ def set_table_cells(doc: dict, sheet_id: int | None, shape_id: str, cells: list[
 
 def relayout_bp(layout: dict, process_id: str) -> None:
     pid = str(process_id)
-    shapes = layout.get("shapes") or []
-    base = next((s for s in shapes if s.get("bpProcessId") == pid and s.get("bpRole") == "base"), None)
-    stages = sorted(
-        [s for s in shapes if s.get("bpProcessId") == pid and s.get("bpRole") == "stage"],
-        key=lambda s: int(s.get("bpStageIndex") or 0),
-    )
-    tasks = [s for s in shapes if s.get("bpProcessId") == pid and s.get("bpRole") == "task"]
+    base = next(iter(_bp_shapes(layout, pid, "base")), None)
+    stages = sorted(_bp_shapes(layout, pid, "stage"), key=lambda s: int(s.get("bpStageIndex") or 0))
+    tasks = _bp_shapes(layout, pid, "task")
+    automations = _bp_shapes(layout, pid, "automation")
     if not base or not stages:
         return
 
@@ -419,14 +477,15 @@ def relayout_bp(layout: dict, process_id: str) -> None:
 
     stage_top = origin_y + BP_BASE_PAD_Y
     left = origin_x + BP_BASE_PAD_X
-    stage_positions: dict[int, tuple[float, float]] = {}
+    stage_positions: dict[int, tuple[float, float, float]] = {}
     for index, stage in enumerate(stages):
         stage["bpStageIndex"] = index
         stage["left"] = px(left)
         stage["top"] = px(stage_top)
         stage["width"] = px(stage_width)
         stage["height"] = px(stage_height)
-        stage_positions[index] = (left, stage_width)
+        body_w = _stage_body_width(stage)
+        stage_positions[index] = (left, stage_width, body_w)
         if index < len(stages) - 1:
             left += _stage_stride(stage_width, inset)
 
@@ -440,7 +499,7 @@ def relayout_bp(layout: dict, process_id: str) -> None:
     for stage_index in sorted(tasks_by_stage):
         if stage_index not in stage_positions:
             continue
-        stage_left, stage_w = stage_positions[stage_index]
+        stage_left, _stage_w, body_w = stage_positions[stage_index]
         ideal = stage_left + BP_TASK_OFFSET_X
         task_left = ideal if prev_right is None else max(ideal, prev_right + BP_TASK_GAP)
         ordered = sorted(tasks_by_stage[stage_index], key=lambda t: int(t.get("bpTaskOrder") or 0))
@@ -449,10 +508,36 @@ def relayout_bp(layout: dict, process_id: str) -> None:
             task["bpTaskOrder"] = order
             task["left"] = px(task_left)
             task["top"] = px(task_top + order * BP_TASK_ROW_STRIDE)
-            task["width"] = px(stage_w)
+            task["width"] = px(body_w)
             if not task.get("height"):
                 task["height"] = px(BP_TASK_HEIGHT)
-        prev_right = task_left + stage_w
+        prev_right = task_left + body_w
+
+    # Automations stack upward above the stage row (UI layoutAllBpAutomationsInProcess).
+    attach_gap = BP_BASE_PAD_Y + BP_TASK_STAGE_GAP
+    shared_bottom = stage_top - attach_gap
+    autos_by_stage: dict[int, list[dict]] = {}
+    for auto in automations:
+        idx = int(auto.get("bpAutomationStageIndex") or 0)
+        autos_by_stage.setdefault(idx, []).append(auto)
+    for stage_index in sorted(autos_by_stage):
+        if stage_index not in stage_positions:
+            continue
+        stage_left, _stage_w, body_w = stage_positions[stage_index]
+        ordered = sorted(autos_by_stage[stage_index], key=lambda a: int(a.get("bpAutomationOrder") or 0))
+        cursor_bottom = shared_bottom
+        for order, auto in enumerate(ordered):
+            height = parse_px(auto.get("height"), BP_AUTOMATION_DEFAULT_HEIGHT) or BP_AUTOMATION_DEFAULT_HEIGHT
+            top = cursor_bottom - height
+            auto["bpAutomationStageIndex"] = stage_index
+            auto["bpAutomationOrder"] = order
+            auto["left"] = px(stage_left)
+            auto["top"] = px(top)
+            auto["width"] = px(body_w)
+            auto["height"] = px(height)
+            auto["bpAutomationAutoHeight"] = True
+            auto["bpAutomationManualPosition"] = False
+            cursor_bottom = top - BP_AUTOMATION_STACK_GAP
 
 
 def create_business_process(doc: dict, sheet_id: int | None, payload: dict) -> tuple[dict, dict]:
@@ -550,19 +635,55 @@ def create_business_process(doc: dict, sheet_id: int | None, payload: dict) -> t
         if index < len(stage_names) - 1:
             left += _stage_stride(stage_width, inset)
 
+    task_ids = []
     for task in payload.get("tasks") or []:
         if not isinstance(task, dict):
             continue
-        add_bp_task_to_layout(
+        summary = add_bp_task_to_layout(
             layout,
             process_id,
             group_id,
             {
                 "stageIndex": int(task.get("stageIndex", 0)),
                 "title": str(task.get("title") or "Задача"),
-                **{k: task[k] for k in ("subtitle", "description", "assigner", "executor", "deadline", "project", "tags") if k in task},
+                **{
+                    k: task[k]
+                    for k in (
+                        "subtitle",
+                        "description",
+                        "assigner",
+                        "executor",
+                        "deadline",
+                        "project",
+                        "tags",
+                        "results",
+                        "conditions",
+                        "timeTracking",
+                        "crmElements",
+                        "additional",
+                        "expanded",
+                    )
+                    if k in task
+                },
             },
         )
+        task_ids.append(summary)
+
+    auto_ids = []
+    for auto in payload.get("automations") or []:
+        if not isinstance(auto, dict):
+            continue
+        summary = add_bp_automation_to_layout(
+            layout,
+            process_id,
+            group_id,
+            {
+                "stageIndex": int(auto.get("stageIndex", 0)),
+                "title": str(auto.get("title") or "Автоматизация"),
+                **{k: auto[k] for k in ("when", "conditions", "description", "results", "expanded") if k in auto},
+            },
+        )
+        auto_ids.append(summary)
 
     relayout_bp(layout, process_id)
     document = set_sheet_layout(document, sheet["id"], layout)
@@ -572,6 +693,8 @@ def create_business_process(doc: dict, sheet_id: int | None, payload: dict) -> t
         "baseId": base_id,
         "name": name,
         "stages": stage_ids,
+        "tasks": task_ids,
+        "automations": auto_ids,
         "sheetId": sheet["id"],
     }
 
@@ -639,11 +762,14 @@ def add_bp_stage(doc: dict, sheet_id: int | None, process_id: str, payload: dict
         cur = int(stage.get("bpStageIndex") or 0)
         if cur >= index:
             stage["bpStageIndex"] = cur + 1
-    for task in layout["shapes"]:
-        if task.get("bpProcessId") == pid and task.get("bpRole") == "task":
-            cur = int(task.get("bpTaskStageIndex") or 0)
-            if cur >= index:
-                task["bpTaskStageIndex"] = cur + 1
+    for task in _bp_shapes(layout, pid, "task"):
+        cur = int(task.get("bpTaskStageIndex") or 0)
+        if cur >= index:
+            task["bpTaskStageIndex"] = cur + 1
+    for auto in _bp_shapes(layout, pid, "automation"):
+        cur = int(auto.get("bpAutomationStageIndex") or 0)
+        if cur >= index:
+            auto["bpAutomationStageIndex"] = cur + 1
     name = str(payload.get("name") or f"Этап {index + 1}")
     fill = str(payload.get("fill") or BP_DEFAULT_STAGE_FILL)
     sid = next_shape_id(layout)
@@ -702,15 +828,34 @@ def update_bp_task(doc: dict, sheet_id: int | None, task_id: str, patch: dict) -
     shape = find_shape(layout, task_id)
     if not shape or shape.get("bpRole") != "task":
         raise ValueError("task_not_found")
-    data = shape.get("bpTaskData") if isinstance(shape.get("bpTaskData"), dict) else _bp_task_data(str(shape.get("text") or ""))
-    for key in ("title", "subtitle", "description", "assigner", "executor", "deadline", "project", "tags", "expanded"):
+    existing = shape.get("bpTaskData") if isinstance(shape.get("bpTaskData"), dict) else {}
+    merged = dict(existing)
+    for key in (
+        "title",
+        "subtitle",
+        "description",
+        "assigner",
+        "executor",
+        "deadline",
+        "timeTracking",
+        "project",
+        "crmElements",
+        "conditions",
+        "tags",
+        "results",
+        "additional",
+        "expanded",
+    ):
         if key in patch:
-            data[key] = patch[key]
+            merged[key] = patch[key]
     if "title" in patch:
         shape["text"] = str(patch["title"] or "")
-        data["title"] = shape["text"]
+        merged["title"] = shape["text"]
+    data = _bp_task_data(str(merged.get("title") or shape.get("text") or ""), merged)
     if "stageIndex" in patch:
         shape["bpTaskStageIndex"] = int(patch["stageIndex"])
+    if "order" in patch:
+        shape["bpTaskOrder"] = int(patch["order"])
     shape["bpTaskData"] = data
     relayout_bp(layout, str(shape.get("bpProcessId")))
     document = set_sheet_layout(document, sheet["id"], layout)
@@ -719,8 +864,225 @@ def update_bp_task(doc: dict, sheet_id: int | None, task_id: str, patch: dict) -
         "processId": shape.get("bpProcessId"),
         "stageIndex": shape.get("bpTaskStageIndex"),
         "title": data.get("title"),
+        "data": data,
         "sheetId": sheet["id"],
     }
+
+
+def delete_bp_task(doc: dict, sheet_id: int | None, task_id: str) -> tuple[dict, dict]:
+    document, sheet = get_sheet(doc, sheet_id)
+    layout = sheet["layout"]
+    shape = find_shape(layout, task_id)
+    if not shape or shape.get("bpRole") != "task":
+        raise ValueError("task_not_found")
+    pid = str(shape.get("bpProcessId") or "")
+    removed = remove_shapes(layout, [str(shape["id"])])
+    if pid:
+        relayout_bp(layout, pid)
+    document = set_sheet_layout(document, sheet["id"], layout)
+    return document, {"deletedId": removed[0] if removed else task_id, "processId": pid, "sheetId": sheet["id"]}
+
+
+def add_bp_automation_to_layout(layout: dict, process_id: str, group_id: str, payload: dict) -> dict:
+    stage_index = int(payload.get("stageIndex", 0))
+    existing = [
+        s
+        for s in _bp_shapes(layout, process_id, "automation")
+        if int(s.get("bpAutomationStageIndex") or 0) == stage_index
+    ]
+    order = int(payload.get("order", len(existing)))
+    title = str(payload.get("title") or f"Автоматизация {len(_bp_shapes(layout, process_id, 'automation')) + 1}")
+    sid = next_shape_id(layout)
+    auto_data = _bp_automation_data(title, payload)
+    layout["shapes"].append(
+        {
+            "id": sid,
+            "connId": sid,
+            "groupId": group_id,
+            "type": "shape-note",
+            "left": px(0),
+            "top": px(0),
+            "width": px(BP_STAGE_WIDTH - BP_CHEVRON_INSET_PX),
+            "height": px(BP_AUTOMATION_DEFAULT_HEIGHT),
+            "zIndex": bump_z(layout),
+            "text": auto_data["title"],
+            "fillEnabled": True,
+            "fill": BP_AUTOMATION_FILL,
+            "fill2": BP_AUTOMATION_FILL,
+            "borderEnabled": False,
+            "borderWidth": 0,
+            "border": "transparent",
+            "radius": 0,
+            "textColor": "#111827",
+            "fontSize": 14,
+            "bold": False,
+            "hAlign": "left",
+            "vAlign": "top",
+            "bpProcessId": process_id,
+            "bpRole": "automation",
+            "bpAutomationStageIndex": stage_index,
+            "bpAutomationOrder": order,
+            "bpAutomationAutoHeight": True,
+            "bpAutomationManualPosition": False,
+            "bpAutomationData": auto_data,
+            **_default_fields(),
+        }
+    )
+    return {
+        "id": sid,
+        "processId": process_id,
+        "stageIndex": stage_index,
+        "title": auto_data["title"],
+        "data": auto_data,
+    }
+
+
+def add_bp_automation(doc: dict, sheet_id: int | None, process_id: str, payload: dict) -> tuple[dict, dict]:
+    document, sheet = get_sheet(doc, sheet_id)
+    layout = sheet["layout"]
+    pid = str(process_id)
+    base = next(iter(_bp_shapes(layout, pid, "base")), None)
+    if not base:
+        raise ValueError("bp_not_found")
+    summary = add_bp_automation_to_layout(layout, pid, str(base.get("groupId") or ""), payload)
+    relayout_bp(layout, pid)
+    document = set_sheet_layout(document, sheet["id"], layout)
+    summary["sheetId"] = sheet["id"]
+    return document, summary
+
+
+def update_bp_automation(doc: dict, sheet_id: int | None, automation_id: str, patch: dict) -> tuple[dict, dict]:
+    document, sheet = get_sheet(doc, sheet_id)
+    layout = sheet["layout"]
+    shape = find_shape(layout, automation_id)
+    if not shape or shape.get("bpRole") != "automation":
+        raise ValueError("automation_not_found")
+    data = shape.get("bpAutomationData") if isinstance(shape.get("bpAutomationData"), dict) else {}
+    data = _bp_automation_data(
+        str(data.get("title") or shape.get("text") or "Автоматизация"),
+        {**data, **{k: patch[k] for k in patch if k not in {"stageIndex", "order"}}},
+    )
+    if "title" in patch:
+        shape["text"] = str(patch["title"] or "")
+        data["title"] = shape["text"] or "Автоматизация"
+    if "stageIndex" in patch:
+        shape["bpAutomationStageIndex"] = int(patch["stageIndex"])
+    if "order" in patch:
+        shape["bpAutomationOrder"] = int(patch["order"])
+    shape["bpAutomationData"] = data
+    relayout_bp(layout, str(shape.get("bpProcessId")))
+    document = set_sheet_layout(document, sheet["id"], layout)
+    return document, {
+        "id": shape["id"],
+        "processId": shape.get("bpProcessId"),
+        "stageIndex": shape.get("bpAutomationStageIndex"),
+        "title": data.get("title"),
+        "data": data,
+        "sheetId": sheet["id"],
+    }
+
+
+def delete_bp_automation(doc: dict, sheet_id: int | None, automation_id: str) -> tuple[dict, dict]:
+    document, sheet = get_sheet(doc, sheet_id)
+    layout = sheet["layout"]
+    shape = find_shape(layout, automation_id)
+    if not shape or shape.get("bpRole") != "automation":
+        raise ValueError("automation_not_found")
+    pid = str(shape.get("bpProcessId") or "")
+    removed = remove_shapes(layout, [str(shape["id"])])
+    if pid:
+        relayout_bp(layout, pid)
+    document = set_sheet_layout(document, sheet["id"], layout)
+    return document, {"deletedId": removed[0] if removed else automation_id, "processId": pid, "sheetId": sheet["id"]}
+
+
+def update_bp_stage(doc: dict, sheet_id: int | None, stage_id: str, patch: dict) -> tuple[dict, dict]:
+    document, sheet = get_sheet(doc, sheet_id)
+    layout = sheet["layout"]
+    shape = find_shape(layout, stage_id)
+    if not shape or shape.get("bpRole") != "stage":
+        raise ValueError("stage_not_found")
+    if "name" in patch or "title" in patch or "text" in patch:
+        shape["text"] = str(patch.get("name") or patch.get("title") or patch.get("text") or "")
+    if "fill" in patch:
+        fill = str(patch["fill"] or BP_DEFAULT_STAGE_FILL)
+        shape["fill"] = fill
+        shape["fill2"] = fill
+        shape["fillEnabled"] = True
+    if "index" in patch:
+        shape["bpStageIndex"] = int(patch["index"])
+    relayout_bp(layout, str(shape.get("bpProcessId")))
+    document = set_sheet_layout(document, sheet["id"], layout)
+    return document, {
+        "id": shape["id"],
+        "processId": shape.get("bpProcessId"),
+        "index": shape.get("bpStageIndex"),
+        "name": shape.get("text"),
+        "sheetId": sheet["id"],
+    }
+
+
+def delete_bp_stage(doc: dict, sheet_id: int | None, process_id: str, stage_id: str | None = None, index: int | None = None) -> tuple[dict, dict]:
+    document, sheet = get_sheet(doc, sheet_id)
+    layout = sheet["layout"]
+    pid = str(process_id)
+    stages = sorted(_bp_shapes(layout, pid, "stage"), key=lambda s: int(s.get("bpStageIndex") or 0))
+    if len(stages) <= 1:
+        raise ValueError("cannot_delete_last_stage")
+    target = None
+    if stage_id:
+        target = find_shape(layout, stage_id)
+        if not target or target.get("bpRole") != "stage" or str(target.get("bpProcessId")) != pid:
+            raise ValueError("stage_not_found")
+    elif index is not None:
+        target = next((s for s in stages if int(s.get("bpStageIndex") or 0) == int(index)), None)
+        if not target:
+            raise ValueError("stage_not_found")
+    else:
+        raise ValueError("stage_id_or_index_required")
+    removed_index = int(target.get("bpStageIndex") or 0)
+    removed_id = str(target["id"])
+    # Drop tasks/automations attached to this stage, then shift later indices down.
+    drop_ids = [removed_id]
+    for task in _bp_shapes(layout, pid, "task"):
+        if int(task.get("bpTaskStageIndex") or 0) == removed_index:
+            drop_ids.append(str(task["id"]))
+    for auto in _bp_shapes(layout, pid, "automation"):
+        if int(auto.get("bpAutomationStageIndex") or 0) == removed_index:
+            drop_ids.append(str(auto["id"]))
+    remove_shapes(layout, drop_ids)
+    for task in _bp_shapes(layout, pid, "task"):
+        cur = int(task.get("bpTaskStageIndex") or 0)
+        if cur > removed_index:
+            task["bpTaskStageIndex"] = cur - 1
+    for auto in _bp_shapes(layout, pid, "automation"):
+        cur = int(auto.get("bpAutomationStageIndex") or 0)
+        if cur > removed_index:
+            auto["bpAutomationStageIndex"] = cur - 1
+    for stage in _bp_shapes(layout, pid, "stage"):
+        cur = int(stage.get("bpStageIndex") or 0)
+        if cur > removed_index:
+            stage["bpStageIndex"] = cur - 1
+    relayout_bp(layout, pid)
+    document = set_sheet_layout(document, sheet["id"], layout)
+    return document, {
+        "deletedId": removed_id,
+        "deletedIndex": removed_index,
+        "processId": pid,
+        "sheetId": sheet["id"],
+    }
+
+
+def delete_business_process(doc: dict, sheet_id: int | None, process_id: str) -> tuple[dict, dict]:
+    document, sheet = get_sheet(doc, sheet_id)
+    layout = sheet["layout"]
+    pid = str(process_id)
+    ids = [str(s["id"]) for s in _bp_shapes(layout, pid)]
+    if not ids:
+        raise ValueError("bp_not_found")
+    remove_shapes(layout, ids)
+    document = set_sheet_layout(document, sheet["id"], layout)
+    return document, {"deletedProcessId": pid, "deletedShapeIds": ids, "sheetId": sheet["id"]}
 
 
 def list_business_processes(doc: dict, sheet_id: int | None = None) -> list[dict]:
@@ -739,6 +1101,7 @@ def list_business_processes(doc: dict, sheet_id: int | None = None) -> list[dict
                 "baseId": None,
                 "stages": [],
                 "tasks": [],
+                "automations": [],
                 "sheetId": sheet["id"],
             },
         )
@@ -760,15 +1123,33 @@ def list_business_processes(doc: dict, sheet_id: int | None = None) -> list[dict
                 {
                     "id": shape.get("id"),
                     "stageIndex": int(shape.get("bpTaskStageIndex") or 0),
+                    "order": int(shape.get("bpTaskOrder") or 0),
                     "title": str(data.get("title") or shape.get("text") or ""),
                     "executor": str(data.get("executor") or ""),
                     "deadline": str(data.get("deadline") or ""),
+                    "description": str(data.get("description") or ""),
+                    "results": data.get("results") if isinstance(data.get("results"), list) else [""],
+                }
+            )
+        elif role == "automation":
+            data = shape.get("bpAutomationData") if isinstance(shape.get("bpAutomationData"), dict) else {}
+            entry["automations"].append(
+                {
+                    "id": shape.get("id"),
+                    "stageIndex": int(shape.get("bpAutomationStageIndex") or 0),
+                    "order": int(shape.get("bpAutomationOrder") or 0),
+                    "title": str(data.get("title") or shape.get("text") or ""),
+                    "when": str(data.get("when") or ""),
+                    "conditions": data.get("conditions") if isinstance(data.get("conditions"), list) else [""],
+                    "description": str(data.get("description") or ""),
+                    "results": data.get("results") if isinstance(data.get("results"), list) else [""],
                 }
             )
     result = []
     for entry in by_pid.values():
         entry["stages"].sort(key=lambda s: s["index"])
-        entry["tasks"].sort(key=lambda t: (t["stageIndex"], t["title"]))
+        entry["tasks"].sort(key=lambda t: (t["stageIndex"], t.get("order", 0), t["title"]))
+        entry["automations"].sort(key=lambda a: (a["stageIndex"], a.get("order", 0), a["title"]))
         if not entry["name"]:
             entry["name"] = entry["processId"]
         result.append(entry)
@@ -898,6 +1279,8 @@ def describe_sheet(doc: dict, sheet_id: int | None = None) -> dict:
             "connectors": len(layout.get("connectors") or []),
             "windows": len(layout.get("windows") or []),
             "businessProcesses": len(list_business_processes(document, sheet["id"])),
+            "bpTasks": sum(1 for s in layout.get("shapes") or [] if s.get("bpRole") == "task"),
+            "bpAutomations": sum(1 for s in layout.get("shapes") or [] if s.get("bpRole") == "automation"),
         },
         "shapes": shapes_summary,
         "tables": tables,
@@ -924,7 +1307,13 @@ def document_overview(doc: dict, meta: dict | None = None) -> dict:
                 "name": sheet["name"],
                 "counts": desc["counts"],
                 "businessProcesses": [
-                    {"processId": bp["processId"], "name": bp["name"], "stages": len(bp["stages"]), "tasks": len(bp["tasks"])}
+                    {
+                        "processId": bp["processId"],
+                        "name": bp["name"],
+                        "stages": len(bp["stages"]),
+                        "tasks": len(bp["tasks"]),
+                        "automations": len(bp.get("automations") or []),
+                    }
                     for bp in desc["businessProcesses"]
                 ],
                 "tables": [{"id": t["id"], "title": t.get("tableTitle") or ""} for t in desc["tables"]],

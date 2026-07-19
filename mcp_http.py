@@ -11,7 +11,7 @@ from flask import Response, g, jsonify, make_response, request
 import layout_engine as eng
 
 PROTOCOL_VERSION = "2025-06-18"
-SERVER_INFO = {"name": "mmtable-mcp", "version": "1.1.0"}
+SERVER_INFO = {"name": "mmtable-mcp", "version": "1.2.0"}
 
 
 def _tool(name: str, description: str, properties: dict, required: list[str] | None = None) -> dict:
@@ -189,7 +189,7 @@ TOOLS = [
     ),
     _tool(
         "create_business_process",
-        "Create a sequential business process (chevron base + stages + optional tasks).",
+        "Create a sequential business process (chevron base + stages + optional tasks and automations).",
         {
             "documentId": {"type": "string"},
             "sheetId": {"type": "integer"},
@@ -204,6 +204,24 @@ TOOLS = [
                     "properties": {
                         "stageIndex": {"type": "integer"},
                         "title": {"type": "string"},
+                        "description": {"type": "string"},
+                        "executor": {"type": "string"},
+                        "deadline": {"type": "string"},
+                        "results": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            },
+            "automations": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "stageIndex": {"type": "integer"},
+                        "title": {"type": "string"},
+                        "when": {"type": "string"},
+                        "conditions": {"type": "array", "items": {"type": "string"}},
+                        "description": {"type": "string"},
+                        "results": {"type": "array", "items": {"type": "string"}},
                     },
                 },
             },
@@ -224,38 +242,149 @@ TOOLS = [
         ["documentId", "processId"],
     ),
     _tool(
+        "update_bp_stage",
+        "Rename or recolor a BP stage (by stage shape id).",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+            "stageId": {"type": "string"},
+            "name": {"type": "string"},
+            "fill": {"type": "string"},
+            "index": {"type": "integer"},
+        },
+        ["documentId", "stageId"],
+    ),
+    _tool(
+        "delete_bp_stage",
+        "Delete a BP stage (and its tasks/automations). Cannot delete the last stage.",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+            "processId": {"type": "string"},
+            "stageId": {"type": "string"},
+            "index": {"type": "integer", "description": "Alternative to stageId"},
+        },
+        ["documentId", "processId"],
+    ),
+    _tool(
         "add_bp_task",
-        "Add a task card under a BP stage.",
+        "Add a task card under a BP stage (full task form fields supported).",
         {
             "documentId": {"type": "string"},
             "sheetId": {"type": "integer"},
             "processId": {"type": "string"},
             "stageIndex": {"type": "integer"},
             "title": {"type": "string"},
+            "subtitle": {"type": "string"},
+            "description": {"type": "string"},
+            "assigner": {"type": "string"},
             "executor": {"type": "string"},
             "deadline": {"type": "string"},
-            "description": {"type": "string"},
+            "timeTracking": {"type": "string"},
+            "project": {"type": "string"},
+            "crmElements": {"type": "string"},
+            "conditions": {"type": "string"},
+            "tags": {"type": "string"},
+            "results": {"type": "array", "items": {"type": "string"}, "description": "ЦКП / DoD list"},
+            "additional": {"type": "string"},
+            "order": {"type": "integer"},
         },
         ["documentId", "processId", "title"],
     ),
     _tool(
         "update_bp_task",
-        "Update a BP task card fields.",
+        "Update a BP task card (fields, results, stageIndex, order).",
         {
             "documentId": {"type": "string"},
             "sheetId": {"type": "integer"},
             "taskId": {"type": "string"},
             "title": {"type": "string"},
+            "subtitle": {"type": "string"},
+            "description": {"type": "string"},
+            "assigner": {"type": "string"},
             "executor": {"type": "string"},
             "deadline": {"type": "string"},
-            "description": {"type": "string"},
+            "timeTracking": {"type": "string"},
+            "project": {"type": "string"},
+            "crmElements": {"type": "string"},
+            "conditions": {"type": "string"},
+            "tags": {"type": "string"},
+            "results": {"type": "array", "items": {"type": "string"}},
+            "additional": {"type": "string"},
             "stageIndex": {"type": "integer"},
+            "order": {"type": "integer"},
+            "expanded": {"type": "boolean"},
         },
         ["documentId", "taskId"],
     ),
     _tool(
+        "delete_bp_task",
+        "Delete a BP task card by id.",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+            "taskId": {"type": "string"},
+        },
+        ["documentId", "taskId"],
+    ),
+    _tool(
+        "add_bp_automation",
+        "Add a yellow automation card above a BP stage.",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+            "processId": {"type": "string"},
+            "stageIndex": {"type": "integer"},
+            "title": {"type": "string"},
+            "when": {"type": "string"},
+            "conditions": {"type": "array", "items": {"type": "string"}},
+            "description": {"type": "string"},
+            "results": {"type": "array", "items": {"type": "string"}},
+            "order": {"type": "integer"},
+        },
+        ["documentId", "processId"],
+    ),
+    _tool(
+        "update_bp_automation",
+        "Update a BP automation card fields / stage / order.",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+            "automationId": {"type": "string"},
+            "title": {"type": "string"},
+            "when": {"type": "string"},
+            "conditions": {"type": "array", "items": {"type": "string"}},
+            "description": {"type": "string"},
+            "results": {"type": "array", "items": {"type": "string"}},
+            "stageIndex": {"type": "integer"},
+            "order": {"type": "integer"},
+            "expanded": {"type": "boolean"},
+        },
+        ["documentId", "automationId"],
+    ),
+    _tool(
+        "delete_bp_automation",
+        "Delete a BP automation card by id.",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+            "automationId": {"type": "string"},
+        },
+        ["documentId", "automationId"],
+    ),
+    _tool(
+        "delete_business_process",
+        "Delete an entire business process (base, stages, tasks, automations).",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+            "processId": {"type": "string"},
+        },
+        ["documentId", "processId"],
+    ),
+    _tool(
         "list_business_processes",
-        "List business processes on a sheet.",
+        "List business processes on a sheet (stages, tasks, automations).",
         {
             "documentId": {"type": "string"},
             "sheetId": {"type": "integer"},
@@ -395,8 +524,15 @@ def register_mcp(app, deps: dict[str, Callable]):
             "set_table_cells",
             "create_business_process",
             "add_bp_stage",
+            "update_bp_stage",
+            "delete_bp_stage",
             "add_bp_task",
             "update_bp_task",
+            "delete_bp_task",
+            "add_bp_automation",
+            "update_bp_automation",
+            "delete_bp_automation",
+            "delete_business_process",
             "connect_shapes",
         }
 
@@ -462,6 +598,28 @@ def register_mcp(app, deps: dict[str, Callable]):
                 return _text_result(
                     _mutate(doc_id, lambda d: eng.add_bp_stage(d, sheet_id, str(args.get("processId") or ""), args))
                 )
+            if name == "update_bp_stage":
+                return _text_result(
+                    _mutate(doc_id, lambda d: eng.update_bp_stage(d, sheet_id, str(args.get("stageId") or ""), args))
+                )
+            if name == "delete_bp_stage":
+                idx = args.get("index")
+                try:
+                    idx = int(idx) if idx is not None else None
+                except (TypeError, ValueError):
+                    idx = None
+                return _text_result(
+                    _mutate(
+                        doc_id,
+                        lambda d: eng.delete_bp_stage(
+                            d,
+                            sheet_id,
+                            str(args.get("processId") or ""),
+                            stage_id=str(args.get("stageId") or "") or None,
+                            index=idx,
+                        ),
+                    )
+                )
             if name == "add_bp_task":
                 return _text_result(
                     _mutate(doc_id, lambda d: eng.add_bp_task(d, sheet_id, str(args.get("processId") or ""), args))
@@ -469,6 +627,35 @@ def register_mcp(app, deps: dict[str, Callable]):
             if name == "update_bp_task":
                 return _text_result(
                     _mutate(doc_id, lambda d: eng.update_bp_task(d, sheet_id, str(args.get("taskId") or ""), args))
+                )
+            if name == "delete_bp_task":
+                return _text_result(
+                    _mutate(doc_id, lambda d: eng.delete_bp_task(d, sheet_id, str(args.get("taskId") or "")))
+                )
+            if name == "add_bp_automation":
+                return _text_result(
+                    _mutate(
+                        doc_id, lambda d: eng.add_bp_automation(d, sheet_id, str(args.get("processId") or ""), args)
+                    )
+                )
+            if name == "update_bp_automation":
+                return _text_result(
+                    _mutate(
+                        doc_id,
+                        lambda d: eng.update_bp_automation(d, sheet_id, str(args.get("automationId") or ""), args),
+                    )
+                )
+            if name == "delete_bp_automation":
+                return _text_result(
+                    _mutate(
+                        doc_id, lambda d: eng.delete_bp_automation(d, sheet_id, str(args.get("automationId") or ""))
+                    )
+                )
+            if name == "delete_business_process":
+                return _text_result(
+                    _mutate(
+                        doc_id, lambda d: eng.delete_business_process(d, sheet_id, str(args.get("processId") or ""))
+                    )
                 )
             if name == "connect_shapes":
                 return _text_result(_mutate(doc_id, lambda d: eng.connect_shapes(d, sheet_id, args)))
