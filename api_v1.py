@@ -177,6 +177,48 @@ def register_api_v1(app, deps):
         desc["updatedAt"] = row["updated_at"]
         return jsonify(desc)
 
+    @app.post("/api/v1/docs/<doc_id>/sheets")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_create_sheet(doc_id):
+        payload = _json()
+        try:
+            return jsonify(_mutate(doc_id, lambda document, p: eng.create_sheet(document, p), payload))
+        except Exception as exc:
+            return _err(exc)
+
+    @app.patch("/api/v1/docs/<doc_id>/sheets/<int:sheet_id>")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_rename_sheet(doc_id, sheet_id):
+        payload = _json()
+        try:
+            return jsonify(
+                _mutate(
+                    doc_id,
+                    lambda document, p: eng.rename_sheet(document, sheet_id, p),
+                    payload,
+                )
+            )
+        except Exception as exc:
+            return _err(exc)
+
+    @app.delete("/api/v1/docs/<doc_id>/sheets/<int:sheet_id>")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_delete_sheet(doc_id, sheet_id):
+        payload = _json()
+        try:
+            return jsonify(
+                _mutate(
+                    doc_id,
+                    lambda document, p: eng.delete_sheet(document, sheet_id),
+                    payload,
+                )
+            )
+        except Exception as exc:
+            return _err(exc)
+
     @app.post("/api/v1/docs/<doc_id>/shapes")
     @require_auth
     @require_scope("docs:write")

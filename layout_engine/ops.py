@@ -25,6 +25,7 @@ from .constants import (
     SHAPE_TYPES,
 )
 from .document import (
+    blank_sheet_layout,
     bump_z,
     find_shape,
     get_sheet,
@@ -803,6 +804,63 @@ def connect_shapes(doc: dict, sheet_id: int | None, payload: dict) -> tuple[dict
     layout["connectors"].append(connector)
     document = set_sheet_layout(document, sheet["id"], layout)
     return document, {"id": cid, "from": from_id, "to": to_id, "sheetId": sheet["id"]}
+
+
+def _default_sheet_name(sheet_id: int) -> str:
+    return f"Лист {max(1, int(sheet_id))}"
+
+
+def create_sheet(doc: dict, payload: dict | None = None) -> tuple[dict, dict]:
+    """Add a blank sheet. Matches browser addDocumentSheet() id/name rules."""
+    document = normalize_document(doc)
+    payload = payload or {}
+    next_id = max((int(s["id"]) for s in document["sheets"]), default=0) + 1
+    name = str(payload.get("name") or "").strip() or _default_sheet_name(next_id)
+    activate = payload.get("activate")
+    if activate is None:
+        activate = True
+    sheet = {"id": next_id, "name": name, "layout": blank_sheet_layout()}
+    document["sheets"].append(sheet)
+    document["sheets"].sort(key=lambda s: int(s["id"]))
+    if activate:
+        document["activeSheetId"] = next_id
+    return document, {
+        "id": next_id,
+        "name": name,
+        "activeSheetId": document["activeSheetId"],
+        "sheetCount": len(document["sheets"]),
+    }
+
+
+def rename_sheet(doc: dict, sheet_id: int | None, payload: dict | None = None) -> tuple[dict, dict]:
+    document, sheet = get_sheet(doc, sheet_id)
+    payload = payload or {}
+    name = str(payload.get("name") or "").strip() or _default_sheet_name(sheet["id"])
+    sheet["name"] = name
+    return document, {"id": sheet["id"], "name": sheet["name"], "activeSheetId": document["activeSheetId"]}
+
+
+def delete_sheet(doc: dict, sheet_id: int | None) -> tuple[dict, dict]:
+    document = normalize_document(doc)
+    if len(document["sheets"]) <= 1:
+        raise ValueError("cannot_delete_last_sheet")
+    target = None
+    try:
+        target = int(sheet_id) if sheet_id is not None else int(document.get("activeSheetId") or 0)
+    except (TypeError, ValueError):
+        target = int(document.get("activeSheetId") or 0)
+    if not any(int(s["id"]) == target for s in document["sheets"]):
+        raise ValueError("sheet_not_found")
+    removed_name = next(s["name"] for s in document["sheets"] if int(s["id"]) == target)
+    document["sheets"] = [s for s in document["sheets"] if int(s["id"]) != target]
+    if int(document.get("activeSheetId") or 0) == target:
+        document["activeSheetId"] = document["sheets"][0]["id"]
+    return document, {
+        "deletedId": target,
+        "deletedName": removed_name,
+        "activeSheetId": document["activeSheetId"],
+        "sheetCount": len(document["sheets"]),
+    }
 
 
 def describe_sheet(doc: dict, sheet_id: int | None = None) -> dict:

@@ -11,7 +11,7 @@ from flask import Response, g, jsonify, make_response, request
 import layout_engine as eng
 
 PROTOCOL_VERSION = "2025-06-18"
-SERVER_INFO = {"name": "mmtable-mcp", "version": "1.0.0"}
+SERVER_INFO = {"name": "mmtable-mcp", "version": "1.1.0"}
 
 
 def _tool(name: str, description: str, properties: dict, required: list[str] | None = None) -> dict:
@@ -53,6 +53,38 @@ TOOLS = [
             "sheetId": {"type": "integer", "description": "Optional sheet id; defaults to active sheet"},
         },
         ["documentId"],
+    ),
+    _tool(
+        "create_sheet",
+        "Create a new blank sheet in a document (like the + sheet button in the UI).",
+        {
+            "documentId": {"type": "string"},
+            "name": {"type": "string", "description": "Sheet name; default Лист N"},
+            "activate": {
+                "type": "boolean",
+                "description": "Make the new sheet active (default true)",
+            },
+        },
+        ["documentId"],
+    ),
+    _tool(
+        "rename_sheet",
+        "Rename an existing sheet.",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+            "name": {"type": "string"},
+        },
+        ["documentId", "sheetId", "name"],
+    ),
+    _tool(
+        "delete_sheet",
+        "Delete a sheet. Cannot delete the last remaining sheet.",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+        },
+        ["documentId", "sheetId"],
     ),
     _tool(
         "create_shape",
@@ -352,6 +384,9 @@ def register_mcp(app, deps: dict[str, Callable]):
             "list_business_processes",
         }
         write_tools = {
+            "create_sheet",
+            "rename_sheet",
+            "delete_sheet",
             "create_shape",
             "update_shape",
             "delete_shapes",
@@ -395,6 +430,12 @@ def register_mcp(app, deps: dict[str, Callable]):
             if not doc_id:
                 raise ValueError("documentId_required")
 
+            if name == "create_sheet":
+                return _text_result(_mutate(doc_id, lambda d: eng.create_sheet(d, args)))
+            if name == "rename_sheet":
+                return _text_result(_mutate(doc_id, lambda d: eng.rename_sheet(d, sheet_id, args)))
+            if name == "delete_sheet":
+                return _text_result(_mutate(doc_id, lambda d: eng.delete_sheet(d, sheet_id)))
             if name == "create_shape":
                 return _text_result(_mutate(doc_id, lambda d: eng.create_shape(d, sheet_id, args)))
             if name == "update_shape":

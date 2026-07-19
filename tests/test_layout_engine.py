@@ -84,6 +84,29 @@ class LayoutEngineTests(unittest.TestCase):
         desc = eng.describe_sheet(doc, 1)
         self.assertGreaterEqual(desc["counts"]["shapes"], 3)
 
+    def test_create_rename_delete_sheet(self):
+        doc = eng.blank_document()
+        doc, created = eng.create_sheet(doc, {"name": "Воронка B"})
+        self.assertEqual(created["id"], 2)
+        self.assertEqual(created["name"], "Воронка B")
+        self.assertEqual(doc["activeSheetId"], 2)
+        self.assertEqual(len(doc["sheets"]), 2)
+
+        doc, shape = eng.create_shape(doc, 2, {"type": "shape-note", "text": "on sheet 2"})
+        self.assertEqual(shape["id"], "shape_1")
+        self.assertEqual(len(doc["sheets"][1]["layout"]["shapes"]), 1)
+
+        doc, renamed = eng.rename_sheet(doc, 2, {"name": "Ювелир"})
+        self.assertEqual(renamed["name"], "Ювелир")
+
+        doc, deleted = eng.delete_sheet(doc, 2)
+        self.assertEqual(deleted["deletedId"], 2)
+        self.assertEqual(len(doc["sheets"]), 1)
+        self.assertEqual(doc["activeSheetId"], 1)
+
+        with self.assertRaises(ValueError):
+            eng.delete_sheet(doc, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,15 @@ Server-side mutations for MM Table MCP / `/api/v1` write document JSON that the 
 }
 ```
 
+## Sheets
+
+MCP/API may add sheets without rewriting the whole document:
+
+- `create_sheet` → blank `layout` (same as UI «+ лист»), default name `Лист N`, optional `activate` (default true)
+- `rename_sheet` / `delete_sheet` (last sheet cannot be deleted)
+
+Sheet ids are positive integers; new id = `max(existing)+1`.
+
 ## Sheet layout
 
 Required fields:

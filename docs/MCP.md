@@ -74,6 +74,7 @@ Discovery endpoints:
 | `create_document` | новый документ |
 | `get_document_overview` | листы, BP, таблицы |
 | `describe_sheet` | snapshot листа (ids) |
+| `create_sheet` / `rename_sheet` / `delete_sheet` | листы документа |
 | `create_shape` / `update_shape` / `delete_shapes` / `move_shapes` | фигуры |
 | `create_table` / `get_table` / `set_table_cells` | таблицы |
 | `create_business_process` / `add_bp_stage` / `add_bp_task` / `update_bp_task` / `list_business_processes` | бизнес-процессы |
@@ -85,6 +86,8 @@ Discovery endpoints:
 
 - `GET/POST /api/v1/docs`
 - `GET /api/v1/docs/<id>`
+- `POST /api/v1/docs/<id>/sheets` — создать лист (`name`, `activate`)
+- `PATCH/DELETE /api/v1/docs/<id>/sheets/<sheetId>` — переименовать / удалить
 - object endpoints под `/api/v1/docs/<id>/...`
 
 Scopes: `docs:read`, `docs:write`.
