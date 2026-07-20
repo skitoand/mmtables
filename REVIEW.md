@@ -10,6 +10,24 @@
 
 ---
 
+## 2026-07-20 — меню ⋮ в диалоге файлов поверх модалки
+
+**Commit:** `e1a9f94` — Fix file browser ⋮ menu appearing under the modal.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260720-135643-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29748441276](https://github.com/skitoand/mmtables/actions/runs/29748441276)  
+**Статус:** OK
+
+### Что сделано
+- Context-menu z-index поднят выше модалок (31000)
+- Меню ⋮ якорится к кнопке, а не «просвечивает» снизу под диалогом
+- Cache-buster: `app.js?v=20260720-file-menu-z`, `styles.css?v=20260720-file-menu-z`
+
+### Проверка
+- [x] Deploy Production #29748441276 success
+- [x] На проде `z-index:31000` для `.context-menu`
+
+---
+
 ## 2026-07-20 — вкладки профиля: Аккаунт / Интеграции
 
 **Commit:** `f130175` — Split profile modal into Account and Integrations tabs.  
