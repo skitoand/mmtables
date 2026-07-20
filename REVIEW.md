@@ -10,6 +10,24 @@
 
 ---
 
+## 2026-07-20 — кнопка «Открыть» в диалоге файлов
+
+**Commit:** `fbaf3e1` — Add an explicit Open button to the file browser dialog.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260720-125446-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29744028850](https://github.com/skitoand/mmtables/actions/runs/29744028850)  
+**Статус:** OK
+
+### Что сделано
+- В диалоге «Открыть документ» справа внизу рядом с «Закрыть» добавлена кнопка «Открыть»
+- Открывает выбранный документ; без выбора кнопка неактивна
+- Cache-buster: `app.js?v=20260720-file-open-btn`, `styles.css?v=20260720-file-open-btn`
+
+### Проверка
+- [x] Deploy Production #29744028850 success
+- [x] На проде есть `fileModalOpenBtn` и cache-buster `file-open-btn`
+
+---
+
 ## 2026-07-20 — подсказка роли для Доступ/Удалить
 
 **Commit:** `e548c8a` — Clarify Access/Delete when the current role is not owner.  
