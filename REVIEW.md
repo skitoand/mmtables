@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-07-20 — доступ к файлам по UUID-алиасам
+
+**Commit:** `3a40c80` — Fix document access settings when opened via legacy UUID URLs.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260720-082018-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29727541156](https://github.com/skitoand/mmtables/actions/runs/29727541156)  
+**Статус:** OK
+
+### Что сделано
+- Access / public-link / activate / update / delete всегда работают по каноническому id документа
+- Старые UUID-URL больше не дают пустой список доступов и не ломают отключение публичной ссылки
+- Модалка «Доступ» поверх тулбара; недоступные пункты меню визуально приглушены
+- Cache-buster: `app.js?v=20260720-share-alias-fix`, `styles.css?v=20260720-share-alias-fix`
+
+### Проверка
+- [x] Deploy Production #29727541156 success
+- [x] https://mmtable.crystalsystems.ru → 200
+- [x] На проде отдаются `share-alias-fix` assets
+
+---
+
 ## 2026-07-19 — вложенные фреймы
 
 **Commit:** `492d288` — Allow nesting frames inside frames on the canvas.  
