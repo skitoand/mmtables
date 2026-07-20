@@ -10,6 +10,24 @@
 
 ---
 
+## 2026-07-20 — подсказка роли для Доступ/Удалить
+
+**Commit:** `e548c8a` — Clarify Access/Delete when the current role is not owner.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260720-082558-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29727855892](https://github.com/skitoand/mmtables/actions/runs/29727855892)  
+**Статус:** OK
+
+### Что сделано
+- «Доступ» и «Удалить» снова кликабельны: при роли editor/reader показывается явная подсказка с текущей ролью
+- Роль документа синхронизируется из кэша списка файлов
+- Cache-buster: `app.js?v=20260720-share-role-hint`
+
+### Проверка
+- [x] Deploy Production #29727855892 success
+- [x] https://mmtable.crystalsystems.ru отдаёт `share-role-hint`
+
+---
+
 ## 2026-07-20 — доступ к файлам по UUID-алиасам
 
 **Commit:** `3a40c80` — Fix document access settings when opened via legacy UUID URLs.  
