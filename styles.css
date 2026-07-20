@@ -378,10 +378,18 @@ body.dark .bitrix-field-filter-value-item:hover{background:#111827}
 body.dark .bitrix-date-slider-track::before{background:#334155}
 .modal{position:fixed;inset:0;background:rgba(2,6,23,.38);display:flex;align-items:center;justify-content:center;z-index:30000;pointer-events:auto}.modal.hidden{display:none}.modal-card{width:min(560px,calc(100vw - 32px));background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:10px}.modal-actions{display:flex;justify-content:flex-end;gap:8px}
 .auth-modal-card{width:min(480px,calc(100vw - 32px))}
+.profile-modal-card{width:min(560px,calc(100vw - 32px));max-height:min(88vh,820px)}
+.profile-modal-card .profile-tab-panel{overflow:auto;max-height:min(62vh,560px);padding-right:2px}
 .auth-tabs{display:flex;gap:8px}
+.profile-tabs{margin:2px 0 4px}
 .auth-tab{flex:1}
 .auth-tab.active{background:var(--accent);border-color:var(--accent);color:#fff}
 .auth-fields{display:flex;flex-direction:column;gap:8px}
+.profile-email-block{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border:1px solid #dce3ef;border-radius:12px;background:#f8fafc;margin-bottom:4px}
+.profile-email-label{font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.02em}
+.profile-email-value{font-size:15px;font-weight:700;color:#111827;word-break:break-all}
+.profile-email-sub{font-size:12px;color:#6b7280}
+.profile-change-password-btn{align-self:flex-start;margin-top:2px}
 .auth-error{padding:10px 12px;border:1px solid #fecaca;border-radius:10px;background:#fef2f2;color:#991b1b;font-size:13px;line-height:1.35}
 .share-doc-meta{font-size:13px;color:#6b7280}
 .share-form{display:grid;grid-template-columns:minmax(0,1fr) 180px max-content;gap:8px;align-items:center}
@@ -2309,6 +2317,11 @@ body.dark #fileModal .file-doc-open:disabled{
 }
 
 .bitrix-integration-block{
+  margin-top:0;
+  padding-top:0;
+  border-top:0;
+}
+.profile-tab-panel .mcp-integration-block{
   margin-top:18px;
   padding-top:16px;
   border-top:1px solid #e2e8f0;
@@ -2750,10 +2763,18 @@ body.dark .bitrix-widget-loading-spinner{
   border-color:#334155;
   border-top-color:#60a5fa;
 }
+body.dark .profile-email-block{
+  background:#0f172a;
+  border-color:#334155;
+}
+body.dark .profile-email-label{color:#94a3b8}
+body.dark .profile-email-value{color:#f8fafc}
+body.dark .profile-email-sub{color:#94a3b8}
 body.dark .bitrix-integration-block{
   border-top-color:#334155;
 }
-body.dark .mcp-integration-block{
+body.dark .mcp-integration-block,
+body.dark .profile-tab-panel .mcp-integration-block{
   border-top-color:#334155;
 }
 body.dark .mcp-token-once textarea,

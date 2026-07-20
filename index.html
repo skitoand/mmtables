@@ -7,7 +7,7 @@
     <title>MMTable</title>
     <link rel="icon" type="image/png" sizes="128x128" href="assets/favicon.png?v=20260701-crop" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=20260701-crop" />
-    <link rel="stylesheet" href="styles.css?v=20260720-file-open-btn" />
+    <link rel="stylesheet" href="styles.css?v=20260720-profile-tabs" />
   </head>
   <body>
     <div class="app">
@@ -603,19 +603,32 @@
     </div>
 
     <div id="profileModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
-      <div class="modal-card auth-modal-card">
+      <div class="modal-card profile-modal-card">
         <h3 id="profileModalTitle">Профиль</h3>
-        <div id="profileEmailMeta" class="share-doc-meta"></div>
-        <div class="auth-fields">
-          <label for="profileNameInput">Имя</label>
-          <input id="profileNameInput" type="text" placeholder="Иван Иванов" autocomplete="name" />
-          <div id="profilePasswordBlock" class="profile-password-block">
-            <label for="profileCurrentPasswordInput" id="profileCurrentPasswordLabel">Текущий пароль</label>
-            <input id="profileCurrentPasswordInput" type="password" autocomplete="current-password" />
-            <label for="profileNewPasswordInput" id="profileNewPasswordLabel">Новый пароль</label>
-            <input id="profileNewPasswordInput" type="password" placeholder="Минимум 6 символов" autocomplete="new-password" />
+        <div class="auth-tabs profile-tabs" role="tablist" aria-label="Разделы профиля">
+          <button id="profileTabAccountBtn" type="button" class="auth-tab active" role="tab" aria-selected="true" aria-controls="profileTabAccount">Аккаунт</button>
+          <button id="profileTabIntegrationsBtn" type="button" class="auth-tab" role="tab" aria-selected="false" aria-controls="profileTabIntegrations">Интеграции</button>
+        </div>
+        <div id="profileTabAccount" class="profile-tab-panel" role="tabpanel" aria-labelledby="profileTabAccountBtn">
+          <div class="profile-email-block">
+            <span class="profile-email-label">E-mail</span>
+            <div id="profileEmailMeta" class="profile-email-value"></div>
+            <div id="profileAuthProviderMeta" class="profile-email-sub"></div>
           </div>
-          <div id="profileErrorText" class="auth-error hidden" role="alert" aria-live="polite"></div>
+          <div class="auth-fields">
+            <label for="profileNameInput">Имя</label>
+            <input id="profileNameInput" type="text" placeholder="Иван Иванов" autocomplete="name" />
+            <button id="profileChangePasswordBtn" type="button" class="profile-change-password-btn">Сменить пароль</button>
+            <div id="profilePasswordBlock" class="profile-password-block hidden">
+              <label for="profileCurrentPasswordInput" id="profileCurrentPasswordLabel">Текущий пароль</label>
+              <input id="profileCurrentPasswordInput" type="password" autocomplete="current-password" />
+              <label for="profileNewPasswordInput" id="profileNewPasswordLabel">Новый пароль</label>
+              <input id="profileNewPasswordInput" type="password" placeholder="Минимум 6 символов" autocomplete="new-password" />
+            </div>
+            <div id="profileErrorText" class="auth-error hidden" role="alert" aria-live="polite"></div>
+          </div>
+        </div>
+        <div id="profileTabIntegrations" class="profile-tab-panel hidden" role="tabpanel" aria-labelledby="profileTabIntegrationsBtn">
           <div class="bitrix-integration-block">
             <h4>Bitrix24</h4>
             <p class="bitrix-integration-hint">Вставьте полный URL входящего webhook из Bitrix24 (CRM → Настройки → Входящий webhook), например <code>https://company.bitrix24.ru/rest/1/xxxxxxxx/</code>, и нажмите «Подключить».</p>
@@ -838,7 +851,7 @@
     <script src="vendor/laser-pointer.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="vendor/perfect-freehand.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="draw-tools.js?v=20260714-toolbar-active-tooltip-v1"></script>
-    <script src="app.js?v=20260720-file-open-btn"></script>
+    <script src="app.js?v=20260720-profile-tabs"></script>
     <script src="bitrix-chart.js?v=20260713-laser-fade-v1"></script>
   </body>
 </html>

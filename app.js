@@ -42,14 +42,22 @@ const profileBtn = $("profileBtn");
 const profileModal = $("profileModal");
 const profileModalCloseBtn = $("profileModalCloseBtn");
 const profileSaveBtn = $("profileSaveBtn");
+const profileTabAccountBtn = $("profileTabAccountBtn");
+const profileTabIntegrationsBtn = $("profileTabIntegrationsBtn");
+const profileTabAccount = $("profileTabAccount");
+const profileTabIntegrations = $("profileTabIntegrations");
 const profileEmailMeta = $("profileEmailMeta");
+const profileAuthProviderMeta = $("profileAuthProviderMeta");
 const profileNameInput = $("profileNameInput");
+const profileChangePasswordBtn = $("profileChangePasswordBtn");
 const profilePasswordBlock = $("profilePasswordBlock");
 const profileCurrentPasswordLabel = $("profileCurrentPasswordLabel");
 const profileCurrentPasswordInput = $("profileCurrentPasswordInput");
 const profileNewPasswordLabel = $("profileNewPasswordLabel");
 const profileNewPasswordInput = $("profileNewPasswordInput");
 const profileErrorText = $("profileErrorText");
+let profileActiveTab = "account";
+let profilePasswordFormOpen = false;
 const mcpTokenNameInput = $("mcpTokenNameInput");
 const mcpCreateTokenBtn = $("mcpCreateTokenBtn");
 const mcpCopyConfigBtn = $("mcpCopyConfigBtn");
@@ -5363,20 +5371,70 @@ function showProfileError(text) {
 
 function syncProfilePasswordUi() {
   const hasPassword = !!(currentUser && currentUser.hasPassword);
+  const needsPasswordSetup = !!(currentUser && currentUser.needsPasswordSetup);
   const provider = String(currentUser && currentUser.authProvider || "password");
   if (profileCurrentPasswordLabel) {
     profileCurrentPasswordLabel.classList.toggle("hidden", !hasPassword);
   }
   if (profileCurrentPasswordInput) {
     profileCurrentPasswordInput.classList.toggle("hidden", !hasPassword);
-    profileCurrentPasswordInput.value = hasPassword ? profileCurrentPasswordInput.value : "";
+    if (!hasPassword) profileCurrentPasswordInput.value = "";
   }
   if (profileNewPasswordLabel) {
-    profileNewPasswordLabel.textContent = hasPassword ? "Новый пароль" : "Задать пароль";
+    profileNewPasswordLabel.textContent = hasPassword ? "Новый пароль" : "Пароль";
+  }
+  if (profileChangePasswordBtn) {
+    profileChangePasswordBtn.textContent = profilePasswordFormOpen
+      ? "Скрыть смену пароля"
+      : (hasPassword ? "Сменить пароль" : "Задать пароль");
+  }
+  if (profilePasswordBlock) {
+    const showForm = profilePasswordFormOpen || needsPasswordSetup;
+    profilePasswordBlock.classList.toggle("hidden", !showForm);
   }
   if (profileEmailMeta && currentUser) {
-    const providerLabel = provider === "google" ? "Google" : "E-mail и пароль";
-    profileEmailMeta.textContent = `${currentUser.email} · ${providerLabel}`;
+    profileEmailMeta.textContent = currentUser.email || "";
+  }
+  if (profileAuthProviderMeta && currentUser) {
+    profileAuthProviderMeta.textContent = provider === "google"
+      ? "Вход через Google"
+      : "Регистрация по e-mail и паролю";
+  }
+}
+
+function setProfileTab(tab) {
+  profileActiveTab = tab === "integrations" ? "integrations" : "account";
+  const isAccount = profileActiveTab === "account";
+  if (profileTabAccountBtn) {
+    profileTabAccountBtn.classList.toggle("active", isAccount);
+    profileTabAccountBtn.setAttribute("aria-selected", isAccount ? "true" : "false");
+  }
+  if (profileTabIntegrationsBtn) {
+    profileTabIntegrationsBtn.classList.toggle("active", !isAccount);
+    profileTabIntegrationsBtn.setAttribute("aria-selected", isAccount ? "false" : "true");
+  }
+  if (profileTabAccount) profileTabAccount.classList.toggle("hidden", !isAccount);
+  if (profileTabIntegrations) profileTabIntegrations.classList.toggle("hidden", isAccount);
+  if (profileSaveBtn) profileSaveBtn.classList.toggle("hidden", !isAccount);
+  if (isAccount) {
+    if (profileNameInput) profileNameInput.focus();
+  } else if (window.BitrixChart && window.BitrixChart.syncBitrixProfileUi) {
+    window.BitrixChart.syncBitrixProfileUi();
+  }
+}
+
+function toggleProfilePasswordForm(forceOpen = null) {
+  profilePasswordFormOpen = forceOpen == null ? !profilePasswordFormOpen : !!forceOpen;
+  if (!profilePasswordFormOpen) {
+    if (profileNewPasswordInput) profileNewPasswordInput.value = "";
+    if (profileCurrentPasswordInput) profileCurrentPasswordInput.value = "";
+  }
+  syncProfilePasswordUi();
+  if (profilePasswordFormOpen && profileNewPasswordInput && !profileNewPasswordInput.classList.contains("hidden")) {
+    const focusEl = profileCurrentPasswordInput && !profileCurrentPasswordInput.classList.contains("hidden")
+      ? profileCurrentPasswordInput
+      : profileNewPasswordInput;
+    focusEl.focus();
   }
 }
 
@@ -5508,10 +5566,12 @@ function openProfileModal() {
     return;
   }
   clearProfileError();
+  profilePasswordFormOpen = !!(currentUser && currentUser.needsPasswordSetup);
   if (profileNameInput) profileNameInput.value = currentUser.name || currentUser.email || "";
   if (profileNewPasswordInput) profileNewPasswordInput.value = "";
   if (profileCurrentPasswordInput) profileCurrentPasswordInput.value = "";
   syncProfilePasswordUi();
+  setProfileTab("account");
   if (window.BitrixChart && window.BitrixChart.syncBitrixProfileUi) window.BitrixChart.syncBitrixProfileUi();
   mcpCreatedToken = "";
   if (mcpTokenOnceWrap) mcpTokenOnceWrap.classList.add("hidden");
@@ -5521,6 +5581,7 @@ function openProfileModal() {
   if (profileModal) profileModal.classList.remove("hidden");
   if (profileNameInput) profileNameInput.focus();
 }
+window.openProfileModal = openProfileModal;
 
 function closeProfileModal() {
   clearProfileError();
@@ -5560,6 +5621,7 @@ async function saveProfileSettings() {
       };
       if (profileNewPasswordInput) profileNewPasswordInput.value = "";
       if (profileCurrentPasswordInput) profileCurrentPasswordInput.value = "";
+      profilePasswordFormOpen = false;
     }
     syncProfilePasswordUi();
     closeProfileModal();
@@ -19409,6 +19471,9 @@ safeOn(profileBtn, "click", (e) => {
   closeAllMenus();
   openProfileModal();
 });
+safeOn(profileTabAccountBtn, "click", () => setProfileTab("account"));
+safeOn(profileTabIntegrationsBtn, "click", () => setProfileTab("integrations"));
+safeOn(profileChangePasswordBtn, "click", () => toggleProfilePasswordForm());
 safeOn(profileModalCloseBtn, "click", closeProfileModal);
 safeOn(profileModal, "click", (e) => {
   if (e.target === profileModal) closeProfileModal();
