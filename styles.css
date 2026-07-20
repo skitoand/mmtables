@@ -234,6 +234,7 @@ button,input{border:1px solid var(--border);border-radius:8px;padding:6px 10px;f
 .file-doc-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .file-doc-actions button{padding:6px 10px}
 .file-doc-open{background:var(--accent);border-color:var(--accent);color:#fff}
+.file-doc-open:disabled{opacity:.45;cursor:default}
 .file-doc-role{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#ecfeff;color:#155e75;font-size:12px;font-weight:600}
 .hint{
   position:fixed;
@@ -2281,16 +2282,30 @@ body.dark #fileModal .file-doc-role{
   color:#b6f2ff;
 }
 
-body.dark #fileModal .file-doc-open,
 body.dark #fileModalCloseBtn{
   background:#0f172a;
   border-color:#334155;
   color:#f8fafc;
 }
 
-body.dark #fileModal .file-doc-open:hover,
 body.dark #fileModalCloseBtn:hover{
   background:#1f2937;
+}
+
+body.dark #fileModal .file-doc-open{
+  background:#0f766e;
+  border-color:#0f766e;
+  color:#fff;
+}
+
+body.dark #fileModal .file-doc-open:hover:not(:disabled){
+  background:#0d9488;
+  border-color:#0d9488;
+}
+
+body.dark #fileModal .file-doc-open:disabled{
+  opacity:.45;
+  cursor:default;
 }
 
 .bitrix-integration-block{

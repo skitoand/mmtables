@@ -26,6 +26,7 @@ const fileModal = $("fileModal");
 const fileBrowserTree = $("fileBrowserTree");
 const fileBrowserPreview = $("fileBrowserPreview");
 const fileBrowserNewFolderBtn = $("fileBrowserNewFolderBtn");
+const fileModalOpenBtn = $("fileModalOpenBtn");
 const fileModalCloseBtn = $("fileModalCloseBtn");
 const authModal = $("authModal");
 const authModalCloseBtn = $("authModalCloseBtn");
@@ -4728,10 +4729,16 @@ function renderFileBrowserPreview(docId) {
     });
 }
 
+function syncFileBrowserOpenButton() {
+  if (!fileModalOpenBtn) return;
+  fileModalOpenBtn.disabled = !fileBrowserSelectedDocId;
+}
+
 function selectFileBrowserDocument(docId) {
   fileBrowserSelectedDocId = docId;
   renderFileBrowser();
   renderFileBrowserPreview(docId);
+  syncFileBrowserOpenButton();
 }
 
 async function openFileBrowserDocument(docId) {
@@ -4746,6 +4753,14 @@ async function openFileBrowserDocument(docId) {
     console.error(err);
     showHint("Не удалось открыть документ.", "error", 2500);
   }
+}
+
+async function openSelectedFileBrowserDocument() {
+  if (!fileBrowserSelectedDocId) {
+    showHint("Выбери документ для открытия.", "error", 2200);
+    return;
+  }
+  await openFileBrowserDocument(fileBrowserSelectedDocId);
 }
 
 function toggleFileBrowserFolder(folderKey) {
@@ -4946,6 +4961,7 @@ async function deleteDocumentById(docId) {
   if (fileBrowserSelectedDocId === docId) {
     fileBrowserSelectedDocId = null;
     renderFileBrowserPreview(null);
+    syncFileBrowserOpenButton();
   }
   await loadDocumentsIndex();
   if (docId === currentDocumentId) await loadCurrentDocument();
@@ -5319,6 +5335,7 @@ function openFileModal(title = "Открыть документ") {
   if (!fileBrowserSelectedDocId && currentDocumentId) fileBrowserSelectedDocId = currentDocumentId;
   renderFileBrowser();
   renderFileBrowserPreview(fileBrowserSelectedDocId);
+  syncFileBrowserOpenButton();
   if (fileModal) fileModal.classList.remove("hidden");
   requestAnimationFrame(refreshFileBrowserPreviewScale);
 }
@@ -19475,6 +19492,7 @@ safeOn(fileAutosaveToggle, "change", () => {
   setAutosaveEnabled(!!fileAutosaveToggle.checked);
   showHint(autoSaveEnabled ? "Автоматическое сохранение включено." : "Автоматическое сохранение выключено.", "warning", 1800);
 });
+safeOn(fileModalOpenBtn, "click", () => { void openSelectedFileBrowserDocument(); });
 safeOn(fileModalCloseBtn, "click", closeFileModal);
 safeOn(fileBrowserNewFolderBtn, "click", async () => {
   let name = "Новая папка";
