@@ -10,6 +10,25 @@
 
 ---
 
+## 2026-07-20 — вкладки профиля: Аккаунт / Интеграции
+
+**Commit:** `f130175` — Split profile modal into Account and Integrations tabs.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260720-125956-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29744376393](https://github.com/skitoand/mmtables/actions/runs/29744376393)  
+**Статус:** OK
+
+### Что сделано
+- Профиль разделён на вкладки «Аккаунт» и «Интеграции»
+- На «Аккаунт»: e-mail, имя, кнопка «Сменить пароль», «Сохранить»
+- Bitrix24 и MCP перенесены на «Интеграции»
+- Cache-buster: `app.js?v=20260720-profile-tabs`, `styles.css?v=20260720-profile-tabs`
+
+### Проверка
+- [x] Deploy Production #29744376393 success
+- [x] На проде есть `profileTabAccountBtn` / `profileChangePasswordBtn`
+
+---
+
 ## 2026-07-20 — кнопка «Открыть» в диалоге файлов
 
 **Commit:** `fbaf3e1` — Add an explicit Open button to the file browser dialog.  
