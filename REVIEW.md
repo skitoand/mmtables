@@ -12,20 +12,22 @@
 
 ## 2026-07-20 — доступ как в базе знаний + права редактора
 
-**Commit:** _(pending)_  
-**Бэкап:** _(из Actions)_  
-**Деплой:** _(pending)_  
-**Статус:** in progress
+**Commit:** `05e3169` — Match document sharing UI to Knowledge Base and let editors manage link access.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260720-163744-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29760409353](https://github.com/skitoand/mmtables/actions/runs/29760409353)  
+**Статус:** OK
 
 ### Что сделано
 - Модалка доступа в стиле базы знаний: пользователи, «Общий доступ», «Копировать ссылку», «Готово»
 - Редактор может выдавать доступ и включать ссылку «Все, у кого есть ссылка» (только просмотр)
 - API `/access` и `/public-link` доступны с роли editor+
 - Cache-buster: `app.js?v=20260720-share-access-ui`, `styles.css?v=20260720-share-access-ui`
+- Параллельно на KB (`e3c0914`, `ui-redesign`): редактор может включать ссылку на чтение; бэкап `knowledge-base-PROD-BACKUP-20260720-193739-before-deploy.tar.gz`
 
 ### Проверка
-- [ ] Deploy Production success
-- [ ] На проде модалка «Доступ» с блоком «Общий доступ»
+- [x] Deploy Production #29760409353 success
+- [x] На проде cache-buster `share-access-ui`
+- [x] KB health `https://bz.crystalsystems.ru/api/health` ok
 
 ---
 
