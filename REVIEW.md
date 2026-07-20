@@ -10,6 +10,25 @@
 
 ---
 
+## 2026-07-20 — сведения о файле справа от превью
+
+**Commit:** `a8b089b` — Show selected file details beside the open-document preview.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260720-140358-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29748972630](https://github.com/skitoand/mmtables/actions/runs/29748972630)  
+**Статус:** OK
+
+### Что сделано
+- В «Открыть документ» справа от превью — панель «Сведения»
+- Показывает: создан, изменён, автор, размер, доступ, твоя роль
+- API `/api/docs` отдаёт `ownerName`, `sizeBytes`, `accessCount`
+- Cache-buster: `app.js?v=20260720-file-info-panel`, `styles.css?v=20260720-file-info-panel`
+
+### Проверка
+- [x] Deploy Production #29748972630 success
+- [x] На проде есть `fileBrowserInfo`
+
+---
+
 ## 2026-07-20 — меню ⋮ в диалоге файлов поверх модалки
 
 **Commit:** `e1a9f94` — Fix file browser ⋮ menu appearing under the modal.  
