@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-07-20 — контакты шаринга + модалка доступа как в БЗ
+
+**Commit:** `db3ff74` — Remember past share contacts and align access modal with Knowledge Base.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260720-192726-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29772048664](https://github.com/skitoand/mmtables/actions/runs/29772048664)  
+**Статус:** OK
+
+### Что сделано
+- История контактов `share_contacts`: все, с кем делились документами, подтягиваются в подсказки
+- API `GET /api/me/share-contacts`; бэкафилл из уже выданных доступов
+- Модалка доступа ближе к БЗ: без строки «роль + Добавить», подсказки по клику/Enter
+- Подсказка скрывается при уходе курсора/фокуса из поля
+- Cache-buster: `app.js?v=20260720-share-contacts2`, `styles.css?v=20260720-share-contacts2`
+
+### Проверка
+- [x] Deploy Production #29772048664 success
+- [x] Бэкап `mmtable-PROD-BACKUP-20260720-192726-before-deploy.tar.gz`
+
+---
+
 ## 2026-07-20 — доступ как в базе знаний + права редактора
 
 **Commit:** `05e3169` — Match document sharing UI to Knowledge Base and let editors manage link access.  
