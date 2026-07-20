@@ -4344,7 +4344,7 @@ async function openDocumentById(docId, opts = {}) {
   }
   if (currentUser) {
     const data = await fetchJson(`/api/docs/${encodeURIComponent(docId)}/activate`, { method: "POST" });
-    currentDocumentId = data.activeDocumentId || docId;
+    currentDocumentId = data.document?.id || data.activeDocumentId || docId;
     currentDocumentName = data.activeDocumentName || currentDocumentName;
     currentDocumentRole = data.activeDocumentRole || currentDocumentRole;
     syncCurrentDocumentTitle();
@@ -4413,7 +4413,7 @@ async function activateDocumentRecord(docId, opts = {}) {
   if (guestPublicView && currentUser) exitGuestPublicView();
   if (currentUser) {
     const data = await fetchJson(`/api/docs/${encodeURIComponent(docId)}/activate`, { method: "POST" });
-    currentDocumentId = data.activeDocumentId || docId;
+    currentDocumentId = data.document?.id || data.activeDocumentId || docId;
     currentDocumentName = data.activeDocumentName || currentDocumentName;
     currentDocumentRole = data.activeDocumentRole || currentDocumentRole;
     syncCurrentDocumentTitle();

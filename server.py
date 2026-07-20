@@ -717,6 +717,9 @@ def _get_active_doc(conn, email):
     if active_doc_id:
         row = _get_doc_for_user(conn, email, active_doc_id)
         if row:
+            # Normalize legacy UUID aliases stored in the session to the canonical id.
+            if active_doc_id != row["id"]:
+                session["active_document_id"] = row["id"]
             return row
     rows = _get_accessible_docs(conn, email)
     if not rows:
@@ -835,6 +838,7 @@ def _spa_index_response(extra_headers=None):
 
 
 def _share_payload(conn, doc_id):
+    canonical_id = _resolve_doc_id(conn, doc_id) or str(doc_id or "").strip()
     access_rows = conn.execute(
         """
         SELECT user_email, role, created_at, updated_at
@@ -847,7 +851,7 @@ def _share_payload(conn, doc_id):
           ELSE 1
         END DESC, user_email ASC
         """,
-        (doc_id,),
+        (canonical_id,),
     ).fetchall()
     result = []
     for row in access_rows:
@@ -1405,15 +1409,16 @@ def update_doc(doc_id):
     if not _is_role_at_least(row["role"], ROLE_EDITOR):
         conn.close()
         return jsonify({"error": "forbidden"}), 403
+    doc_key = row["id"]
     if isinstance(name, str) and name.strip():
         conn.execute(
             "UPDATE user_documents SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (name.strip(), doc_id),
+            (name.strip(), doc_key),
         )
     if isinstance(layout, dict):
         conn.execute(
             "UPDATE user_documents SET layout_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (json.dumps(layout, ensure_ascii=False), doc_id),
+            (json.dumps(layout, ensure_ascii=False), doc_key),
         )
     if "folderId" in payload:
         if _normalize_email(row["owner_email"]) != _normalize_email(email):
@@ -1425,10 +1430,10 @@ def update_doc(doc_id):
             return jsonify({"error": "folder_not_found"}), 404
         conn.execute(
             "UPDATE user_documents SET folder_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (folder_id, doc_id),
+            (folder_id, doc_key),
         )
     conn.commit()
-    updated = _get_doc_for_user(conn, email, doc_id)
+    updated = _get_doc_for_user(conn, email, doc_key)
     conn.close()
     return jsonify({"ok": True, "document": _doc_payload(updated)})
 
@@ -1442,11 +1447,12 @@ def activate_doc(doc_id):
     conn.close()
     if not row:
         return jsonify({"error": "not_found"}), 404
-    session["active_document_id"] = doc_id
+    doc_key = row["id"]
+    session["active_document_id"] = doc_key
     return jsonify(
         {
             "ok": True,
-            "activeDocumentId": doc_id,
+            "activeDocumentId": doc_key,
             "activeDocumentName": row["name"],
             "activeDocumentRole": row["role"],
             "document": _doc_payload(row),
@@ -1505,8 +1511,9 @@ def delete_doc(doc_id):
     if row["role"] != ROLE_OWNER:
         conn.close()
         return jsonify({"error": "forbidden"}), 403
-    conn.execute("DELETE FROM document_access WHERE document_id = ?", (doc_id,))
-    conn.execute("DELETE FROM user_documents WHERE id = ?", (doc_id,))
+    doc_key = row["id"]
+    conn.execute("DELETE FROM document_access WHERE document_id = ?", (doc_key,))
+    conn.execute("DELETE FROM user_documents WHERE id = ?", (doc_key,))
     conn.commit()
     _ensure_seed_document(conn, email)
     docs = _list_docs(conn, email)
@@ -1535,7 +1542,7 @@ def get_doc_access(doc_id):
     if not _is_role_at_least(row["role"], ROLE_ADMIN):
         conn.close()
         return jsonify({"error": "forbidden"}), 403
-    access = _share_payload(conn, doc_id)
+    access = _share_payload(conn, row["id"])
     conn.close()
     return jsonify({"access": access, "document": _doc_payload(row, include_layout=False)})
 
@@ -1674,7 +1681,7 @@ def disable_public_link(doc_id):
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """,
-        (doc_id,),
+        (row["id"],),
     )
     conn.commit()
     conn.close()

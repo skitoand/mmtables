@@ -138,7 +138,8 @@ button,input{border:1px solid var(--border);border-radius:8px;padding:6px 10px;f
 .app-menu-dropdown{padding:8px}
 .app-menu-group{display:flex;flex-direction:column;gap:2px}
 .app-menu-item,.file-dropdown button,.file-toggle-item,.shape-dropdown button{display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;text-align:left;border:0;background:#fff;padding:10px 11px;border-radius:10px;color:#1f2937;font-size:12px}
-.app-menu-item:hover,.file-dropdown button:hover,.file-toggle-item:hover,.shape-dropdown button:hover,.app-menu-item-parent[aria-expanded="true"]{background:#f4f7fb}
+.app-menu-item:hover:not(:disabled),.file-dropdown button:hover:not(:disabled),.file-toggle-item:hover,.shape-dropdown button:hover:not(:disabled),.app-menu-item-parent[aria-expanded="true"]{background:#f4f7fb}
+.app-menu-item:disabled,.file-dropdown button:disabled,.shape-dropdown button:disabled{opacity:.45;cursor:default;color:#94a3b8}
 .app-menu-item input{margin:0}
 .app-menu-caret{font-size:13px;color:#6b7280}
 .app-menu-check{position:relative;padding-left:35px;cursor:pointer}
@@ -374,7 +375,7 @@ body.dark .bitrix-field-filter-popup{background:#0f172a;border-color:#334155}
 body.dark .bitrix-field-filter-value-item{color:#e2e8f0}
 body.dark .bitrix-field-filter-value-item:hover{background:#111827}
 body.dark .bitrix-date-slider-track::before{background:#334155}
-.modal{position:fixed;inset:0;background:rgba(2,6,23,.38);display:flex;align-items:center;justify-content:center;z-index:5000;pointer-events:auto}.modal.hidden{display:none}.modal-card{width:min(560px,calc(100vw - 32px));background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:10px}.modal-actions{display:flex;justify-content:flex-end;gap:8px}
+.modal{position:fixed;inset:0;background:rgba(2,6,23,.38);display:flex;align-items:center;justify-content:center;z-index:30000;pointer-events:auto}.modal.hidden{display:none}.modal-card{width:min(560px,calc(100vw - 32px));background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:10px}.modal-actions{display:flex;justify-content:flex-end;gap:8px}
 .auth-modal-card{width:min(480px,calc(100vw - 32px))}
 .auth-tabs{display:flex;gap:8px}
 .auth-tab{flex:1}
