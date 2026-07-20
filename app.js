@@ -25,6 +25,7 @@ const fileAutosaveToggle = $("fileAutosaveToggle");
 const fileModal = $("fileModal");
 const fileBrowserTree = $("fileBrowserTree");
 const fileBrowserPreview = $("fileBrowserPreview");
+const fileBrowserInfo = $("fileBrowserInfo");
 const fileBrowserNewFolderBtn = $("fileBrowserNewFolderBtn");
 const fileModalOpenBtn = $("fileModalOpenBtn");
 const fileModalCloseBtn = $("fileModalCloseBtn");
@@ -437,7 +438,7 @@ const AUTOSAVE_KEY = "table-workspace-autosave-v1";
 const THEME_KEY = "table-workspace-theme-v1";
 const OBJECTS_TOOLBAR_KEY = "table-workspace-objects-toolbar-v1";
 const PANEL_KEY = "table-format-panel-v1";
-const FILE_BROWSER_SIZE_KEY = "table-file-browser-size-v1";
+const FILE_BROWSER_SIZE_KEY = "table-file-browser-size-v2";
 const VIEWPORT_KEY = "table-workspace-viewport-v1";
 const APP_ROUTE_PENDING_KEY = "table-workspace-pending-route-v1";
 const DEFAULT_STYLES_KEY = "table-workspace-default-styles-v2";
@@ -4701,14 +4702,116 @@ async function fetchDocumentPreviewLayout(docId) {
   return layout;
 }
 
+function formatFileBrowserDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function formatFileBrowserSize(bytes) {
+  const size = Number(bytes) || 0;
+  if (size < 1024) return `${size} Б`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0).replace(".0", "")} КБ`;
+  return `${(size / (1024 * 1024)).toFixed(1).replace(".0", "")} МБ`;
+}
+
+function getFileBrowserAuthorInitials(name, email) {
+  const source = String(name || email || "").trim();
+  if (!source) return "?";
+  const parts = source.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
+  return source.slice(0, 2).toUpperCase();
+}
+
+function appendFileBrowserInfoRow(list, label, valueNodeOrText) {
+  const row = document.createElement("div");
+  row.className = "file-browser-info-row";
+  const labelEl = document.createElement("div");
+  labelEl.className = "file-browser-info-label";
+  labelEl.textContent = label;
+  row.appendChild(labelEl);
+  if (typeof valueNodeOrText === "string") {
+    const valueEl = document.createElement("div");
+    valueEl.className = "file-browser-info-value";
+    valueEl.textContent = valueNodeOrText;
+    row.appendChild(valueEl);
+  } else {
+    row.appendChild(valueNodeOrText);
+  }
+  list.appendChild(row);
+}
+
+function renderFileBrowserInfo(docId) {
+  if (!fileBrowserInfo) return;
+  if (!docId) {
+    fileBrowserInfo.innerHTML = '<div class="file-browser-info-empty">Выбери документ, чтобы увидеть сведения</div>';
+    return;
+  }
+  const doc = documentsCache.find((item) => item.id === docId);
+  if (!doc) {
+    fileBrowserInfo.innerHTML = '<div class="file-browser-info-empty">Сведения недоступны</div>';
+    return;
+  }
+  const ownerName = doc.ownerName || doc.ownerEmail || (doc.isOwned !== false ? (currentUser?.name || currentUser?.email || "Вы") : "—");
+  const ownerEmail = doc.ownerEmail || (doc.isOwned !== false ? (currentUser?.email || "") : "");
+  const accessCount = Number(doc.accessCount) || 0;
+  const accessText = accessCount > 0 ? `${accessCount} назнач.` : "Только владелец";
+
+  fileBrowserInfo.innerHTML = "";
+  const title = document.createElement("h4");
+  title.className = "file-browser-info-title";
+  title.textContent = "Сведения";
+  fileBrowserInfo.appendChild(title);
+
+  const list = document.createElement("div");
+  list.className = "file-browser-info-list";
+  appendFileBrowserInfoRow(list, "Создан", formatFileBrowserDate(doc.createdAt));
+  appendFileBrowserInfoRow(list, "Изменён", formatFileBrowserDate(doc.updatedAt));
+
+  const authorValue = document.createElement("div");
+  authorValue.className = "file-browser-info-author";
+  const avatar = document.createElement("div");
+  avatar.className = "file-browser-info-avatar";
+  avatar.textContent = getFileBrowserAuthorInitials(ownerName, ownerEmail);
+  const authorText = document.createElement("div");
+  authorText.className = "file-browser-info-author-text";
+  const authorName = document.createElement("div");
+  authorName.className = "file-browser-info-author-name";
+  authorName.textContent = ownerName;
+  authorText.appendChild(authorName);
+  if (ownerEmail && ownerEmail !== ownerName) {
+    const authorEmail = document.createElement("div");
+    authorEmail.className = "file-browser-info-author-email";
+    authorEmail.textContent = ownerEmail;
+    authorText.appendChild(authorEmail);
+  }
+  authorValue.appendChild(avatar);
+  authorValue.appendChild(authorText);
+  appendFileBrowserInfoRow(list, "Автор", authorValue);
+
+  appendFileBrowserInfoRow(list, "Размер", formatFileBrowserSize(doc.sizeBytes));
+  appendFileBrowserInfoRow(list, "Доступ", accessText);
+  appendFileBrowserInfoRow(list, "Твоя роль", roleLabel(doc.role || (doc.isOwned !== false ? "owner" : "reader")));
+  fileBrowserInfo.appendChild(list);
+}
+
 function renderFileBrowserPreview(docId) {
   if (!fileBrowserPreview) return;
   if (!docId) {
     fileBrowserPreview.innerHTML = '<div class="file-browser-preview-empty">Выбери документ для превью</div>';
+    renderFileBrowserInfo(null);
     return;
   }
   const doc = documentsCache.find((item) => item.id === docId);
   fileBrowserPreview.innerHTML = '<div class="file-browser-preview-empty">Загрузка превью...</div>';
+  renderFileBrowserInfo(docId);
   fetchDocumentPreviewLayout(docId)
     .then((layout) => {
       if (fileBrowserSelectedDocId !== docId) return;
@@ -4728,6 +4831,12 @@ function renderFileBrowserPreview(docId) {
         caption.style.fontWeight = "600";
         caption.textContent = doc.name;
         fileBrowserPreview.appendChild(caption);
+      }
+      if ((!doc.sizeBytes || doc.sizeBytes <= 0) && layout) {
+        try {
+          doc.sizeBytes = new Blob([JSON.stringify(layout)]).size;
+          renderFileBrowserInfo(docId);
+        } catch {}
       }
     })
     .catch((err) => {
@@ -4789,12 +4898,11 @@ function createFileBrowserMenuButton(onClick) {
     const rect = btn.getBoundingClientRect();
     // Anchor near the button so the menu stays next to ⋮ inside the file dialog.
     onClick({
-      ...event,
       clientX: Math.round(rect.right),
       clientY: Math.round(rect.top),
-      target: event.target,
-      stopPropagation: () => event.stopPropagation(),
-      preventDefault: () => event.preventDefault()
+      target: btn,
+      stopPropagation() {},
+      preventDefault() {}
     });
   });
   return btn;
@@ -5271,10 +5379,10 @@ function getFileBrowserCard() {
 }
 
 function clampFileBrowserSize(width, height) {
-  const maxWidth = Math.max(640, window.innerWidth - 24);
+  const maxWidth = Math.max(820, window.innerWidth - 24);
   const maxHeight = Math.max(420, window.innerHeight - 24);
   return {
-    width: Math.max(640, Math.min(width, maxWidth)),
+    width: Math.max(820, Math.min(width, maxWidth)),
     height: Math.max(420, Math.min(height, maxHeight))
   };
 }
@@ -5294,7 +5402,7 @@ function applyFileBrowserSize(width, height, persist = false) {
 function restoreFileBrowserSize() {
   const card = getFileBrowserCard();
   if (!card) return;
-  let width = Math.min(960, window.innerWidth - 32);
+  let width = Math.min(1180, window.innerWidth - 32);
   let height = Math.min(560, window.innerHeight - 48);
   try {
     const raw = localStorage.getItem(FILE_BROWSER_SIZE_KEY);

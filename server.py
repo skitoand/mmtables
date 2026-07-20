@@ -662,17 +662,31 @@ def _list_docs(conn, email):
     docs = []
     for row in _get_accessible_docs(conn, email):
         is_owner = _normalize_email(row["owner_email"]) == email_key
+        owner = _get_user(conn, row["owner_email"])
+        access_count = conn.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM document_access
+            WHERE document_id = ?
+              AND lower(role) != 'owner'
+            """,
+            (row["id"],),
+        ).fetchone()["c"]
+        layout_json = row["layout_json"] or ""
         docs.append(
             {
                 "id": row["id"],
                 "name": row["name"],
                 "role": row["role"],
                 "ownerEmail": row["owner_email"],
+                "ownerName": (owner["name"] if owner and owner["name"] else None) or row["owner_email"],
                 "folderId": row["folder_id"] if is_owner else None,
                 "isOwned": is_owner,
                 "isActive": row["id"] == active_doc_id,
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
+                "sizeBytes": len(layout_json.encode("utf-8")) if isinstance(layout_json, str) else 0,
+                "accessCount": int(access_count or 0),
             }
         )
     return docs
