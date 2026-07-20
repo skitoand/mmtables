@@ -353,6 +353,35 @@ def _init_db():
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_email ON api_tokens(email)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS share_contacts (
+          owner_email TEXT NOT NULL,
+          contact_email TEXT NOT NULL,
+          contact_name TEXT,
+          last_shared_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (owner_email, contact_email)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_share_contacts_owner ON share_contacts(owner_email, last_shared_at DESC)")
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO share_contacts(owner_email, contact_email, contact_name, last_shared_at)
+        SELECT
+          lower(trim(d.email)),
+          lower(trim(a.user_email)),
+          COALESCE(NULLIF(trim(u.name), ''), NULLIF(trim(u.display_name), ''), lower(trim(a.user_email))),
+          COALESCE(a.updated_at, a.created_at, CURRENT_TIMESTAMP)
+        FROM document_access a
+        JOIN user_documents d ON d.id = a.document_id
+        LEFT JOIN users u ON lower(trim(u.email)) = lower(trim(a.user_email))
+        WHERE lower(trim(a.role)) <> 'owner'
+          AND lower(trim(a.user_email)) <> lower(trim(d.email))
+          AND trim(d.email) <> ''
+          AND trim(a.user_email) <> ''
+        """
+    )
     init_oauth_tables(conn)
     _migrate_legacy_doc_ids(conn)
     conn.commit()
@@ -883,6 +912,55 @@ def _share_payload(conn, doc_id):
     return result
 
 
+def _remember_share_contact(conn, owner_email, contact_email, contact_name=None):
+    owner = _normalize_email(owner_email)
+    contact = _normalize_email(contact_email)
+    if not owner or not contact or owner == contact:
+        return
+    name = str(contact_name or "").strip()
+    if not name:
+        user = _get_user(conn, contact)
+        name = (user["name"] if user else "") or contact
+    conn.execute(
+        """
+        INSERT INTO share_contacts(owner_email, contact_email, contact_name, last_shared_at)
+        VALUES(?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(owner_email, contact_email) DO UPDATE SET
+          contact_name = COALESCE(NULLIF(excluded.contact_name, ''), share_contacts.contact_name),
+          last_shared_at = CURRENT_TIMESTAMP
+        """,
+        (owner, contact, name),
+    )
+
+
+def _list_share_contacts(conn, owner_email, limit=100):
+    owner = _normalize_email(owner_email)
+    rows = conn.execute(
+        """
+        SELECT
+          c.contact_email AS email,
+          COALESCE(NULLIF(trim(u.name), ''), NULLIF(trim(u.display_name), ''), NULLIF(trim(c.contact_name), ''), c.contact_email) AS name,
+          c.last_shared_at AS lastSharedAt,
+          CASE WHEN u.password_hash IS NOT NULL AND trim(u.password_hash) <> '' THEN 1 ELSE 0 END AS hasPassword
+        FROM share_contacts c
+        LEFT JOIN users u ON lower(trim(u.email)) = c.contact_email
+        WHERE c.owner_email = ?
+        ORDER BY datetime(c.last_shared_at) DESC, c.contact_email ASC
+        LIMIT ?
+        """,
+        (owner, int(limit)),
+    ).fetchall()
+    return [
+        {
+            "email": row["email"],
+            "name": row["name"] or row["email"],
+            "lastSharedAt": row["lastSharedAt"],
+            "hasPassword": bool(row["hasPassword"]),
+        }
+        for row in rows
+    ]
+
+
 def _client_ip():
     forwarded = str(request.headers.get("X-Forwarded-For") or "").strip()
     if forwarded:
@@ -1090,6 +1168,16 @@ def me():
             "documents": docs,
         }
     )
+
+
+@app.route("/api/me/share-contacts", methods=["GET"])
+@require_login
+def get_share_contacts():
+    email = _current_email()
+    conn = _db()
+    contacts = _list_share_contacts(conn, email)
+    conn.close()
+    return jsonify({"contacts": contacts})
 
 
 @app.route("/api/me/profile", methods=["PATCH"])
@@ -1604,6 +1692,7 @@ def grant_doc_access(doc_id):
         """,
         (role, doc_key, target_email),
     )
+    _remember_share_contact(conn, email, target_email, name)
     conn.commit()
     access = _share_payload(conn, doc_key)
     conn.close()

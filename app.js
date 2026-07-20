@@ -75,8 +75,7 @@ const shareModalCloseBtn = $("shareModalCloseBtn");
 const shareModalDoneBtn = $("shareModalDoneBtn");
 const shareModalTitle = $("shareModalTitle");
 const shareEmailInput = $("shareEmailInput");
-const shareRoleSelect = $("shareRoleSelect");
-const shareAddBtn = $("shareAddBtn");
+const shareSuggestions = $("shareSuggestions");
 const shareAccessList = $("shareAccessList");
 const shareGeneralSelect = $("shareGeneralSelect");
 const shareGeneralIcon = $("shareGeneralIcon");
@@ -86,6 +85,9 @@ const sharePublicCopyBtn = $("sharePublicCopyBtn");
 const shareSearchLabel = shareEmailInput ? shareEmailInput.closest(".share-search") : null;
 let sharePublicLinkInfo = null;
 let shareModalDocName = "";
+let shareAccessCache = [];
+let shareContactsCache = [];
+let shareSuggestionsOpen = false;
 const commentsModal = $("commentsModal");
 const commentsModalCloseBtn = $("commentsModalCloseBtn");
 const commentsDocMeta = $("commentsDocMeta");
@@ -4570,9 +4572,136 @@ function shareAvatarColor(seed) {
   return palette[hash % palette.length];
 }
 
+function looksLikeShareEmail(value) {
+  const email = String(value || "").trim();
+  if (!email || email.includes(" ")) return false;
+  const at = email.indexOf("@");
+  if (at <= 0 || at !== email.lastIndexOf("@")) return false;
+  const domain = email.slice(at + 1);
+  return domain.includes(".") && !domain.startsWith(".") && !domain.endsWith(".");
+}
+
 function syncShareSearchFilled() {
   if (!shareSearchLabel || !shareEmailInput) return;
   shareSearchLabel.classList.toggle("is-filled", !!String(shareEmailInput.value || "").trim());
+}
+
+function hideShareSuggestions() {
+  shareSuggestionsOpen = false;
+  if (!shareSuggestions) return;
+  shareSuggestions.classList.add("hidden");
+  shareSuggestions.classList.remove("share-suggestions--empty");
+  shareSuggestions.innerHTML = "";
+}
+
+function appendShareSuggestion(contact, { inviteHint = false } = {}) {
+  if (!shareSuggestions) return;
+  const email = String(contact.email || "").trim();
+  if (!email) return;
+  const displayName = String(contact.name || email).trim() || email;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "share-suggestion";
+  btn.setAttribute("role", "option");
+  btn.dataset.email = email;
+  const avatar = document.createElement("span");
+  avatar.className = "share-access-avatar";
+  avatar.textContent = shareUserInitials(displayName);
+  avatar.style.background = shareAvatarColor(email || displayName);
+  const meta = document.createElement("span");
+  meta.className = "share-suggestion-meta";
+  const name = document.createElement("span");
+  name.className = "share-suggestion-name";
+  name.textContent = displayName;
+  const emailEl = document.createElement("span");
+  emailEl.className = "share-suggestion-email";
+  emailEl.textContent = inviteHint ? "Пригласить как читателя" : email;
+  meta.appendChild(name);
+  meta.appendChild(emailEl);
+  btn.appendChild(avatar);
+  btn.appendChild(meta);
+  btn.addEventListener("mousedown", (e) => e.preventDefault());
+  btn.addEventListener("click", () => {
+    void addShareAccess(email, displayName);
+  });
+  shareSuggestions.appendChild(btn);
+}
+
+function getShareSuggestionCandidates(filter = "") {
+  const filterLower = String(filter || "").trim().toLowerCase();
+  const accessEmails = new Set(
+    shareAccessCache.map((item) => String(item.email || "").toLowerCase()).filter(Boolean)
+  );
+  const matches = shareContactsCache.filter((contact) => {
+    const email = String(contact.email || "").toLowerCase();
+    if (!email || accessEmails.has(email)) return false;
+    if (!filterLower) return true;
+    const name = String(contact.name || "").toLowerCase();
+    return email.includes(filterLower) || name.includes(filterLower);
+  });
+  return matches.slice(0, filterLower ? 8 : 6);
+}
+
+function renderShareSuggestions({ forceOpen = false } = {}) {
+  if (!shareSuggestions || !shareEmailInput) return;
+  if (!canShareShareModalDocument()) {
+    hideShareSuggestions();
+    return;
+  }
+  const filter = String(shareEmailInput.value || "").trim();
+  const filterLower = filter.toLowerCase();
+  if (!forceOpen && !shareSuggestionsOpen && !filter) {
+    hideShareSuggestions();
+    return;
+  }
+  shareSuggestionsOpen = true;
+  const candidates = getShareSuggestionCandidates(filter);
+  const exactMatch = candidates.some(
+    (item) => String(item.email || "").toLowerCase() === filterLower
+  );
+  const alreadyAdded = shareAccessCache.some(
+    (item) => String(item.email || "").toLowerCase() === filterLower
+  );
+  shareSuggestions.innerHTML = "";
+  shareSuggestions.classList.remove("hidden", "share-suggestions--empty");
+
+  if (candidates.length) {
+    candidates.forEach((contact) => appendShareSuggestion(contact));
+  }
+
+  if (filter && looksLikeShareEmail(filter) && !exactMatch && !alreadyAdded) {
+    appendShareSuggestion({ email: filter, name: filter }, { inviteHint: true });
+    return;
+  }
+
+  if (candidates.length) return;
+
+  shareSuggestions.classList.add("share-suggestions--empty");
+  if (alreadyAdded) {
+    shareSuggestions.textContent = "Уже в списке доступа";
+    return;
+  }
+  if (filter) {
+    shareSuggestions.textContent = "Никого не найдено";
+    return;
+  }
+  shareSuggestions.textContent = "Пока нет недавних контактов — введите e-mail";
+}
+
+async function loadShareContacts() {
+  try {
+    const data = await fetchJson("/api/me/share-contacts");
+    shareContactsCache = Array.isArray(data.contacts) ? data.contacts : [];
+  } catch (err) {
+    console.error(err);
+    shareContactsCache = [];
+  }
+}
+
+function resetShareInviteField() {
+  if (shareEmailInput) shareEmailInput.value = "";
+  syncShareSearchFilled();
+  hideShareSuggestions();
 }
 
 function getShareModalCopyUrl() {
@@ -5183,11 +5312,13 @@ async function openShareModalForDocument(docId) {
       fetchJson(`/api/docs/${encodeURIComponent(docId)}/public-link`)
     ]);
     if (shareModalTitle) shareModalTitle.textContent = `Доступ – ${shareModalDocName || "Документ"}`;
-    if (shareEmailInput) shareEmailInput.value = "";
-    syncShareSearchFilled();
+    resetShareInviteField();
     renderShareAccessList(accessData.access || []);
     await syncSharePublicLinkUi(publicData.publicLink || null);
+    await loadShareContacts();
     if (shareModal) shareModal.classList.remove("hidden");
+    if (shareEmailInput) shareEmailInput.focus();
+    renderShareSuggestions({ forceOpen: true });
   } catch (err) {
     console.error(err);
     showHint("Не удалось загрузить доступы.", "error", 2500);
@@ -5897,6 +6028,8 @@ function closeShareModal() {
   shareModalDocId = null;
   shareModalDocName = "";
   sharePublicLinkInfo = null;
+  shareAccessCache = [];
+  resetShareInviteField();
   if (shareModal) shareModal.classList.add("hidden");
 }
 
@@ -5911,8 +6044,9 @@ function canShareShareModalDocument() {
 
 function renderShareAccessList(access = []) {
   if (!shareAccessList) return;
+  shareAccessCache = Array.isArray(access) ? access.slice() : [];
   if (!access.length) {
-    shareAccessList.innerHTML = '<div class="share-people-note">Добавьте пользователей через поле выше. У владельца доступ остаётся всегда.</div>';
+    shareAccessList.innerHTML = '<div class="share-people-note">Добавьте пользователей через поле выше.</div>';
     return;
   }
   shareAccessList.innerHTML = "";
@@ -6095,22 +6229,29 @@ async function openShareModal() {
       fetchJson(`/api/docs/${encodeURIComponent(getShareModalDocumentId())}/public-link`)
     ]);
     if (shareModalTitle) shareModalTitle.textContent = `Доступ – ${shareModalDocName || "Документ"}`;
-    if (shareEmailInput) shareEmailInput.value = "";
-    syncShareSearchFilled();
+    resetShareInviteField();
     renderShareAccessList(accessData.access || []);
     await syncSharePublicLinkUi(publicData.publicLink || null);
+    await loadShareContacts();
     if (shareModal) shareModal.classList.remove("hidden");
+    if (shareEmailInput) shareEmailInput.focus();
+    renderShareSuggestions({ forceOpen: true });
   } catch (err) {
     console.error(err);
     showHint("Не удалось загрузить доступы.", "error", 2500);
   }
 }
 
-async function addShareAccess() {
-  const email = String(shareEmailInput ? shareEmailInput.value : "").trim();
-  const role = String(shareRoleSelect ? shareRoleSelect.value : "reader").trim();
+async function addShareAccess(emailOverride, nameOverride) {
+  const email = String(emailOverride != null ? emailOverride : (shareEmailInput ? shareEmailInput.value : "")).trim();
+  const role = "reader";
+  const name = String(nameOverride || "").trim();
   if (!email) {
     showHint("Укажи e-mail пользователя.", "error", 2500);
+    return;
+  }
+  if (!looksLikeShareEmail(email)) {
+    showHint("Укажи корректный e-mail.", "error", 2500);
     return;
   }
   const typoDomains = {
@@ -6133,13 +6274,25 @@ async function addShareAccess() {
     }
   }
   try {
+    const payload = { email, role };
+    if (name) payload.name = name;
     const data = await fetchJson(`/api/docs/${encodeURIComponent(getShareModalDocumentId())}/access`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, role })
+      body: JSON.stringify(payload)
     });
-    if (shareEmailInput) shareEmailInput.value = "";
+    const contactName = name || email;
+    const existingIdx = shareContactsCache.findIndex(
+      (item) => String(item.email || "").toLowerCase() === email.toLowerCase()
+    );
+    const contactRow = { email: email.toLowerCase(), name: contactName, lastSharedAt: new Date().toISOString() };
+    if (existingIdx >= 0) shareContactsCache.splice(existingIdx, 1);
+    shareContactsCache.unshift(contactRow);
+    resetShareInviteField();
     renderShareAccessList(data.access || []);
+    if (document.activeElement === shareEmailInput) {
+      renderShareSuggestions({ forceOpen: true });
+    }
     const invited = (data.access || []).find((item) => String(item.email || "").toLowerCase() === email.toLowerCase());
     if (invited && !invited.hasPassword) {
       showHint("Доступ выдан. Пользователю нужно зарегистрироваться и задать пароль.", "warning", 3200);
@@ -19789,12 +19942,64 @@ safeOn(shareModalDoneBtn, "click", closeShareModal);
 safeOn(shareModal, "click", (e) => {
   if (e.target === shareModal) closeShareModal();
 });
-safeOn(shareAddBtn, "click", addShareAccess);
 safeOn(shareGeneralSelect, "change", () => {
   void setSharePublicLinkEnabled(shareGeneralSelect && shareGeneralSelect.value === "link");
 });
 safeOn(sharePublicCopyBtn, "click", copySharePublicLink);
-safeOn(shareEmailInput, "input", syncShareSearchFilled);
+const shareSearchWrap = shareEmailInput ? shareEmailInput.closest(".share-search-wrap") : null;
+let shareSuggestionsBlurTimer = 0;
+
+function scheduleHideShareSuggestions() {
+  if (shareSuggestionsBlurTimer) window.clearTimeout(shareSuggestionsBlurTimer);
+  shareSuggestionsBlurTimer = window.setTimeout(() => {
+    shareSuggestionsBlurTimer = 0;
+    if (document.activeElement === shareEmailInput) return;
+    if (shareSuggestions && shareSuggestions.contains(document.activeElement)) return;
+    hideShareSuggestions();
+  }, 120);
+}
+
+safeOn(shareEmailInput, "input", () => {
+  syncShareSearchFilled();
+  renderShareSuggestions({ forceOpen: true });
+});
+safeOn(shareEmailInput, "focus", () => {
+  if (shareSuggestionsBlurTimer) {
+    window.clearTimeout(shareSuggestionsBlurTimer);
+    shareSuggestionsBlurTimer = 0;
+  }
+  syncShareSearchFilled();
+  renderShareSuggestions({ forceOpen: true });
+});
+safeOn(shareEmailInput, "blur", (e) => {
+  const related = e && e.relatedTarget;
+  if (related && shareSearchWrap && shareSearchWrap.contains(related)) return;
+  scheduleHideShareSuggestions();
+});
+if (shareSearchWrap) {
+  shareSearchWrap.addEventListener("focusout", (e) => {
+    const next = e.relatedTarget;
+    if (next && shareSearchWrap.contains(next)) return;
+    scheduleHideShareSuggestions();
+  });
+  shareSearchWrap.addEventListener("pointerenter", () => {
+    if (document.activeElement === shareEmailInput) {
+      renderShareSuggestions({ forceOpen: true });
+    }
+  });
+  shareSearchWrap.addEventListener("pointerleave", (e) => {
+    const next = e.relatedTarget;
+    if (next && shareSearchWrap.contains(next)) return;
+    hideShareSuggestions();
+  });
+}
+safeOn(shareModal, "pointerdown", (e) => {
+  if (!shareSearchWrap || !shareSuggestions) return;
+  if (shareSuggestions.classList.contains("hidden")) return;
+  if (shareSearchWrap.contains(e.target)) return;
+  hideShareSuggestions();
+  if (shareEmailInput && document.activeElement === shareEmailInput) shareEmailInput.blur();
+});
 safeOn(commentsModalCloseBtn, "click", closeCommentsModal);
 safeOn(commentsModal, "click", (e) => {
   if (e.target === commentsModal) closeCommentsModal();
@@ -19805,8 +20010,23 @@ safeOn(commentsInput, "keydown", (e) => {
   if (e.key === "Escape") closeCommentsModal();
 });
 safeOn(shareEmailInput, "keydown", (e) => {
-  if (e.key === "Enter") addShareAccess();
-  if (e.key === "Escape") closeShareModal();
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const filter = String(shareEmailInput ? shareEmailInput.value : "").trim();
+    const candidates = getShareSuggestionCandidates(filter);
+    if (candidates.length === 1 || (candidates.length && !looksLikeShareEmail(filter))) {
+      void addShareAccess(candidates[0].email, candidates[0].name);
+      return;
+    }
+    void addShareAccess();
+  }
+  if (e.key === "Escape") {
+    if (shareSuggestions && !shareSuggestions.classList.contains("hidden")) {
+      hideShareSuggestions();
+      return;
+    }
+    closeShareModal();
+  }
 });
 
 desktop.addEventListener("pointerdown", (e) => {
