@@ -3955,13 +3955,26 @@ function roleLabel(role) {
   return map[String(role || "").toLowerCase()] || "Доступ";
 }
 
+function getCurrentDocumentRole() {
+  const cached = documentsCache.find((doc) => doc && doc.id === currentDocumentId);
+  const cachedRole = cached && cached.role ? String(cached.role).toLowerCase() : "";
+  const liveRole = String(currentDocumentRole || "").toLowerCase();
+  // Prefer cache when it knows the active doc — avoids a stale role after switching documents.
+  if (cachedRole) {
+    if (cachedRole !== liveRole) currentDocumentRole = cachedRole;
+    return cachedRole;
+  }
+  return liveRole;
+}
+
 function canShareCurrentDocument() {
-  return !guestPublicView && currentUser && (currentDocumentRole === "owner" || currentDocumentRole === "admin");
+  const role = getCurrentDocumentRole();
+  return !guestPublicView && currentUser && (role === "owner" || role === "admin");
 }
 
 function canEditCurrentDocument() {
   if (guestPublicView) return false;
-  return currentUser && ["owner", "admin", "editor"].includes(String(currentDocumentRole || ""));
+  return currentUser && ["owner", "admin", "editor"].includes(getCurrentDocumentRole());
 }
 
 function isWorkspaceReadOnly() {
@@ -3970,7 +3983,7 @@ function isWorkspaceReadOnly() {
 
 function canCommentCurrentDocument() {
   if (guestPublicView) return false;
-  return currentUser && ["owner", "admin", "editor", "commenter"].includes(String(currentDocumentRole || ""));
+  return currentUser && ["owner", "admin", "editor", "commenter"].includes(getCurrentDocumentRole());
 }
 
 function canViewCommentsPanel() {
@@ -4142,8 +4155,26 @@ function getDocLabel(doc) {
 
 function updateCurrentDocumentCapabilities() {
   const editable = canEditCurrentDocument();
-  if (fileShareBtn) fileShareBtn.disabled = guestPublicView || !canShareCurrentDocument();
-  if (fileDeleteBtn) fileDeleteBtn.disabled = guestPublicView || !(currentUser && currentDocumentRole === "owner");
+  const role = getCurrentDocumentRole();
+  const canShare = canShareCurrentDocument();
+  const canDelete = !guestPublicView && !!currentUser && role === "owner";
+  // Keep Access/Delete clickable for authed users so we can explain why the action is blocked.
+  if (fileShareBtn) {
+    fileShareBtn.disabled = !!guestPublicView;
+    fileShareBtn.title = canShare
+      ? "Настроить доступ к документу"
+      : currentUser
+        ? `Настроить доступ может только владелец или администратор. Сейчас: ${roleLabel(role || "reader")}.`
+        : "Войдите, чтобы настроить доступ";
+  }
+  if (fileDeleteBtn) {
+    fileDeleteBtn.disabled = !!guestPublicView;
+    fileDeleteBtn.title = canDelete
+      ? "Удалить документ"
+      : currentUser
+        ? `Удалить может только владелец. Сейчас: ${roleLabel(role || "reader")}.`
+        : "Войдите, чтобы удалить документ";
+  }
   if (fileCreateBtn) fileCreateBtn.disabled = guestPublicView && !currentUser;
   if (fileOpenBtn) fileOpenBtn.disabled = guestPublicView && !currentUser;
   if (fileCopyBtn) fileCopyBtn.disabled = guestPublicView;
@@ -5789,7 +5820,12 @@ async function openShareModal() {
   }
   shareModalDocId = null;
   if (!canShareCurrentDocument()) {
-    showHint("Делиться документом может только владелец или администратор.", "error", 2500);
+    const role = getCurrentDocumentRole();
+    showHint(
+      `Настроить доступ может только владелец или администратор. Сейчас: ${roleLabel(role || "reader")}.`,
+      "error",
+      3200
+    );
     return;
   }
   try {
@@ -5797,7 +5833,7 @@ async function openShareModal() {
       fetchJson(`/api/docs/${encodeURIComponent(getShareModalDocumentId())}/access`),
       fetchJson(`/api/docs/${encodeURIComponent(getShareModalDocumentId())}/public-link`)
     ]);
-    if (shareDocMeta) shareDocMeta.textContent = `${currentDocumentName} · твоя роль: ${roleLabel(currentDocumentRole)}`;
+    if (shareDocMeta) shareDocMeta.textContent = `${currentDocumentName} · твоя роль: ${roleLabel(getCurrentDocumentRole())}`;
     renderShareAccessList(accessData.access || []);
     await syncSharePublicLinkUi(publicData.publicLink || null);
     if (shareModal) shareModal.classList.remove("hidden");
@@ -18580,6 +18616,14 @@ async function handleFileCopy() {
 
 async function handleFileDelete() {
   if (!currentDocumentId) return;
+  if (getCurrentDocumentRole() !== "owner") {
+    showHint(
+      `Удалить может только владелец. Сейчас: ${roleLabel(getCurrentDocumentRole() || "reader")}.`,
+      "error",
+      3200
+    );
+    return;
+  }
   const ok = window.confirm(`Удалить документ "${currentDocumentName || "без названия"}"?`);
   if (!ok) return;
   try {
