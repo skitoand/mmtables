@@ -4784,8 +4784,18 @@ function createFileBrowserMenuButton(onClick) {
   btn.setAttribute("aria-label", "Действия");
   btn.textContent = "⋮";
   btn.addEventListener("click", (event) => {
+    event.preventDefault();
     event.stopPropagation();
-    onClick(event);
+    const rect = btn.getBoundingClientRect();
+    // Anchor near the button so the menu stays next to ⋮ inside the file dialog.
+    onClick({
+      ...event,
+      clientX: Math.round(rect.right),
+      clientY: Math.round(rect.top),
+      target: event.target,
+      stopPropagation: () => event.stopPropagation(),
+      preventDefault: () => event.preventDefault()
+    });
   });
   return btn;
 }
@@ -20300,7 +20310,10 @@ document.addEventListener("click", (e) => {
   if (e.target.closest("#shapeButton") || e.target.closest("#shapeDropdown")) return;
   toggleShapeMenu(false);
 });
-document.addEventListener("click", () => hideContextMenu());
+document.addEventListener("click", (e) => {
+  if (e.target.closest && e.target.closest(".context-menu, .file-browser-menu-btn")) return;
+  hideContextMenu();
+});
 document.addEventListener("click", (e) => {
   if (!objectsToolbar || e.target.closest("#objectsToolbar")) return;
   objectsToolbar.querySelectorAll(".context-menu-group.open").forEach((node) => node.classList.remove("open"));
