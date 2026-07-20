@@ -72,15 +72,20 @@ let mcpConfigCache = null;
 let mcpCreatedToken = "";
 const shareModal = $("shareModal");
 const shareModalCloseBtn = $("shareModalCloseBtn");
-const shareDocMeta = $("shareDocMeta");
+const shareModalDoneBtn = $("shareModalDoneBtn");
+const shareModalTitle = $("shareModalTitle");
 const shareEmailInput = $("shareEmailInput");
 const shareRoleSelect = $("shareRoleSelect");
 const shareAddBtn = $("shareAddBtn");
 const shareAccessList = $("shareAccessList");
-const sharePublicToggle = $("sharePublicToggle");
-const sharePublicUrlInput = $("sharePublicUrlInput");
+const shareGeneralSelect = $("shareGeneralSelect");
+const shareGeneralIcon = $("shareGeneralIcon");
+const shareGeneralHint = $("shareGeneralHint");
+const shareGeneralRole = $("shareGeneralRole");
 const sharePublicCopyBtn = $("sharePublicCopyBtn");
-const sharePublicRotateBtn = $("sharePublicRotateBtn");
+const shareSearchLabel = shareEmailInput ? shareEmailInput.closest(".share-search") : null;
+let sharePublicLinkInfo = null;
+let shareModalDocName = "";
 const commentsModal = $("commentsModal");
 const commentsModalCloseBtn = $("commentsModalCloseBtn");
 const commentsDocMeta = $("commentsDocMeta");
@@ -3979,7 +3984,11 @@ function getCurrentDocumentRole() {
 
 function canShareCurrentDocument() {
   const role = getCurrentDocumentRole();
-  return !guestPublicView && currentUser && (role === "owner" || role === "admin");
+  return !guestPublicView && currentUser && ["owner", "admin", "editor"].includes(role);
+}
+
+function canManagePublicLinkCurrentDocument() {
+  return canShareCurrentDocument();
 }
 
 function canEditCurrentDocument() {
@@ -4174,7 +4183,7 @@ function updateCurrentDocumentCapabilities() {
     fileShareBtn.title = canShare
       ? "Настроить доступ к документу"
       : currentUser
-        ? `Настроить доступ может только владелец или администратор. Сейчас: ${roleLabel(role || "reader")}.`
+        ? `Настроить доступ может владелец, администратор или редактор. Сейчас: ${roleLabel(role || "reader")}.`
         : "Войдите, чтобы настроить доступ";
   }
   if (fileDeleteBtn) {
@@ -4543,7 +4552,37 @@ function getShareModalDocumentId() {
 function canShareDocument(doc) {
   if (!currentUser || guestPublicView || !doc) return false;
   const role = String(doc.role || (doc.isOwned ? "owner" : "")).toLowerCase();
-  return role === "owner" || role === "admin";
+  return role === "owner" || role === "admin" || role === "editor";
+}
+
+function shareUserInitials(nameOrEmail) {
+  const source = String(nameOrEmail || "?").trim();
+  const parts = source.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
+  return source.slice(0, 2).toUpperCase();
+}
+
+function shareAvatarColor(seed) {
+  const palette = ["#1677FF", "#0F9D8A", "#7C3AED", "#DB2777", "#EA580C", "#2563EB", "#059669"];
+  const text = String(seed || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  return palette[hash % palette.length];
+}
+
+function syncShareSearchFilled() {
+  if (!shareSearchLabel || !shareEmailInput) return;
+  shareSearchLabel.classList.toggle("is-filled", !!String(shareEmailInput.value || "").trim());
+}
+
+function getShareModalCopyUrl() {
+  if (sharePublicLinkInfo && sharePublicLinkInfo.enabled && sharePublicLinkInfo.url) {
+    return sharePublicLinkInfo.url;
+  }
+  const docId = getShareModalDocumentId();
+  if (!docId) return "";
+  if (docId === currentDocumentId) return getDocumentShareUrl();
+  return `${window.location.origin}/d/${encodeURIComponent(docId)}`;
 }
 
 function canDeleteDocument(doc) {
@@ -5098,7 +5137,7 @@ async function publishDocumentById(docId) {
   if (!currentUser) return false;
   const doc = documentsCache.find((item) => item.id === docId);
   if (!canShareDocument(doc)) {
-    showHint("Опубликовать документ может только владелец или администратор.", "error", 2500);
+    showHint("Опубликовать документ может владелец, администратор или редактор.", "error", 2500);
     return false;
   }
   try {
@@ -5133,18 +5172,19 @@ async function openShareModalForDocument(docId) {
   }
   const doc = documentsCache.find((item) => item.id === docId);
   if (!canShareDocument(doc)) {
-    showHint("Делиться документом может только владелец или администратор.", "error", 2500);
+    showHint("Делиться документом может владелец, администратор или редактор.", "error", 2500);
     return;
   }
   shareModalDocId = docId;
+  shareModalDocName = doc ? doc.name : "Документ";
   try {
     const [accessData, publicData] = await Promise.all([
       fetchJson(`/api/docs/${encodeURIComponent(docId)}/access`),
       fetchJson(`/api/docs/${encodeURIComponent(docId)}/public-link`)
     ]);
-    if (shareDocMeta) {
-      shareDocMeta.textContent = `${doc ? doc.name : "Документ"} · твоя роль: ${roleLabel(doc.role || "owner")}`;
-    }
+    if (shareModalTitle) shareModalTitle.textContent = `Доступ – ${shareModalDocName || "Документ"}`;
+    if (shareEmailInput) shareEmailInput.value = "";
+    syncShareSearchFilled();
     renderShareAccessList(accessData.access || []);
     await syncSharePublicLinkUi(publicData.publicLink || null);
     if (shareModal) shareModal.classList.remove("hidden");
@@ -5855,6 +5895,8 @@ async function submitAuthForm() {
 
 function closeShareModal() {
   shareModalDocId = null;
+  shareModalDocName = "";
+  sharePublicLinkInfo = null;
   if (shareModal) shareModal.classList.add("hidden");
 }
 
@@ -5870,31 +5912,44 @@ function canShareShareModalDocument() {
 function renderShareAccessList(access = []) {
   if (!shareAccessList) return;
   if (!access.length) {
-    shareAccessList.innerHTML = '<div class="file-doc-item"><div class="file-doc-meta"><div class="file-doc-name">Нет выданных доступов</div><div class="file-doc-sub">У владельца доступ остается всегда.</div></div></div>';
+    shareAccessList.innerHTML = '<div class="share-people-note">Добавьте пользователей через поле выше. У владельца доступ остаётся всегда.</div>';
     return;
   }
   shareAccessList.innerHTML = "";
+  const canManage = canShareShareModalDocument();
+  const myEmail = String(currentUser && currentUser.email || "").toLowerCase();
   access.forEach((item) => {
     const row = document.createElement("div");
     row.className = "share-access-row";
+    const avatar = document.createElement("span");
+    avatar.className = "share-access-avatar";
+    const displayName = item.name || item.email || "?";
+    avatar.textContent = shareUserInitials(displayName);
+    avatar.style.background = shareAvatarColor(item.email || displayName);
     const meta = document.createElement("div");
     meta.className = "share-access-meta";
     const name = document.createElement("div");
     name.className = "share-access-name";
-    name.textContent = item.name || item.email;
+    const isYou = myEmail && String(item.email || "").toLowerCase() === myEmail;
+    name.textContent = isYou ? `${displayName} (вы)` : displayName;
     const email = document.createElement("div");
     email.className = "share-access-email";
-    email.textContent = item.email;
-    const sub = document.createElement("div");
-    sub.className = "share-access-sub";
-    sub.textContent = `${roleLabel(item.role)}${item.hasPassword ? "" : " · пароль еще не задан"}`;
+    email.textContent = item.hasPassword === false
+      ? `${item.email} · пароль ещё не задан`
+      : (item.email || "");
     meta.appendChild(name);
     meta.appendChild(email);
-    meta.appendChild(sub);
     const actions = document.createElement("div");
     actions.className = "share-access-actions";
-    if (item.role !== "owner" && canShareShareModalDocument()) {
+    if (item.role === "owner") {
+      const roleBadge = document.createElement("span");
+      roleBadge.className = "share-owner-badge";
+      roleBadge.textContent = "Владелец";
+      actions.appendChild(roleBadge);
+    } else if (canManage) {
       const roleSelect = document.createElement("select");
+      roleSelect.className = "share-access-role";
+      roleSelect.setAttribute("aria-label", "Роль");
       ["reader", "commenter", "editor", "admin"].forEach((role) => {
         const option = document.createElement("option");
         option.value = role;
@@ -5902,7 +5957,22 @@ function renderShareAccessList(access = []) {
         option.selected = item.role === role;
         roleSelect.appendChild(option);
       });
+      const removeOption = document.createElement("option");
+      removeOption.value = "__remove__";
+      removeOption.textContent = "Удалить доступ";
+      roleSelect.appendChild(removeOption);
       roleSelect.addEventListener("change", async () => {
+        if (roleSelect.value === "__remove__") {
+          try {
+            const data = await fetchJson(`/api/docs/${encodeURIComponent(getShareModalDocumentId())}/access/${encodeURIComponent(item.email)}`, { method: "DELETE" });
+            renderShareAccessList(data.access || []);
+          } catch (err) {
+            console.error(err);
+            showHint("Не удалось убрать доступ.", "error", 2500);
+            roleSelect.value = item.role;
+          }
+          return;
+        }
         try {
           const data = await fetchJson(`/api/docs/${encodeURIComponent(getShareModalDocumentId())}/access`, {
             method: "POST",
@@ -5913,29 +5983,17 @@ function renderShareAccessList(access = []) {
         } catch (err) {
           console.error(err);
           showHint("Не удалось изменить роль.", "error", 2500);
-        }
-      });
-      const removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.className = "share-remove-btn";
-      removeBtn.textContent = "Убрать";
-      removeBtn.addEventListener("click", async () => {
-        try {
-          const data = await fetchJson(`/api/docs/${encodeURIComponent(getShareModalDocumentId())}/access/${encodeURIComponent(item.email)}`, { method: "DELETE" });
-          renderShareAccessList(data.access || []);
-        } catch (err) {
-          console.error(err);
-          showHint("Не удалось убрать доступ.", "error", 2500);
+          roleSelect.value = item.role;
         }
       });
       actions.appendChild(roleSelect);
-      actions.appendChild(removeBtn);
     } else {
       const roleBadge = document.createElement("span");
-      roleBadge.className = "file-doc-role";
+      roleBadge.className = "share-owner-badge";
       roleBadge.textContent = roleLabel(item.role);
       actions.appendChild(roleBadge);
     }
+    row.appendChild(avatar);
     row.appendChild(meta);
     row.appendChild(actions);
     shareAccessList.appendChild(row);
@@ -5943,7 +6001,6 @@ function renderShareAccessList(access = []) {
 }
 
 async function syncSharePublicLinkUi(publicLink = null) {
-  if (!sharePublicToggle || !sharePublicUrlInput) return;
   let info = publicLink;
   if (!info && getShareModalDocumentId() && canShareShareModalDocument()) {
     try {
@@ -5953,11 +6010,24 @@ async function syncSharePublicLinkUi(publicLink = null) {
       info = null;
     }
   }
-  const enabled = !!(info && info.enabled && info.url);
-  sharePublicToggle.checked = enabled;
-  sharePublicUrlInput.value = enabled ? info.url : "";
-  if (sharePublicCopyBtn) sharePublicCopyBtn.disabled = !enabled;
-  if (sharePublicRotateBtn) sharePublicRotateBtn.disabled = !canShareShareModalDocument();
+  sharePublicLinkInfo = info || null;
+  const enabled = !!(info && info.enabled && (info.url || info.path));
+  if (shareGeneralSelect) {
+    shareGeneralSelect.value = enabled ? "link" : "restricted";
+    shareGeneralSelect.disabled = !canShareShareModalDocument();
+  }
+  if (shareGeneralIcon) {
+    shareGeneralIcon.textContent = enabled ? "🔗" : "⊘";
+    shareGeneralIcon.classList.toggle("is-open", enabled);
+  }
+  if (shareGeneralHint) {
+    shareGeneralHint.textContent = enabled
+      ? "Открыть по ссылке может любой — даже без входа в систему."
+      : "Доступ только у владельца и тех, кто добавлен в список выше.";
+  }
+  if (shareGeneralRole) {
+    shareGeneralRole.textContent = enabled ? "Читатель" : "—";
+  }
 }
 
 async function setSharePublicLinkEnabled(enabled) {
@@ -5970,43 +6040,36 @@ async function setSharePublicLinkEnabled(enabled) {
         body: JSON.stringify({})
       });
       await syncSharePublicLinkUi(data.publicLink);
-      showHint("Публичная ссылка включена.", "warning", 1800);
+      showHint("Доступ по ссылке включён (только просмотр).", "warning", 1800);
       return;
     }
     const data = await fetchJson(`/api/docs/${encodeURIComponent(getShareModalDocumentId())}/public-link`, { method: "DELETE" });
     await syncSharePublicLinkUi(data.publicLink);
-    showHint("Публичная ссылка отключена.", "warning", 1800);
+    showHint("Доступ по ссылке отключён.", "warning", 1800);
   } catch (err) {
     console.error(err);
-    showHint("Не удалось обновить публичную ссылку.", "error", 2500);
+    showHint("Не удалось обновить общий доступ.", "error", 2500);
     await syncSharePublicLinkUi();
   }
 }
 
-async function rotateSharePublicLink() {
-  if (!getShareModalDocumentId() || !canShareShareModalDocument()) return;
-  try {
-    const data = await fetchJson(`/api/docs/${encodeURIComponent(getShareModalDocumentId())}/public-link`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rotate: true })
-    });
-    await syncSharePublicLinkUi(data.publicLink);
-    showHint("Создана новая публичная ссылка.", "warning", 1800);
-  } catch (err) {
-    console.error(err);
-    showHint("Не удалось обновить публичную ссылку.", "error", 2500);
-  }
-}
-
 async function copySharePublicLink() {
-  const url = String(sharePublicUrlInput ? sharePublicUrlInput.value : "").trim();
-  if (!url) return;
+  const url = String(getShareModalCopyUrl() || "").trim();
+  if (!url) {
+    showHint("Сначала откройте документ или включите доступ по ссылке.", "error", 2500);
+    return;
+  }
   try {
     await navigator.clipboard.writeText(url);
-    showHint("Публичная ссылка скопирована.", "warning", 1800);
+    showHint(
+      sharePublicLinkInfo && sharePublicLinkInfo.enabled
+        ? "Публичная ссылка скопирована."
+        : "Ссылка на документ скопирована.",
+      "warning",
+      1800
+    );
   } catch {
-    window.prompt("Публичная ссылка:", url);
+    window.prompt("Ссылка:", url);
   }
 }
 
@@ -6016,10 +6079,11 @@ async function openShareModal() {
     return;
   }
   shareModalDocId = null;
+  shareModalDocName = currentDocumentName || "Документ";
   if (!canShareCurrentDocument()) {
     const role = getCurrentDocumentRole();
     showHint(
-      `Настроить доступ может только владелец или администратор. Сейчас: ${roleLabel(role || "reader")}.`,
+      `Настроить доступ может владелец, администратор или редактор. Сейчас: ${roleLabel(role || "reader")}.`,
       "error",
       3200
     );
@@ -6030,7 +6094,9 @@ async function openShareModal() {
       fetchJson(`/api/docs/${encodeURIComponent(getShareModalDocumentId())}/access`),
       fetchJson(`/api/docs/${encodeURIComponent(getShareModalDocumentId())}/public-link`)
     ]);
-    if (shareDocMeta) shareDocMeta.textContent = `${currentDocumentName} · твоя роль: ${roleLabel(getCurrentDocumentRole())}`;
+    if (shareModalTitle) shareModalTitle.textContent = `Доступ – ${shareModalDocName || "Документ"}`;
+    if (shareEmailInput) shareEmailInput.value = "";
+    syncShareSearchFilled();
     renderShareAccessList(accessData.access || []);
     await syncSharePublicLinkUi(publicData.publicLink || null);
     if (shareModal) shareModal.classList.remove("hidden");
@@ -19719,13 +19785,16 @@ safeOn(authNameInput, "keydown", (e) => {
 });
 safeOn(authNameInput, "input", clearAuthError);
 safeOn(shareModalCloseBtn, "click", closeShareModal);
+safeOn(shareModalDoneBtn, "click", closeShareModal);
 safeOn(shareModal, "click", (e) => {
   if (e.target === shareModal) closeShareModal();
 });
 safeOn(shareAddBtn, "click", addShareAccess);
-safeOn(sharePublicToggle, "change", () => setSharePublicLinkEnabled(!!sharePublicToggle.checked));
+safeOn(shareGeneralSelect, "change", () => {
+  void setSharePublicLinkEnabled(shareGeneralSelect && shareGeneralSelect.value === "link");
+});
 safeOn(sharePublicCopyBtn, "click", copySharePublicLink);
-safeOn(sharePublicRotateBtn, "click", rotateSharePublicLink);
+safeOn(shareEmailInput, "input", syncShareSearchFilled);
 safeOn(commentsModalCloseBtn, "click", closeCommentsModal);
 safeOn(commentsModal, "click", (e) => {
   if (e.target === commentsModal) closeCommentsModal();

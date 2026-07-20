@@ -87,7 +87,7 @@
 |------|----------------|----------|-------------|----------------|---------------------|----------|
 | **viewer** (`reader`) | email / публичная ссылка | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **commenter** | email | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **editor** | email | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **editor** | email | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **admin** | email | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **owner** | владелец | ✅ | ✅ | ✅ | ✅ | ✅ |
 
@@ -100,7 +100,7 @@
 |------|---------|---------------|-------------------|------------|-------|
 | viewer / гость по публичной ссылке | зум, «Войти» | ❌ | ❌ | ❌ | ❌ |
 | commenter | + комментарии | ❌ | ❌ | ❌ | ❌ |
-| editor | полный | ✅ | ✅ | ✅ | ❌ |
+| editor | полный | ✅ | ✅ | ✅ | ✅ |
 | admin / owner | полный | ✅ | ✅ | ✅ | ✅ |
 
 ### 5.3. Способы выдачи доступа
@@ -171,9 +171,9 @@ ALTER TABLE user_documents ADD COLUMN public_link_rotated_at TEXT;
 
 | Метод | Путь | Auth | Описание |
 |-------|------|------|----------|
-| GET | `/api/docs/{id}/public-link` | owner/admin | статус, URL (относительный) |
-| POST | `/api/docs/{id}/public-link` | owner/admin | включить или rotate token |
-| DELETE | `/api/docs/{id}/public-link` | owner/admin | выключить публичный доступ |
+| GET | `/api/docs/{id}/public-link` | owner/admin/editor | статус, URL (относительный) |
+| POST | `/api/docs/{id}/public-link` | owner/admin/editor | включить или rotate token |
+| DELETE | `/api/docs/{id}/public-link` | owner/admin/editor | выключить публичный доступ |
 | GET | `/api/public/p/{doc_id}/{token}` | **нет** | layout read-only (JSON) |
 | GET | `/p/{doc_id}/{token}` | **нет** | SPA, гостевой режим |
 

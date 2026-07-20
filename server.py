@@ -1553,7 +1553,7 @@ def get_doc_access(doc_id):
     if not row:
         conn.close()
         return jsonify({"error": "not_found"}), 404
-    if not _is_role_at_least(row["role"], ROLE_ADMIN):
+    if not _is_role_at_least(row["role"], ROLE_EDITOR):
         conn.close()
         return jsonify({"error": "forbidden"}), 403
     access = _share_payload(conn, row["id"])
@@ -1581,7 +1581,7 @@ def grant_doc_access(doc_id):
     if not row:
         conn.close()
         return jsonify({"error": "not_found"}), 404
-    if not _is_role_at_least(row["role"], ROLE_ADMIN):
+    if not _is_role_at_least(row["role"], ROLE_EDITOR):
         conn.close()
         return jsonify({"error": "forbidden"}), 403
     if target_email == _normalize_email(row["owner_email"]):
@@ -1619,7 +1619,7 @@ def get_public_link(doc_id):
     if not row:
         conn.close()
         return jsonify({"error": "not_found"}), 404
-    if not _is_role_at_least(row["role"], ROLE_ADMIN):
+    if not _is_role_at_least(row["role"], ROLE_EDITOR):
         conn.close()
         return jsonify({"error": "forbidden"}), 403
     doc_row = _get_doc_row(conn, doc_id)
@@ -1638,7 +1638,7 @@ def upsert_public_link(doc_id):
     if not row:
         conn.close()
         return jsonify({"error": "not_found"}), 404
-    if not _is_role_at_least(row["role"], ROLE_ADMIN):
+    if not _is_role_at_least(row["role"], ROLE_EDITOR):
         conn.close()
         return jsonify({"error": "forbidden"}), 403
     doc_row = _get_doc_row(conn, doc_id)
@@ -1684,7 +1684,7 @@ def disable_public_link(doc_id):
     if not row:
         conn.close()
         return jsonify({"error": "not_found"}), 404
-    if not _is_role_at_least(row["role"], ROLE_ADMIN):
+    if not _is_role_at_least(row["role"], ROLE_EDITOR):
         conn.close()
         return jsonify({"error": "forbidden"}), 403
     conn.execute(
@@ -1736,7 +1736,7 @@ def revoke_doc_access(doc_id, target_email):
     if not row:
         conn.close()
         return jsonify({"error": "not_found"}), 404
-    if not _is_role_at_least(row["role"], ROLE_ADMIN):
+    if not _is_role_at_least(row["role"], ROLE_EDITOR):
         conn.close()
         return jsonify({"error": "forbidden"}), 403
     if target_email == _normalize_email(row["owner_email"]):

@@ -7,7 +7,7 @@
     <title>MMTable</title>
     <link rel="icon" type="image/png" sizes="128x128" href="assets/favicon.png?v=20260701-crop" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=20260701-crop" />
-    <link rel="stylesheet" href="styles.css?v=20260720-file-info-panel" />
+    <link rel="stylesheet" href="styles.css?v=20260720-share-access-ui" />
   </head>
   <body>
     <div class="app">
@@ -670,34 +670,54 @@
     </div>
 
     <div id="shareModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle">
-      <div class="modal-card file-modal-card">
-        <h3 id="shareModalTitle">Доступ к документу</h3>
-        <div id="shareDocMeta" class="share-doc-meta"></div>
-        <div class="share-form">
-          <input id="shareEmailInput" type="email" placeholder="email пользователя" autocomplete="email" />
-          <select id="shareRoleSelect">
-            <option value="reader">Читатель</option>
-            <option value="commenter">Комментатор</option>
-            <option value="editor">Редактор</option>
-            <option value="admin">Администратор</option>
-          </select>
-          <button id="shareAddBtn" type="button">Выдать доступ</button>
-        </div>
-        <div class="share-public-block">
-          <label class="share-public-toggle" for="sharePublicToggle">
-            <input id="sharePublicToggle" type="checkbox" />
-            <span>Публичная ссылка (только просмотр)</span>
-          </label>
-          <div class="share-public-row">
-            <input id="sharePublicUrlInput" type="text" readonly placeholder="Ссылка появится после включения" />
-            <button id="sharePublicCopyBtn" type="button">Копировать</button>
-            <button id="sharePublicRotateBtn" type="button">Обновить</button>
+      <div class="modal-card share-modal-card">
+        <header class="share-modal-header">
+          <h3 id="shareModalTitle">Доступ</h3>
+          <button id="shareModalCloseBtn" type="button" class="share-modal-close" aria-label="Закрыть">×</button>
+        </header>
+        <div class="share-modal-body">
+          <div class="share-search-wrap">
+            <label class="share-search" for="shareEmailInput">
+              <span class="share-search-label">Добавьте пользователей</span>
+              <input id="shareEmailInput" type="email" placeholder="Добавьте пользователей…" autocomplete="email" />
+            </label>
+            <div class="share-invite-row">
+              <select id="shareRoleSelect" aria-label="Роль">
+                <option value="reader">Читатель</option>
+                <option value="commenter">Комментатор</option>
+                <option value="editor">Редактор</option>
+                <option value="admin">Администратор</option>
+              </select>
+              <button id="shareAddBtn" type="button">Добавить</button>
+            </div>
           </div>
-          <p class="share-public-warning">Любой, у кого есть ссылка, сможет просматривать документ.</p>
+
+          <section class="share-section">
+            <h4 class="share-section-title">Пользователи, имеющие доступ</h4>
+            <div id="shareAccessList" class="share-people"></div>
+          </section>
+
+          <section class="share-section">
+            <h4 class="share-section-title">Общий доступ</h4>
+            <div class="share-general">
+              <span id="shareGeneralIcon" class="share-general-icon" aria-hidden="true">⊘</span>
+              <div class="share-general-main">
+                <select id="shareGeneralSelect" class="share-general-select" aria-label="Общий доступ">
+                  <option value="restricted">Ограниченный доступ</option>
+                  <option value="link">Все, у кого есть ссылка</option>
+                </select>
+                <p id="shareGeneralHint" class="share-general-hint">Доступ только у владельца и тех, кто добавлен в список выше.</p>
+              </div>
+              <span id="shareGeneralRole" class="share-general-role">—</span>
+            </div>
+          </section>
         </div>
-        <div id="shareAccessList" class="file-doc-list"></div>
-        <div class="modal-actions">
-          <button id="shareModalCloseBtn" type="button">Закрыть</button>
+        <div class="share-modal-actions">
+          <button id="sharePublicCopyBtn" type="button" class="share-copy-link">
+            <span aria-hidden="true">🔗</span>
+            Копировать ссылку
+          </button>
+          <button id="shareModalDoneBtn" type="button" class="share-done-btn">Готово</button>
         </div>
       </div>
     </div>
@@ -854,7 +874,7 @@
     <script src="vendor/laser-pointer.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="vendor/perfect-freehand.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="draw-tools.js?v=20260714-toolbar-active-tooltip-v1"></script>
-    <script src="app.js?v=20260720-file-info-panel"></script>
+    <script src="app.js?v=20260720-share-access-ui"></script>
     <script src="bitrix-chart.js?v=20260713-laser-fade-v1"></script>
   </body>
 </html>

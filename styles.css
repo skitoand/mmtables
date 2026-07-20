@@ -403,20 +403,298 @@ body.dark .bitrix-date-slider-track::before{background:#334155}
 .profile-email-sub{font-size:12px;color:#6b7280}
 .profile-change-password-btn{align-self:flex-start;margin-top:2px}
 .auth-error{padding:10px 12px;border:1px solid #fecaca;border-radius:10px;background:#fef2f2;color:#991b1b;font-size:13px;line-height:1.35}
-.share-doc-meta{font-size:13px;color:#6b7280}
-.share-form{display:grid;grid-template-columns:minmax(0,1fr) 180px max-content;gap:8px;align-items:center}
-.share-access-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #dce3ef;border-radius:12px;padding:12px;background:#fff}
-.share-access-meta{min-width:0;display:flex;flex-direction:column;gap:3px}
-.share-access-name{font-weight:700;font-size:14px;color:#111827}
-.share-access-email,.share-access-sub{font-size:12px;color:#6b7280}
-.share-access-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
-.share-access-actions select{min-width:170px}
-.share-remove-btn{color:#991b1b}
-.share-public-block{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid #dce3ef;border-radius:12px;background:#f8fafc}
-.share-public-toggle{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#111827}
-.share-public-row{display:grid;grid-template-columns:minmax(0,1fr) max-content max-content;gap:8px;align-items:center}
-.share-public-row input{font-size:12px}
-.share-public-warning{margin:0;font-size:12px;line-height:1.4;color:#92400e}
+.share-modal-card{
+  width:min(100%,512px);
+  max-height:88vh;
+  padding:0;
+  gap:0;
+  border-radius:8px;
+  overflow:hidden;
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr) auto;
+}
+.share-modal-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:20px 22px 8px;
+}
+.share-modal-header h3{
+  margin:0;
+  font-size:22px;
+  font-weight:500;
+  letter-spacing:-.01em;
+  color:#202124;
+}
+.share-modal-close{
+  width:36px;
+  height:36px;
+  border:0;
+  border-radius:50%;
+  background:transparent;
+  color:#5f6368;
+  font-size:24px;
+  line-height:1;
+  cursor:pointer;
+}
+.share-modal-close:hover{background:#f1f3f4}
+.share-modal-body{
+  min-height:0;
+  overflow:auto;
+  padding:8px 22px 8px;
+  display:grid;
+  gap:22px;
+}
+.share-search-wrap{display:grid;gap:10px}
+.share-search{
+  display:grid;
+  position:relative;
+  min-height:56px;
+  padding:18px 14px 8px;
+  border:1px solid #dadce0;
+  border-radius:4px;
+  background:#fff;
+}
+.share-search:focus-within{
+  border-color:#1a73e8;
+  box-shadow:inset 0 0 0 1px #1a73e8;
+}
+.share-search-label{
+  position:absolute;
+  left:12px;
+  top:-8px;
+  padding:0 4px;
+  background:#fff;
+  color:#1a73e8;
+  font-size:12px;
+  font-weight:500;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .12s ease;
+}
+.share-search:focus-within .share-search-label,
+.share-search.is-filled .share-search-label{opacity:1}
+.share-search input{
+  width:100%;
+  min-width:0;
+  border:0;
+  outline:0;
+  background:transparent;
+  font-size:15px;
+  color:#202124;
+  padding:0;
+}
+.share-invite-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) max-content;
+  gap:8px;
+  align-items:center;
+}
+.share-invite-row select,
+.share-invite-row button{
+  min-height:36px;
+}
+.share-section{display:grid;gap:10px}
+.share-section-title{
+  margin:0;
+  font-size:14px;
+  font-weight:500;
+  color:#202124;
+}
+.share-people{display:grid;gap:2px}
+.share-access-row{
+  display:grid;
+  grid-template-columns:40px minmax(0,1fr) auto;
+  gap:12px;
+  align-items:center;
+  padding:8px 2px;
+  border-radius:8px;
+  background:transparent;
+  border:0;
+}
+.share-access-row:hover{background:#f8f9fa}
+.share-access-avatar{
+  width:40px;
+  height:40px;
+  border-radius:50%;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:14px;
+  font-weight:600;
+  color:#fff;
+  flex-shrink:0;
+}
+.share-access-meta{min-width:0;display:grid;gap:2px}
+.share-access-name{
+  font-size:14px;
+  font-weight:500;
+  color:#202124;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.share-access-email{
+  font-size:12px;
+  color:#5f6368;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.share-access-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.share-access-role,
+.share-owner-badge{
+  min-height:36px;
+  min-width:128px;
+  padding:0 10px;
+  border:0;
+  border-radius:4px;
+  background:transparent;
+  color:#3c4043;
+  font-size:14px;
+  text-align:right;
+}
+.share-access-role:hover{background:#e8f0fe}
+.share-owner-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:flex-end;
+  color:#5f6368;
+  padding-right:4px;
+}
+.share-remove-btn{
+  min-height:36px;
+  padding:0 10px;
+  border:0;
+  border-radius:4px;
+  background:transparent;
+  color:#d93025;
+  font-size:13px;
+  cursor:pointer;
+}
+.share-remove-btn:hover{background:#fce8e6}
+.share-people-note{
+  padding:10px 4px 4px;
+  color:#5f6368;
+  font-size:13px;
+  line-height:1.4;
+}
+.share-general{
+  display:grid;
+  grid-template-columns:40px minmax(0,1fr) auto;
+  gap:12px;
+  align-items:start;
+  padding:4px 2px;
+}
+.share-general-icon{
+  width:40px;
+  height:40px;
+  border-radius:50%;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  background:#e8f0fe;
+  color:#1967d2;
+  font-size:18px;
+}
+.share-general-icon.is-open{
+  background:#e6f4ea;
+  color:#137333;
+}
+.share-general-main{min-width:0;display:grid;gap:2px;padding-top:2px}
+.share-general-select{
+  width:fit-content;
+  max-width:100%;
+  min-height:28px;
+  padding:0 22px 0 0;
+  border:0;
+  background:transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%235f6368' d='M1.4.6 6 5.2 10.6.6 12 2 6 8 0 2z'/%3E%3C/svg%3E") no-repeat right center;
+  color:#202124;
+  font-size:14px;
+  font-weight:500;
+  appearance:none;
+  cursor:pointer;
+}
+.share-general-hint{
+  margin:0;
+  color:#5f6368;
+  font-size:12px;
+  line-height:1.4;
+}
+.share-general-role{
+  color:#5f6368;
+  font-size:14px;
+  padding-top:6px;
+  padding-right:4px;
+}
+.share-modal-actions{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:14px 22px 18px;
+}
+.share-copy-link{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-height:40px;
+  padding:0 18px;
+  border:1px solid #dadce0;
+  border-radius:999px;
+  background:transparent;
+  color:#1967d2;
+  font-size:14px;
+  font-weight:500;
+  cursor:pointer;
+}
+.share-copy-link:hover{
+  background:#f6fafe;
+  border-color:#c6dafc;
+}
+.share-done-btn{
+  min-height:40px;
+  min-width:96px;
+  padding:0 24px;
+  border:0;
+  border-radius:999px;
+  background:#1a73e8;
+  color:#fff;
+  font-weight:500;
+  cursor:pointer;
+}
+.share-done-btn:hover{background:#1765cc}
+body.dark .share-modal-card{background:#1f2937;border-color:#334155}
+body.dark .share-modal-header h3,
+body.dark .share-section-title,
+body.dark .share-access-name,
+body.dark .share-general-select,
+body.dark .share-search input{color:#e5e7eb}
+body.dark .share-modal-close,
+body.dark .share-access-email,
+body.dark .share-general-hint,
+body.dark .share-owner-badge,
+body.dark .share-general-role,
+body.dark .share-people-note{color:#94a3b8}
+body.dark .share-modal-close:hover,
+body.dark .share-access-row:hover{background:#111827}
+body.dark .share-search{
+  background:#111827;
+  border-color:#475569;
+}
+body.dark .share-search-label{background:#1f2937}
+body.dark .share-access-role:hover{background:#172554}
+body.dark .share-copy-link{
+  border-color:#475569;
+  color:#93c5fd;
+}
+body.dark .share-copy-link:hover{
+  background:#172554;
+  border-color:#3b82f6;
+}
+body.dark .share-done-btn{background:#2563eb}
+body.dark .share-done-btn:hover{background:#1d4ed8}
 .comments-list{display:flex;flex-direction:column;gap:10px;max-height:min(50vh,420px);overflow:auto}
 .comment-item{border:1px solid #dce3ef;border-radius:12px;padding:12px;background:#fff}
 .comment-item.resolved{opacity:.72;background:#f8fafc}
