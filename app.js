@@ -3430,6 +3430,10 @@ function defaultSheetName(sheetId) {
   return `Лист ${Math.max(1, Number(sheetId) || 1)}`;
 }
 
+function sameSheetId(a, b) {
+  return Math.max(1, Number(a) || 0) === Math.max(1, Number(b) || 0);
+}
+
 function normalizeDocumentSheets(sheets) {
   const list = Array.isArray(sheets) ? sheets.slice() : [];
   const normalized = list
@@ -3476,7 +3480,7 @@ function migrateDocumentLayout(layout) {
 
 function getDocumentSheetById(sheetId) {
   const id = Math.max(1, Number(sheetId) || 1);
-  return documentSheetsState.find((sheet) => sheet.id === id) || null;
+  return documentSheetsState.find((sheet) => Number(sheet.id) === id) || null;
 }
 
 function flushCurrentSheetLayout(layoutOverride = null) {
@@ -3508,11 +3512,14 @@ function resetHistoryStacks() {
 function applyDocumentLayout(docLayout, preferredSheetId = null) {
   const normalized = migrateDocumentLayout(docLayout);
   documentSheetsState = normalized.sheets.map((sheet) => ({
-    id: sheet.id,
+    id: Number(sheet.id),
     name: sheet.name,
     layout: cloneLayout(sheet.layout)
   }));
-  let sheetId = Math.max(1, Number(preferredSheetId) || Number(normalized.activeSheetId) || documentSheetsState[0]?.id || 1);
+  const hasPreferred = preferredSheetId != null && preferredSheetId !== "" && Number(preferredSheetId) > 0;
+  let sheetId = hasPreferred
+    ? Math.max(1, Number(preferredSheetId) || 1)
+    : Math.max(1, Number(normalized.activeSheetId) || documentSheetsState[0]?.id || 1);
   if (!getDocumentSheetById(sheetId)) sheetId = documentSheetsState[0]?.id || 1;
   currentSheetId = sheetId;
   const loaded = applyLayout(getDocumentSheetById(sheetId)?.layout || createBlankLayout());
@@ -3532,17 +3539,37 @@ function nextDocumentSheetId() {
 
 async function switchToSheet(sheetId, opts = {}) {
   const targetId = Math.max(1, Number(sheetId) || 0);
-  if (!targetId || targetId === currentSheetId) return false;
+  if (!targetId || sameSheetId(targetId, currentSheetId)) return false;
   const targetSheet = getDocumentSheetById(targetId);
   if (!targetSheet) return false;
+  const previousId = currentSheetId;
+  clearTimeout(pendingHistoryTimer);
+  pendingHistoryTimer = null;
+  clearTimeout(pendingPersistTimer);
+  pendingPersistTimer = null;
   if (canEditCurrentDocument()) flushCurrentSheetLayout();
   currentSheetId = targetId;
-  applyLayout(targetSheet.layout || createBlankLayout());
+  if (sheetSwitcherCurrent) sheetSwitcherCurrent.textContent = targetSheet.name || defaultSheetName(targetId);
+  try {
+    applyLayout(cloneLayout(targetSheet.layout || createBlankLayout()));
+  } catch (err) {
+    console.error("Failed to open sheet:", err);
+    currentSheetId = previousId;
+    try {
+      applyLayout(cloneLayout(getDocumentSheetById(previousId)?.layout || createBlankLayout()));
+    } catch (rollbackErr) {
+      console.error("Failed to rollback sheet:", rollbackErr);
+    }
+    renderSheetSwitcher();
+    syncSheetSwitcherPanel(sheetSwitcherOpen);
+    showHint("Не удалось открыть лист.", "error", 2500);
+    return false;
+  }
   resetHistoryStacks();
   renderSheetSwitcher();
   syncSheetSwitcherPanel(sheetSwitcherOpen);
   if (opts.updateUrl !== false && currentDocumentId && !guestPublicView) {
-    navigateToDocument(currentDocumentId, { sheetId: currentSheetId, replace: !!opts.replace });
+    navigateToDocument(currentDocumentId, { sheetId: currentSheetId, replace: opts.replace !== false });
   }
   if (canEditCurrentDocument() && autoSaveEnabled) {
     try {
@@ -3631,15 +3658,18 @@ function renderSheetSwitcher() {
   const editable = canEditCurrentDocument();
   documentSheetsState.forEach((sheet) => {
     const item = document.createElement("li");
-    item.className = `sheet-switcher-item${sheet.id === currentSheetId ? " is-active" : ""}`;
+    const isActive = sameSheetId(sheet.id, currentSheetId);
+    item.className = `sheet-switcher-item${isActive ? " is-active" : ""}`;
     item.dataset.sheetId = String(sheet.id);
-    const name = document.createElement("span");
+    const name = document.createElement("button");
+    name.type = "button";
     name.className = "sheet-switcher-name";
     name.textContent = sheet.name;
     name.title = sheet.name;
     name.addEventListener("click", (e) => {
+      e.preventDefault();
       e.stopPropagation();
-      if (sheet.id !== currentSheetId) void switchToSheet(sheet.id, { replace: false });
+      if (!sameSheetId(sheet.id, currentSheetId)) void switchToSheet(sheet.id);
     });
     if (editable) {
       name.addEventListener("dblclick", (e) => {
@@ -3699,7 +3729,9 @@ function initSheetSwitcher() {
   if (!sheetSwitcherToggle) return;
   sheetSwitcherToggle.addEventListener("click", (e) => {
     e.stopPropagation();
-    syncSheetSwitcherPanel(!sheetSwitcherOpen);
+    const nextOpen = !sheetSwitcherOpen;
+    if (nextOpen) renderSheetSwitcher();
+    syncSheetSwitcherPanel(nextOpen);
   });
   if (sheetSwitcherAdd) {
     sheetSwitcherAdd.addEventListener("click", (e) => {
@@ -3904,11 +3936,11 @@ function parseAppRoute(pathname = window.location.pathname) {
   let match = path.match(docWithSheetRe);
   if (match) return { mode: "document", docId: match[1], sheetId: Number(match[2]) || 1 };
   match = path.match(docIdRe);
-  if (match) return { mode: "document", docId: match[1], sheetId: 1 };
+  if (match) return { mode: "document", docId: match[1], sheetId: null };
   match = path.match(publicLegacyRe);
-  if (match) return { mode: "public", docId: match[1], token: match[2], sheetId: 1 };
+  if (match) return { mode: "public", docId: match[1], token: match[2], sheetId: null };
   match = path.match(publicShortRe);
-  if (match) return { mode: "public", token: match[1], sheetId: 1 };
+  if (match) return { mode: "public", token: match[1], sheetId: null };
   return { mode: "home" };
 }
 
@@ -4419,7 +4451,7 @@ async function loadPublicDocument(route = {}) {
   currentDocumentName = data.documentName || "Документ";
   currentDocumentRole = data.documentRole || "reader";
   syncCurrentDocumentTitle();
-  const loaded = applyDocumentLayout(data.layout || createBlankDocumentLayout(), route.sheetId || 1);
+  const loaded = applyDocumentLayout(data.layout || createBlankDocumentLayout(), route.sheetId);
   syncWorkspaceAccessMode();
   return loaded;
 }
@@ -5971,7 +6003,7 @@ async function submitAuthForm() {
     const route = parseAppRoute();
     const pending = consumePendingRoute() || (route.mode === "document" ? route : null);
     if (pending?.docId) {
-      await openDocumentById(pending.docId, { replace: true, sheetId: pending.sheetId || 1 });
+      await openDocumentById(pending.docId, { replace: true, sheetId: pending.sheetId });
     } else if (route.mode === "public") {
       // Stay on the view-only public link; personal edit access is offered via the banner button.
       await loadPublicDocument(route);
