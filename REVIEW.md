@@ -10,6 +10,24 @@
 
 ---
 
+## 2026-07-21 — фикс публичной ссылки (frames)
+
+**Commit:** `5107469` — Fix public link load crash when reordering frames.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260721-075651-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29812349179](https://github.com/skitoand/mmtables/actions/runs/29812349179)  
+**Статус:** OK
+
+### Что сделано
+- Исправлена ошибка `seen.has is not a function` при открытии `/p/...` для документов с фреймами
+- Из‑за неё показывалось «Публичная ссылка недействительна или отключена», хотя ссылка была включена
+- Cache-buster: `app.js?v=20260721-public-link-frames`
+
+### Проверка
+- [x] Deploy Production #29812349179 success
+- [x] `https://mmtable.crystalsystems.ru/p/74b93640ad28` открывает документ (52 shapes, guest-public)
+
+---
+
 ## 2026-07-20 — контакты шаринга + модалка доступа как в БЗ
 
 **Commit:** `db3ff74` — Remember past share contacts and align access modal with Knowledge Base.  
