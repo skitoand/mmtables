@@ -10,6 +10,23 @@
 
 ---
 
+## 2026-07-21 — подпись «режим просмотра» вместо жёлтого баннера
+
+**Commit:** `0c746bf` — Replace public-view yellow banner with a quiet view-mode label.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260721-081116-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29813297880](https://github.com/skitoand/mmtables/actions/runs/29813297880)  
+**Статус:** OK
+
+### Что сделано
+- Убран полноширинный жёлтый баннер на публичных ссылках
+- Справа сверху — аккуратная подпись «режим просмотра»
+- Cache-buster: `app.js?v=20260721-view-mode-label`
+
+### Проверка
+- [x] Deploy Production #29813297880 success
+
+---
+
 ## 2026-07-21 — фикс публичной ссылки (frames)
 
 **Commit:** `5107469` — Fix public link load crash when reordering frames.  
