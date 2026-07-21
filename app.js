@@ -8148,7 +8148,7 @@ function reorderFrameBehindChildren(frame, visited = null) {
   if (!frame) return;
   const frameId = frame.dataset?.shapeId || "";
   if (!frameId) return;
-  const seen = visited || new Set();
+  const seen = visited instanceof Set ? visited : new Set();
   if (seen.has(frameId)) return;
   seen.add(frameId);
 
@@ -18878,7 +18878,9 @@ function applyLayout(data) {
       console.error("Failed to restore shape:", s, err);
     }
   });
-  desktop.querySelectorAll('.shape[data-shape-type="shape-frame"]').forEach(reorderFrameBehindChildren);
+  desktop.querySelectorAll('.shape[data-shape-type="shape-frame"]').forEach((frame) => {
+    reorderFrameBehindChildren(frame);
+  });
   (layout.connectors || []).forEach((c) => connectors.push(c));
   ensureUniqueConnectorIds();
   desktop.querySelectorAll("[data-bp-process-id]").forEach((node) => {
