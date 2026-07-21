@@ -184,6 +184,8 @@ const fpAddCol = $("fpAddCol");
 const fpDelCol = $("fpDelCol");
 const fpAddRow = $("fpAddRow");
 const fpDelRow = $("fpDelRow");
+const fpColLeft = $("fpColLeft");
+const fpColRight = $("fpColRight");
 const fpRowUp = $("fpRowUp");
 const fpRowDown = $("fpRowDown");
 const fpTableColWidth = $("fpTableColWidth");
@@ -16432,6 +16434,8 @@ function createShapeTable(opts = {}, doSave = true) {
   tableRoot.className = "shape-table-root";
   const rowHandleLayer = document.createElement("div");
   rowHandleLayer.className = "table-row-handle-layer";
+  const colHandleLayer = document.createElement("div");
+  colHandleLayer.className = "table-col-handle-layer";
   const tableWrap = document.createElement("div");
   tableWrap.className = "shape-table-wrap";
   applyTableScrollState(tableWrap, state.tableScroll);
@@ -16440,6 +16444,8 @@ function createShapeTable(opts = {}, doSave = true) {
   tableEl.className = "shape-table-grid";
   const rowDropIndicator = document.createElement("div");
   rowDropIndicator.className = "table-row-drop-indicator";
+  const colDropIndicator = document.createElement("div");
+  colDropIndicator.className = "table-col-drop-indicator";
   const cellConnectorGuides = document.createElement("div");
   cellConnectorGuides.className = "table-cell-connector-guides hidden";
   const resizeHandle = document.createElement("div");
@@ -16463,6 +16469,7 @@ function createShapeTable(opts = {}, doSave = true) {
   let rangeSelecting = false;
   let resizeDrag = null;
   let rowDrag = null;
+  let colDrag = null;
   let cellConnectorGuidesLatched = false;
   const cellConnectorArrows = new Map();
 
@@ -16918,6 +16925,7 @@ function createShapeTable(opts = {}, doSave = true) {
     cellConnectorGuidesLatched = false;
     node.__tableSelectionScope = "shape";
     renderRowHandles();
+    renderColHandles();
     updateCellConnectorGuides();
   };
   const paintSelectedCells = () => {
@@ -16926,6 +16934,7 @@ function createShapeTable(opts = {}, doSave = true) {
       td.classList.toggle("cell-range-selected", selectedCells.includes(td) && td !== activeCell);
     });
     renderRowHandles();
+    renderColHandles();
     updateCellConnectorGuides();
   };
   const positionCellConnectorGuides = (td = activeCell) => {
@@ -17566,6 +17575,133 @@ function createShapeTable(opts = {}, doSave = true) {
       rowHandleLayer.appendChild(handle);
     }
   };
+  const getColDropIndexFromClientX = (clientX) => {
+    const rect = tableWrap.getBoundingClientRect();
+    const localZoom = Math.max(0.001, Number(zoom) || 1);
+    const localX = ((clientX - rect.left) / localZoom) + tableWrap.scrollLeft;
+    let acc = 0;
+    for (let c = 0; c < state.cols; c += 1) {
+      const mid = acc + (state.colWidths[c] / 2);
+      if (localX < mid) return c;
+      acc += state.colWidths[c];
+    }
+    return state.cols;
+  };
+  const setColDropIndicator = (insertBeforeCol) => {
+    if (insertBeforeCol == null) {
+      colDropIndicator.style.display = "none";
+      return;
+    }
+    let left = -tableWrap.scrollLeft;
+    for (let c = 0; c < insertBeforeCol; c += 1) left += state.colWidths[c];
+    colDropIndicator.style.left = `${left}px`;
+    colDropIndicator.style.display = "block";
+  };
+  const getVisibleColIndexRange = () => {
+    const viewportWidth = Math.max(0, tableWrap.clientWidth || 0);
+    if (viewportWidth <= 0) return { first: 0, last: state.cols - 1 };
+    const scrollLeft = Math.max(0, tableWrap.scrollLeft || 0);
+    const viewRight = scrollLeft + viewportWidth;
+    let first = -1;
+    let last = -1;
+    let acc = 0;
+    for (let c = 0; c < state.cols; c += 1) {
+      const colLeft = acc;
+      const colRight = acc + (state.colWidths[c] || 0);
+      if (colRight > scrollLeft + 0.5 && colLeft < viewRight - 0.5) {
+        if (first < 0) first = c;
+        last = c;
+      }
+      acc = colRight;
+    }
+    if (first < 0) return { first: 0, last: -1 };
+    return { first, last };
+  };
+  const renderColHandles = () => {
+    colHandleLayer.innerHTML = "";
+    colHandleLayer.appendChild(colDropIndicator);
+    const selectedCols = new Set(getSelectedColIndexes({ requireFullHeight: true }));
+    const { first: visibleFirst, last: visibleLast } = getVisibleColIndexRange();
+    let acc = 0;
+    for (let c = 0; c < state.cols; c += 1) {
+      const width = state.colWidths[c] || 0;
+      if (c < visibleFirst || c > visibleLast) {
+        acc += width;
+        continue;
+      }
+      const colCenter = acc + (width / 2) - tableWrap.scrollLeft;
+      const handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = `table-col-handle${selectedCols.has(c) ? " selected" : ""}`;
+      handle.dataset.col = String(c);
+      handle.title = `Столбец ${c + 1}: тянуть для перемещения`;
+      handle.style.left = `${colCenter}px`;
+      handle.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (isWorkspaceReadOnly()) return;
+        const currentCols = getSelectedColIndexes({ requireFullHeight: true });
+        const blockCols = currentCols.includes(c) ? currentCols : [c];
+        if (!currentCols.includes(c)) selectColumns([c], { focusCol: c });
+        colDrag = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          cols: blockCols,
+          moved: false,
+          dropIndex: getColDropIndexFromClientX(event.clientX)
+        };
+        handle.classList.add("dragging");
+        setColDropIndicator(null);
+        const onMove = (moveEvent) => {
+          if (!colDrag || moveEvent.pointerId !== colDrag.pointerId) return;
+          const nextDropIndex = getColDropIndexFromClientX(moveEvent.clientX);
+          colDrag.dropIndex = nextDropIndex;
+          if (Math.abs(moveEvent.clientX - colDrag.startX) > 3) colDrag.moved = true;
+          setColDropIndicator(colDrag.moved ? nextDropIndex : null);
+        };
+        const onUp = (upEvent) => {
+          if (!colDrag || upEvent.pointerId !== colDrag.pointerId) return;
+          document.removeEventListener("pointermove", onMove, true);
+          document.removeEventListener("pointerup", onUp, true);
+          document.removeEventListener("pointercancel", onUp, true);
+          handle.classList.remove("dragging");
+          const dragState = colDrag;
+          colDrag = null;
+          setColDropIndicator(null);
+          if (!dragState.moved) {
+            selectColumns(dragState.cols, { focusCol: dragState.cols[dragState.cols.length - 1] });
+            return;
+          }
+          if (moveColsBlock(dragState.cols, dragState.dropIndex)) saveLayout();
+        };
+        document.addEventListener("pointermove", onMove, true);
+        document.addEventListener("pointerup", onUp, true);
+        document.addEventListener("pointercancel", onUp, true);
+      });
+      handle.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const currentCols = getSelectedColIndexes({ requireFullHeight: true });
+        if (!currentCols.includes(c)) selectColumns([c], { focusCol: c });
+        const cols = getSelectedColIndexes({ requireFullHeight: true });
+        showContextMenu(event.clientX, event.clientY, [
+          {
+            label: "Переместить влево",
+            disabled: !cols.length || cols[0] <= 0,
+            action: () => { if (moveSelectedColsBy(-1)) saveLayout(); }
+          },
+          {
+            label: "Переместить вправо",
+            disabled: !cols.length || cols[cols.length - 1] >= state.cols - 1,
+            action: () => { if (moveSelectedColsBy(1)) saveLayout(); }
+          }
+        ]);
+      });
+      colHandleLayer.appendChild(handle);
+      acc += width;
+    }
+  };
   const applyTableTrackSizesFromPanel = () => {
     const targets = getSelectedTrackIndexes();
     let changed = false;
@@ -17770,6 +17906,7 @@ function createShapeTable(opts = {}, doSave = true) {
     }
     updateStoredSize();
     renderRowHandles();
+    renderColHandles();
     updateCellConnectorGuides();
     ensureTableScrollForViewport();
   };
@@ -18424,6 +18561,7 @@ function createShapeTable(opts = {}, doSave = true) {
   tableWrap.addEventListener("pointercancel", finishTableResize);
   tableWrap.addEventListener("scroll", () => {
     renderRowHandles();
+    renderColHandles();
     updateCellConnectorGuides();
     renderConnectors();
   });
@@ -18495,6 +18633,7 @@ function createShapeTable(opts = {}, doSave = true) {
   chrome.appendChild(tableRoot);
   node.appendChild(chrome);
   node.appendChild(rowHandleLayer);
+  node.appendChild(colHandleLayer);
   node.appendChild(cellConnectorGuides);
   node.appendChild(addColBtn);
   node.appendChild(addRowBtn);
@@ -20342,6 +20481,14 @@ safeOn(fpAddCol, "click", () => {
 safeOn(fpDelCol, "click", () => {
   if (!selectedShape || selectedShape.dataset.shapeType !== "shape-table" || !selectedShape.__tableApi) return;
   if (selectedShape.__tableApi.deleteSelectedColumns()) saveLayout();
+});
+safeOn(fpColLeft, "click", () => {
+  if (!selectedShape || selectedShape.dataset.shapeType !== "shape-table" || !selectedShape.__tableApi?.moveSelectedColsBy) return;
+  if (selectedShape.__tableApi.moveSelectedColsBy(-1)) saveLayout();
+});
+safeOn(fpColRight, "click", () => {
+  if (!selectedShape || selectedShape.dataset.shapeType !== "shape-table" || !selectedShape.__tableApi?.moveSelectedColsBy) return;
+  if (selectedShape.__tableApi.moveSelectedColsBy(1)) saveLayout();
 });
 safeOn(fpAddRow, "click", () => {
   if (!selectedShape || selectedShape.dataset.shapeType !== "shape-table" || !selectedShape.__tableApi) return;
