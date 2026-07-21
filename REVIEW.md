@@ -10,6 +10,24 @@
 
 ---
 
+## 2026-07-21 — фикс переключения листов
+
+**Commit:** `9169e69` / `57551fd` — Fix sheet switcher getting stuck on the previous sheet.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260721-082447-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29813990306](https://github.com/skitoand/mmtables/actions/runs/29813990306), [#29814174991](https://github.com/skitoand/mmtables/actions/runs/29814174991)  
+**Статус:** OK
+
+### Что сделано
+- Переключатель листов синхронизируется с активным листом после клика
+- URL без номера листа больше не сбрасывает на «Лист 1», берётся `activeSheetId`
+- Надёжнее клик по имени листа, обновление UI при открытии меню
+- Cache-buster: `app.js?v=20260721-sheet-switch`
+
+### Проверка
+- [x] Deploy Production success
+
+---
+
 ## 2026-07-21 — подпись «режим просмотра» вместо жёлтого баннера
 
 **Commit:** `0c746bf` — Replace public-view yellow banner with a quiet view-mode label.  
