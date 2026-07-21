@@ -3567,7 +3567,7 @@ async function switchToSheet(sheetId, opts = {}) {
   }
   resetHistoryStacks();
   renderSheetSwitcher();
-  syncSheetSwitcherPanel(sheetSwitcherOpen);
+  syncSheetSwitcherPanel(!!opts.keepPanelOpen);
   if (opts.updateUrl !== false && currentDocumentId && !guestPublicView) {
     navigateToDocument(currentDocumentId, { sheetId: currentSheetId, replace: opts.replace !== false });
   }
@@ -3589,8 +3589,7 @@ async function addDocumentSheet() {
   const sheet = { id, name: defaultSheetName(id), layout: createBlankLayout() };
   documentSheetsState.push(sheet);
   documentSheetsState.sort((a, b) => a.id - b.id);
-  await switchToSheet(id, { replace: false });
-  syncSheetSwitcherPanel(true);
+  await switchToSheet(id, { replace: false, keepPanelOpen: true });
   showHint(`Создан ${sheet.name}`, "warning", 1600);
   return sheet;
 }
@@ -3670,6 +3669,7 @@ function renderSheetSwitcher() {
       e.preventDefault();
       e.stopPropagation();
       if (!sameSheetId(sheet.id, currentSheetId)) void switchToSheet(sheet.id);
+      else syncSheetSwitcherPanel(false);
     });
     if (editable) {
       name.addEventListener("dblclick", (e) => {
