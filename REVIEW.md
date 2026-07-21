@@ -10,6 +10,24 @@
 
 ---
 
+## 2026-07-21 — перетаскивание столбцов таблицы
+
+**Commit:** `f44b4b7` — Add drag-and-drop reordering for table columns.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260721-133900-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29835393160](https://github.com/skitoand/mmtables/actions/runs/29835393160)  
+**Статус:** OK
+
+### Что сделано
+- Drag столбцов за верхнюю ручку (как у строк)
+- Контекстное меню «Переместить влево/вправо»
+- Кнопки `← Столбец` / `→ Столбец` в панели формата
+- Cache-buster: `app.js?v=20260721-col-drag`
+
+### Проверка
+- [x] Deploy Production #29835393160 success
+
+---
+
 ## 2026-07-21 — сворачивание списка листов после выбора
 
 **Commit:** `2203b9e` — Collapse the sheet list after selecting a sheet.  
