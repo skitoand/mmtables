@@ -4082,26 +4082,39 @@ function updateWorkspaceAccessBanner() {
     if (!banner) {
       banner = document.createElement("div");
       banner.id = "workspaceAccessBanner";
-      banner.className = "workspace-access-banner";
+      banner.className = "workspace-view-mode-label";
+      banner.setAttribute("role", "status");
       const host = document.querySelector(".app") || document.body;
-      host.insertBefore(banner, host.firstChild);
+      host.appendChild(banner);
+    } else {
+      banner.className = "workspace-view-mode-label";
     }
     return banner;
   };
   const removeBanner = () => {
     if (banner) banner.remove();
+    banner = null;
   };
+
+  const readonly = guestPublicView || document.body.classList.contains("workspace-readonly");
+  if (!readonly) {
+    removeBanner();
+    return;
+  }
+
+  const el = ensureBanner();
+  el.replaceChildren();
+  const text = document.createElement("span");
+  text.textContent = "режим просмотра";
+  el.appendChild(text);
 
   if (guestPublicView) {
     const personal = getPersonalAccessForCurrentPublicDoc();
-    const el = ensureBanner();
-    el.replaceChildren();
     if (personal && ["owner", "admin", "editor"].includes(String(personal.role || "").toLowerCase())) {
-      const text = document.createElement("span");
-      text.textContent = `Публичная ссылка — только просмотр. У вас есть доступ: ${roleLabel(personal.role)}.`;
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.textContent = "Открыть для редактирования";
+      btn.className = "workspace-view-mode-edit";
+      btn.textContent = "Редактировать";
       btn.addEventListener("click", async () => {
         try {
           const opened = await openDocumentById(currentDocumentId, {
@@ -4116,42 +4129,9 @@ function updateWorkspaceAccessBanner() {
           showHint("Не удалось открыть документ для редактирования.", "error", 2500);
         }
       });
-      el.append(text, btn);
-      return;
+      el.appendChild(btn);
     }
-    if (personal) {
-      const text = document.createElement("span");
-      text.textContent = `Публичная ссылка — только просмотр. Документ также есть в «Файл → Открыть → Доступные мне» (${roleLabel(personal.role)}).`;
-      el.append(text);
-      return;
-    }
-    if (currentUser) {
-      const text = document.createElement("span");
-      text.textContent = `Только просмотр. Вы вошли как ${currentUser.email || "пользователь"}. Если доступ выдали на другой email — войдите им: документ появится в «Файл → Открыть → Доступные мне».`;
-      el.append(text);
-      return;
-    }
-    const text = document.createElement("span");
-    text.textContent = "Только просмотр по ссылке. Если вам выдали доступ — войдите в свой аккаунт: документ появится в «Файл → Открыть → Доступные мне».";
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = "Войти";
-    btn.addEventListener("click", () => openAuthModal("login"));
-    el.append(text, btn);
-    return;
   }
-
-  const readonly = document.body.classList.contains("workspace-readonly");
-  if (!readonly) {
-    removeBanner();
-    return;
-  }
-  const el = ensureBanner();
-  el.replaceChildren();
-  const label = canCommentCurrentDocument() && !canEditCurrentDocument()
-    ? "Режим комментирования: редактирование схемы отключено"
-    : "Только просмотр";
-  el.textContent = label;
 }
 
 function escapeHtml(value) {

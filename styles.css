@@ -775,8 +775,45 @@ body.dark .share-done-btn:hover{background:#1d4ed8}
 .comments-anchor-hint{font-size:12px;color:#6b7280}
 .profile-password-block{display:flex;flex-direction:column;gap:8px}
 .profile-password-block.hidden{display:none}
-.workspace-access-banner{display:flex;align-items:center;justify-content:center;gap:12px;padding:8px 16px;background:#fef3c7;border-bottom:1px solid #fcd34d;color:#92400e;font-size:13px;font-weight:600}
-.workspace-access-banner button{padding:4px 12px;border-radius:8px;border:1px solid #d97706;background:#fff;color:#92400e;font-weight:600;cursor:pointer}
+.workspace-view-mode-label{
+  position:absolute;
+  top:14px;
+  right:18px;
+  z-index:9000;
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  padding:0;
+  border:0;
+  background:transparent;
+  color:#64748b;
+  font-size:12px;
+  font-weight:500;
+  letter-spacing:.02em;
+  pointer-events:none;
+}
+.workspace-view-mode-label .workspace-view-mode-edit{
+  pointer-events:auto;
+  min-height:28px;
+  padding:0 10px;
+  border:1px solid #dbe3ef;
+  border-radius:999px;
+  background:rgba(255,255,255,.92);
+  color:#334155;
+  font-size:12px;
+  font-weight:500;
+  cursor:pointer;
+}
+.workspace-view-mode-label .workspace-view-mode-edit:hover{
+  background:#fff;
+  border-color:#cbd5e1;
+}
+body.dark .workspace-view-mode-label{color:#94a3b8}
+body.dark .workspace-view-mode-label .workspace-view-mode-edit{
+  background:rgba(15,23,42,.88);
+  border-color:#334155;
+  color:#e2e8f0;
+}
 body.workspace-readonly .shape .resize-handle,
 body.workspace-readonly .table-add-col,
 body.workspace-readonly .table-add-row,
@@ -844,8 +881,6 @@ body.workspace-guest-public #formatPanel{display:none!important}
 body.dark .share-public-block{background:#0f172a;border-color:#334155}
 body.dark .share-public-toggle{color:#e2e8f0}
 body.dark .share-public-warning{color:#fde68a}
-body.dark .workspace-access-banner{background:#422006;border-color:#92400e;color:#fde68a}
-body.dark .workspace-access-banner button{background:#1e293b;border-color:#d97706;color:#fde68a}
 .sheet-window{position:absolute;width:640px;height:420px;border:1px solid #c7d0e0;border-radius:12px;background:#fff;box-shadow:var(--shadow);overflow:visible}
 .sheet-window.selected-window{outline:none;overflow:visible}
 .sheet-window.selected-window .shape-handles{display:block}
