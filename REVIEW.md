@@ -10,6 +10,22 @@
 
 ---
 
+## 2026-07-21 — сворачивание списка листов после выбора
+
+**Commit:** `2203b9e` — Collapse the sheet list after selecting a sheet.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260721-082922-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29814472019](https://github.com/skitoand/mmtables/actions/runs/29814472019)  
+**Статус:** OK
+
+### Что сделано
+- После выбора листа меню страниц сворачивается
+- Cache-buster: `app.js?v=20260721-sheet-collapse`
+
+### Проверка
+- [x] Deploy Production #29814472019 success
+
+---
+
 ## 2026-07-21 — фикс переключения листов
 
 **Commit:** `9169e69` / `57551fd` — Fix sheet switcher getting stuck on the previous sheet.  
