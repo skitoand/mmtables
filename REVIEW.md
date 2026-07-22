@@ -10,6 +10,20 @@
 
 ---
 
+## 2026-07-22 — фикс выпадающего списка при добавлении пользователя в Доступ
+
+**Commit:** `47649b9` — Fix share-user suggestions disappearing across the input gap.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260722-095421-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29909817028](https://github.com/skitoand/mmtables/actions/runs/29909817028)  
+**Статус:** OK
+
+### Что сделано
+- Убран разрыв между полем e-mail и списком подсказок
+- Список больше не закрывается при движении курсора к варианту
+- Cache-buster: `20260722-share-suggest-v2`
+
+---
+
 ## 2026-07-22 — защита от перетирания документов + восстановление «Электрик 1»
 
 **Commit:** `2462483` — Prevent autosave from writing one document into another.  
