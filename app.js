@@ -188,6 +188,8 @@ const fpColLeft = $("fpColLeft");
 const fpColRight = $("fpColRight");
 const fpRowUp = $("fpRowUp");
 const fpRowDown = $("fpRowDown");
+const fpMergeCells = $("fpMergeCells");
+const fpUnmergeCells = $("fpUnmergeCells");
 const fpTableColWidth = $("fpTableColWidth");
 const fpTableRowHeight = $("fpTableRowHeight");
 const fpAlignLeft = $("fpAlignLeft");
@@ -16382,31 +16384,47 @@ function createShapeTable(opts = {}, doSave = true) {
       shadow: toNumber(sourceStyle.shadow ?? opts.shadow, 7, 0, 48)
     }
   };
-  const normalizeCell = (cell, r, c) => ({
-    r,
-    c,
-    raw: String(cell.raw ?? cell.text ?? ""),
-    fontFamily: cell.fontFamily || "Arial",
-    fontSize: toNumber(cell.fontSize, 14, 8, 144),
-    color: themeAwareColor(cell.color, "var(--table-cell-text, #334155)", ["#334155"]),
-    numberGrouping: toBool(cell.numberGrouping, true),
-    numberFormat: normalizeNumberFormat(cell.numberFormat, NUMBER_FORMAT_NUMBER),
-    fillEnabled: toBool(cell.fillEnabled, false),
-    gradientEnabled: toBool(cell.gradientEnabled, false),
-    fillDirection: cell.fillDirection || "horizontal",
-    fill1: themeAwareColor(cell.fill1 || cell.background, "var(--table-cell-fill, #ffffff)", ["#ffffff"]),
-    fill2: themeAwareColor(cell.fill2 || cell.fill1 || cell.background, "var(--table-cell-fill, #ffffff)", ["#ffffff"]),
-    borderColor: themeAwareColor(cell.borderColor, "var(--table-border, #b8c0cc)", ["#b8c0cc"]),
-    borderWidth: toNumber(cell.borderWidth, 1, 0, 24),
-    borderEnabled: toBool(cell.borderEnabled, true),
-    align: cell.align || "left",
-    vAlign: cell.vAlign || "middle",
-    bold: toBool(cell.bold, false),
-    italic: toBool(cell.italic, false),
-    strike: toBool(cell.strike, false),
-    wrap: toBool(cell.wrap, true),
-    decimalPlaces: normalizeFormulaDecimalPlaces(cell.decimalPlaces, null)
-  });
+  const normalizeMergeMaster = (value) => {
+    if (!value || typeof value !== "object") return null;
+    const mr = Math.floor(Number(value.r));
+    const mc = Math.floor(Number(value.c));
+    if (!Number.isFinite(mr) || !Number.isFinite(mc) || mr < 0 || mc < 0) return null;
+    return { r: mr, c: mc };
+  };
+  const normalizeCell = (cell, r, c) => {
+    const rowSpan = Math.max(1, Math.floor(toNumber(cell.rowSpan, 1, 1, 200)));
+    const colSpan = Math.max(1, Math.floor(toNumber(cell.colSpan, 1, 1, 100)));
+    const mergeMaster = normalizeMergeMaster(cell.mergeMaster);
+    const isCovered = !!(mergeMaster && (mergeMaster.r !== r || mergeMaster.c !== c));
+    return {
+      r,
+      c,
+      raw: String(cell.raw ?? cell.text ?? ""),
+      fontFamily: cell.fontFamily || "Arial",
+      fontSize: toNumber(cell.fontSize, 14, 8, 144),
+      color: themeAwareColor(cell.color, "var(--table-cell-text, #334155)", ["#334155"]),
+      numberGrouping: toBool(cell.numberGrouping, true),
+      numberFormat: normalizeNumberFormat(cell.numberFormat, NUMBER_FORMAT_NUMBER),
+      fillEnabled: toBool(cell.fillEnabled, false),
+      gradientEnabled: toBool(cell.gradientEnabled, false),
+      fillDirection: cell.fillDirection || "horizontal",
+      fill1: themeAwareColor(cell.fill1 || cell.background, "var(--table-cell-fill, #ffffff)", ["#ffffff"]),
+      fill2: themeAwareColor(cell.fill2 || cell.fill1 || cell.background, "var(--table-cell-fill, #ffffff)", ["#ffffff"]),
+      borderColor: themeAwareColor(cell.borderColor, "var(--table-border, #b8c0cc)", ["#b8c0cc"]),
+      borderWidth: toNumber(cell.borderWidth, 1, 0, 24),
+      borderEnabled: toBool(cell.borderEnabled, true),
+      align: cell.align || "left",
+      vAlign: cell.vAlign || "middle",
+      bold: toBool(cell.bold, false),
+      italic: toBool(cell.italic, false),
+      strike: toBool(cell.strike, false),
+      wrap: toBool(cell.wrap, true),
+      decimalPlaces: normalizeFormulaDecimalPlaces(cell.decimalPlaces, null),
+      rowSpan: isCovered ? 1 : rowSpan,
+      colSpan: isCovered ? 1 : colSpan,
+      mergeMaster: isCovered ? mergeMaster : null
+    };
+  };
   const cellKey = (r, c) => `${r}:${c}`;
   const colNameFromIndex = (index) => {
     let n = index + 1;
@@ -16433,6 +16451,60 @@ function createShapeTable(opts = {}, doSave = true) {
     for (let c = 0; c < cols; c += 1) {
       if (!state.cells.has(cellKey(r, c))) state.cells.set(cellKey(r, c), normalizeCell({}, r, c));
     }
+  }
+  // Rebuild merge coverage from persisted rowSpan/colSpan/mergeMaster.
+  {
+    const masters = [];
+    for (let r = 0; r < state.rows; r += 1) {
+      for (let c = 0; c < state.cols; c += 1) {
+        const cell = state.cells.get(cellKey(r, c));
+        if (!cell) continue;
+        if (!cell.mergeMaster && (cell.rowSpan > 1 || cell.colSpan > 1)) masters.push(cell);
+      }
+    }
+    for (let r = 0; r < state.rows; r += 1) {
+      for (let c = 0; c < state.cols; c += 1) {
+        const cell = state.cells.get(cellKey(r, c));
+        if (!cell) continue;
+        cell.mergeMaster = null;
+        if (!(cell.rowSpan > 1 || cell.colSpan > 1)) {
+          cell.rowSpan = 1;
+          cell.colSpan = 1;
+        }
+      }
+    }
+    const occupied = new Set();
+    masters.forEach((master) => {
+      const rowSpan = Math.max(1, Math.min(state.rows - master.r, master.rowSpan));
+      const colSpan = Math.max(1, Math.min(state.cols - master.c, master.colSpan));
+      master.rowSpan = rowSpan;
+      master.colSpan = colSpan;
+      if (rowSpan === 1 && colSpan === 1) return;
+      let valid = true;
+      for (let r = master.r; r < master.r + rowSpan && valid; r += 1) {
+        for (let c = master.c; c < master.c + colSpan; c += 1) {
+          if (r === master.r && c === master.c) continue;
+          if (occupied.has(cellKey(r, c))) { valid = false; break; }
+        }
+      }
+      if (!valid) {
+        master.rowSpan = 1;
+        master.colSpan = 1;
+        return;
+      }
+      occupied.add(cellKey(master.r, master.c));
+      for (let r = master.r; r < master.r + rowSpan; r += 1) {
+        for (let c = master.c; c < master.c + colSpan; c += 1) {
+          if (r === master.r && c === master.c) continue;
+          const covered = state.cells.get(cellKey(r, c)) || normalizeCell({}, r, c);
+          covered.mergeMaster = { r: master.r, c: master.c };
+          covered.rowSpan = 1;
+          covered.colSpan = 1;
+          state.cells.set(cellKey(r, c), covered);
+          occupied.add(cellKey(r, c));
+        }
+      }
+    });
   }
 
   const viewportWidth = Math.max(MIN_COL_WIDTH, initialWidth);
@@ -16533,6 +16605,259 @@ function createShapeTable(opts = {}, doSave = true) {
 
   const getCellState = (r, c) => state.cells.get(cellKey(r, c));
   const setCellState = (cell) => state.cells.set(cellKey(cell.r, cell.c), cell);
+  const getMergeAnchor = (r, c) => {
+    const cell = getCellState(r, c);
+    if (cell?.mergeMaster) return { r: cell.mergeMaster.r, c: cell.mergeMaster.c };
+    return { r, c };
+  };
+  const getMergeBoundsAt = (r, c) => {
+    const anchor = getMergeAnchor(r, c);
+    const master = getCellState(anchor.r, anchor.c);
+    const rowSpan = Math.max(1, Math.min(state.rows - anchor.r, Math.floor(Number(master?.rowSpan) || 1)));
+    const colSpan = Math.max(1, Math.min(state.cols - anchor.c, Math.floor(Number(master?.colSpan) || 1)));
+    return {
+      rMin: anchor.r,
+      cMin: anchor.c,
+      rMax: anchor.r + rowSpan - 1,
+      cMax: anchor.c + colSpan - 1,
+      rowSpan,
+      colSpan
+    };
+  };
+  const isCoveredByMerge = (r, c) => {
+    const cell = getCellState(r, c);
+    return !!(cell?.mergeMaster && (cell.mergeMaster.r !== r || cell.mergeMaster.c !== c));
+  };
+  const resyncMergeCoverage = () => {
+    const masters = [];
+    for (let r = 0; r < state.rows; r += 1) {
+      for (let c = 0; c < state.cols; c += 1) {
+        const cell = getCellState(r, c) || normalizeCell({}, r, c);
+        cell.mergeMaster = null;
+        cell.rowSpan = Math.max(1, Math.floor(Number(cell.rowSpan) || 1));
+        cell.colSpan = Math.max(1, Math.floor(Number(cell.colSpan) || 1));
+        if (cell.rowSpan > 1 || cell.colSpan > 1) masters.push(cell);
+        setCellState(cell);
+      }
+    }
+    const occupied = new Set();
+    masters
+      .sort((a, b) => (a.r - b.r) || (a.c - b.c))
+      .forEach((master) => {
+        const rowSpan = Math.max(1, Math.min(state.rows - master.r, master.rowSpan));
+        const colSpan = Math.max(1, Math.min(state.cols - master.c, master.colSpan));
+        master.rowSpan = rowSpan;
+        master.colSpan = colSpan;
+        if (rowSpan === 1 && colSpan === 1) {
+          setCellState(master);
+          return;
+        }
+        let valid = true;
+        for (let r = master.r; r < master.r + rowSpan && valid; r += 1) {
+          for (let c = master.c; c < master.c + colSpan; c += 1) {
+            const key = cellKey(r, c);
+            if (r === master.r && c === master.c) continue;
+            if (occupied.has(key)) {
+              valid = false;
+              break;
+            }
+            const other = getCellState(r, c);
+            if (other && (other.rowSpan > 1 || other.colSpan > 1) && !(other.r === master.r && other.c === master.c)) {
+              valid = false;
+              break;
+            }
+          }
+        }
+        if (!valid) {
+          master.rowSpan = 1;
+          master.colSpan = 1;
+          setCellState(master);
+          return;
+        }
+        occupied.add(cellKey(master.r, master.c));
+        setCellState(master);
+        for (let r = master.r; r < master.r + rowSpan; r += 1) {
+          for (let c = master.c; c < master.c + colSpan; c += 1) {
+            if (r === master.r && c === master.c) continue;
+            const covered = getCellState(r, c) || normalizeCell({}, r, c);
+            covered.mergeMaster = { r: master.r, c: master.c };
+            covered.rowSpan = 1;
+            covered.colSpan = 1;
+            setCellState(covered);
+            occupied.add(cellKey(r, c));
+          }
+        }
+      });
+  };
+  const clearMergeBounds = (rMin, cMin, rMax, cMax) => {
+    for (let r = rMin; r <= rMax; r += 1) {
+      for (let c = cMin; c <= cMax; c += 1) {
+        const cell = getCellState(r, c);
+        if (!cell) continue;
+        cell.rowSpan = 1;
+        cell.colSpan = 1;
+        cell.mergeMaster = null;
+        setCellState(cell);
+      }
+    }
+  };
+  const expandSelectionThroughMerges = (rMin, cMin, rMax, cMax) => {
+    let nextRMin = rMin;
+    let nextCMin = cMin;
+    let nextRMax = rMax;
+    let nextCMax = cMax;
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let r = nextRMin; r <= nextRMax; r += 1) {
+        for (let c = nextCMin; c <= nextCMax; c += 1) {
+          const bounds = getMergeBoundsAt(r, c);
+          if (bounds.rMin < nextRMin) { nextRMin = bounds.rMin; changed = true; }
+          if (bounds.cMin < nextCMin) { nextCMin = bounds.cMin; changed = true; }
+          if (bounds.rMax > nextRMax) { nextRMax = bounds.rMax; changed = true; }
+          if (bounds.cMax > nextCMax) { nextCMax = bounds.cMax; changed = true; }
+        }
+      }
+    }
+    return { rMin: nextRMin, cMin: nextCMin, rMax: nextRMax, cMax: nextCMax };
+  };
+  const getSelectionRect = () => {
+    const cells = (node.__tableSelectionScope === "cells"
+      ? (selectedCells.length ? selectedCells : (activeCell ? [activeCell] : []))
+      : [])
+      .filter(Boolean);
+    if (!cells.length) return null;
+    let rMin = Infinity;
+    let cMin = Infinity;
+    let rMax = -Infinity;
+    let cMax = -Infinity;
+    const selectedAnchors = new Set();
+    cells.forEach((td) => {
+      const r = Number(td.dataset.r);
+      const c = Number(td.dataset.c);
+      if (!Number.isFinite(r) || !Number.isFinite(c)) return;
+      const bounds = getMergeBoundsAt(r, c);
+      selectedAnchors.add(cellKey(bounds.rMin, bounds.cMin));
+      rMin = Math.min(rMin, bounds.rMin);
+      cMin = Math.min(cMin, bounds.cMin);
+      rMax = Math.max(rMax, bounds.rMax);
+      cMax = Math.max(cMax, bounds.cMax);
+    });
+    if (!Number.isFinite(rMin) || !Number.isFinite(cMin)) return null;
+    const expanded = expandSelectionThroughMerges(rMin, cMin, rMax, cMax);
+    for (let r = expanded.rMin; r <= expanded.rMax; r += 1) {
+      for (let c = expanded.cMin; c <= expanded.cMax; c += 1) {
+        const anchor = getMergeAnchor(r, c);
+        if (!selectedAnchors.has(cellKey(anchor.r, anchor.c))) return null;
+      }
+    }
+    return expanded;
+  };
+  const mergeSelectedCells = () => {
+    if (isWorkspaceReadOnly()) return false;
+    const rect = getSelectionRect();
+    if (!rect) return false;
+    const { rMin, cMin, rMax, cMax } = rect;
+    const rowSpan = rMax - rMin + 1;
+    const colSpan = cMax - cMin + 1;
+    if (rowSpan < 2 && colSpan < 2) return false;
+    // Unmerge anything intersecting the target rectangle first.
+    for (let r = rMin; r <= rMax; r += 1) {
+      for (let c = cMin; c <= cMax; c += 1) {
+        const bounds = getMergeBoundsAt(r, c);
+        if (bounds.rowSpan > 1 || bounds.colSpan > 1) {
+          clearMergeBounds(bounds.rMin, bounds.cMin, bounds.rMax, bounds.cMax);
+        }
+      }
+    }
+    const master = getCellState(rMin, cMin) || normalizeCell({}, rMin, cMin);
+    master.rowSpan = rowSpan;
+    master.colSpan = colSpan;
+    master.mergeMaster = null;
+    setCellState(master);
+    for (let r = rMin; r <= rMax; r += 1) {
+      for (let c = cMin; c <= cMax; c += 1) {
+        if (r === rMin && c === cMin) continue;
+        const covered = getCellState(r, c) || normalizeCell({}, r, c);
+        covered.mergeMaster = { r: rMin, c: cMin };
+        covered.rowSpan = 1;
+        covered.colSpan = 1;
+        setCellState(covered);
+      }
+    }
+    resyncMergeCoverage();
+    renderTable();
+    const masterTd = getCellElement(rMin, cMin);
+    if (masterTd) selectCell(masterTd);
+    saveLayout();
+    return true;
+  };
+  const unmergeSelectedCells = () => {
+    if (isWorkspaceReadOnly()) return false;
+    const cells = (node.__tableSelectionScope === "cells"
+      ? (selectedCells.length ? selectedCells : (activeCell ? [activeCell] : []))
+      : [])
+      .filter(Boolean);
+    if (!cells.length) return false;
+    let changed = false;
+    const seen = new Set();
+    cells.forEach((td) => {
+      const r = Number(td.dataset.r);
+      const c = Number(td.dataset.c);
+      if (!Number.isFinite(r) || !Number.isFinite(c)) return;
+      const bounds = getMergeBoundsAt(r, c);
+      const key = cellKey(bounds.rMin, bounds.cMin);
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (bounds.rowSpan === 1 && bounds.colSpan === 1) return;
+      clearMergeBounds(bounds.rMin, bounds.cMin, bounds.rMax, bounds.cMax);
+      changed = true;
+    });
+    if (!changed) return false;
+    resyncMergeCoverage();
+    renderTable();
+    const focus = cells[0];
+    const focusR = Number(focus?.dataset?.r);
+    const focusC = Number(focus?.dataset?.c);
+    const focusTd = Number.isFinite(focusR) && Number.isFinite(focusC)
+      ? getCellElement(focusR, focusC)
+      : null;
+    if (focusTd) selectCell(focusTd);
+    saveLayout();
+    return true;
+  };
+  const adjustMergesAfterColInsert = (insertAt) => {
+    for (let r = 0; r < state.rows; r += 1) {
+      for (let c = 0; c < state.cols; c += 1) {
+        const cell = getCellState(r, c);
+        if (!cell) continue;
+        if (cell.mergeMaster && cell.mergeMaster.c >= insertAt) {
+          cell.mergeMaster = { r: cell.mergeMaster.r, c: cell.mergeMaster.c + 1 };
+        }
+        if (!cell.mergeMaster && (cell.colSpan > 1 || cell.rowSpan > 1) && cell.c < insertAt && cell.c + cell.colSpan > insertAt) {
+          cell.colSpan += 1;
+        }
+        setCellState(cell);
+      }
+    }
+    resyncMergeCoverage();
+  };
+  const adjustMergesAfterRowInsert = (insertAt) => {
+    for (let r = 0; r < state.rows; r += 1) {
+      for (let c = 0; c < state.cols; c += 1) {
+        const cell = getCellState(r, c);
+        if (!cell) continue;
+        if (cell.mergeMaster && cell.mergeMaster.r >= insertAt) {
+          cell.mergeMaster = { r: cell.mergeMaster.r + 1, c: cell.mergeMaster.c };
+        }
+        if (!cell.mergeMaster && (cell.colSpan > 1 || cell.rowSpan > 1) && cell.r < insertAt && cell.r + cell.rowSpan > insertAt) {
+          cell.rowSpan += 1;
+        }
+        setCellState(cell);
+      }
+    }
+    resyncMergeCoverage();
+  };
   const getCellReferenceToken = (r, c) => formatTableCellReferenceToken(syncTableReferenceName(node, state.title), addressFromCell(r, c));
   const getEditingCellRawText = () => {
     if (!editingCell) return "";
@@ -16827,6 +17152,8 @@ function createShapeTable(opts = {}, doSave = true) {
   };
   const applyCellStyle = (td, cell) => {
     const isFilterHeaderCell = state.tableFilterEnabled && cell.r === 0;
+    const rowSpan = Math.max(1, Math.floor(Number(cell.rowSpan) || 1));
+    const colSpan = Math.max(1, Math.floor(Number(cell.colSpan) || 1));
     td.dataset.r = String(cell.r);
     td.dataset.c = String(cell.c);
     td.dataset.address = addressFromCell(cell.r, cell.c);
@@ -16840,6 +17167,8 @@ function createShapeTable(opts = {}, doSave = true) {
     td.dataset.borderColor = cell.borderColor;
     td.dataset.borderWidth = String(cell.borderWidth);
     td.dataset.borderEnabled = cell.borderEnabled ? "1" : "0";
+    td.rowSpan = rowSpan;
+    td.colSpan = colSpan;
     td.style.fontFamily = fontCssFromKey(cell.fontFamily);
     td.style.fontSize = `${cell.fontSize}px`;
     td.style.color = cell.color;
@@ -17058,14 +17387,24 @@ function createShapeTable(opts = {}, doSave = true) {
     const c1 = Number(fromTd.dataset.c);
     const r2 = Number(toTd.dataset.r);
     const c2 = Number(toTd.dataset.c);
-    const rMin = Math.min(r1, r2);
-    const rMax = Math.max(r1, r2);
-    const cMin = Math.min(c1, c2);
-    const cMax = Math.max(c1, c2);
+    let rMin = Math.min(r1, r2);
+    let rMax = Math.max(r1, r2);
+    let cMin = Math.min(c1, c2);
+    let cMax = Math.max(c1, c2);
+    const expanded = expandSelectionThroughMerges(rMin, cMin, rMax, cMax);
+    rMin = expanded.rMin;
+    rMax = expanded.rMax;
+    cMin = expanded.cMin;
+    cMax = expanded.cMax;
     selectedCells = [];
+    const seen = new Set();
     for (let r = rMin; r <= rMax; r += 1) {
       for (let c = cMin; c <= cMax; c += 1) {
-        const td = getCellElement(r, c);
+        const anchor = getMergeAnchor(r, c);
+        const key = cellKey(anchor.r, anchor.c);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const td = getCellElement(anchor.r, anchor.c);
         if (td) selectedCells.push(td);
       }
     }
@@ -17196,9 +17535,21 @@ function createShapeTable(opts = {}, doSave = true) {
   const moveSelectionBy = (deltaRow, deltaCol, opts = {}) => {
     const current = activeCell || selectedCells[0] || tableEl.querySelector("td");
     if (!current || editingCell) return false;
-    const row = Math.max(0, Math.min(state.rows - 1, Number(current.dataset.r) + deltaRow));
-    const col = Math.max(0, Math.min(state.cols - 1, Number(current.dataset.c) + deltaCol));
-    const next = getCellElement(row, col);
+    const startR = Number(current.dataset.r);
+    const startC = Number(current.dataset.c);
+    const bounds = getMergeBoundsAt(startR, startC);
+    let row = startR;
+    let col = startC;
+    if (deltaRow < 0) row = bounds.rMin - 1;
+    else if (deltaRow > 0) row = bounds.rMax + 1;
+    else row = startR;
+    if (deltaCol < 0) col = bounds.cMin - 1;
+    else if (deltaCol > 0) col = bounds.cMax + 1;
+    else col = startC;
+    row = Math.max(0, Math.min(state.rows - 1, row));
+    col = Math.max(0, Math.min(state.cols - 1, col));
+    const anchor = getMergeAnchor(row, col);
+    const next = getCellElement(anchor.r, anchor.c);
     if (!next) return false;
     if (opts.extend) return selectCellRange(rangeAnchor || current, next);
     selectCell(next);
@@ -17222,9 +17573,19 @@ function createShapeTable(opts = {}, doSave = true) {
   const getSelectedRange = () => {
     const cells = selectedCells.length ? selectedCells : (activeCell ? [activeCell] : []);
     if (!cells.length) return null;
-    const rows = cells.map((td) => Number(td.dataset.r));
-    const cols = cells.map((td) => Number(td.dataset.c));
-    return { rMin: Math.min(...rows), rMax: Math.max(...rows), cMin: Math.min(...cols), cMax: Math.max(...cols) };
+    let rMin = Infinity;
+    let cMin = Infinity;
+    let rMax = -Infinity;
+    let cMax = -Infinity;
+    cells.forEach((td) => {
+      const bounds = getMergeBoundsAt(Number(td.dataset.r), Number(td.dataset.c));
+      rMin = Math.min(rMin, bounds.rMin);
+      cMin = Math.min(cMin, bounds.cMin);
+      rMax = Math.max(rMax, bounds.rMax);
+      cMax = Math.max(cMax, bounds.cMax);
+    });
+    if (!Number.isFinite(rMin)) return null;
+    return expandSelectionThroughMerges(rMin, cMin, rMax, cMax);
   };
   const getClipboardText = () => {
     const range = getSelectedRange();
@@ -17321,10 +17682,13 @@ function createShapeTable(opts = {}, doSave = true) {
     const rowMap = new Map();
     cells.forEach((td) => {
       if (!td || td.dataset.r == null || td.dataset.c == null) return;
-      const row = Number(td.dataset.r);
-      const col = Number(td.dataset.c);
-      if (!rowMap.has(row)) rowMap.set(row, new Set());
-      rowMap.get(row).add(col);
+      const bounds = getMergeBoundsAt(Number(td.dataset.r), Number(td.dataset.c));
+      for (let row = bounds.rMin; row <= bounds.rMax; row += 1) {
+        if (!rowMap.has(row)) rowMap.set(row, new Set());
+        for (let col = bounds.cMin; col <= bounds.cMax; col += 1) {
+          rowMap.get(row).add(col);
+        }
+      }
     });
     const rows = Array.from(rowMap.entries())
       .filter(([, cols]) => !requireFullWidth || cols.size === state.cols)
@@ -17343,10 +17707,13 @@ function createShapeTable(opts = {}, doSave = true) {
     const colMap = new Map();
     cells.forEach((td) => {
       if (!td || td.dataset.r == null || td.dataset.c == null) return;
-      const row = Number(td.dataset.r);
-      const col = Number(td.dataset.c);
-      if (!colMap.has(col)) colMap.set(col, new Set());
-      colMap.get(col).add(row);
+      const bounds = getMergeBoundsAt(Number(td.dataset.r), Number(td.dataset.c));
+      for (let col = bounds.cMin; col <= bounds.cMax; col += 1) {
+        if (!colMap.has(col)) colMap.set(col, new Set());
+        for (let row = bounds.rMin; row <= bounds.rMax; row += 1) {
+          colMap.get(col).add(row);
+        }
+      }
     });
     const cols = Array.from(colMap.entries())
       .filter(([, rows]) => !requireFullHeight || rows.size === state.rows)
@@ -17363,16 +17730,22 @@ function createShapeTable(opts = {}, doSave = true) {
     if (!uniqueRows.length) return false;
     if (selectedShape !== node || !node.classList.contains("selected")) selectShape(node);
     selectedCells = [];
+    const seen = new Set();
     uniqueRows.forEach((row) => {
       for (let c = 0; c < state.cols; c += 1) {
-        const td = getCellElement(row, c);
+        const anchor = getMergeAnchor(row, c);
+        const key = cellKey(anchor.r, anchor.c);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const td = getCellElement(anchor.r, anchor.c);
         if (td) selectedCells.push(td);
       }
     });
     const focusRow = uniqueRows.includes(opts.focusRow) ? opts.focusRow : uniqueRows[uniqueRows.length - 1];
     const focusCol = Math.max(0, Math.min(state.cols - 1, Number(opts.focusCol) || 0));
-    activeCell = getCellElement(focusRow, focusCol) || getCellElement(focusRow, 0) || selectedCells[0] || null;
-    rangeAnchor = getCellElement(uniqueRows[0], 0) || selectedCells[0] || null;
+    const focusAnchor = getMergeAnchor(focusRow, focusCol);
+    activeCell = getCellElement(focusAnchor.r, focusAnchor.c) || selectedCells[0] || null;
+    rangeAnchor = selectedCells[0] || null;
     node.__tableSelectionScope = "cells";
     paintSelectedCells();
     if (typeof activeCell?.focus === "function") activeCell.focus({ preventScroll: true });
@@ -17384,16 +17757,23 @@ function createShapeTable(opts = {}, doSave = true) {
     if (!uniqueCols.length) return false;
     if (selectedShape !== node || !node.classList.contains("selected")) selectShape(node);
     selectedCells = [];
+    const seen = new Set();
     for (let r = 0; r < state.rows; r += 1) {
       uniqueCols.forEach((col) => {
-        const td = getCellElement(r, col);
+        const anchor = getMergeAnchor(r, col);
+        const key = cellKey(anchor.r, anchor.c);
+        if (seen.has(key)) return;
+        seen.add(key);
+        const td = getCellElement(anchor.r, anchor.c);
         if (td) selectedCells.push(td);
       });
     }
     const focusCol = uniqueCols.includes(opts.focusCol) ? opts.focusCol : uniqueCols[uniqueCols.length - 1];
     const focusRow = Math.max(0, Math.min(state.rows - 1, Number(opts.focusRow) || 0));
-    activeCell = getCellElement(focusRow, focusCol) || getCellElement(0, focusCol) || selectedCells[0] || null;
-    rangeAnchor = getCellElement(0, uniqueCols[0]) || selectedCells[0] || null;
+    const focusAnchor = getMergeAnchor(focusRow, focusCol);
+    const firstAnchor = getMergeAnchor(0, uniqueCols[0]);
+    activeCell = getCellElement(focusAnchor.r, focusAnchor.c) || selectedCells[0] || null;
+    rangeAnchor = getCellElement(firstAnchor.r, firstAnchor.c) || selectedCells[0] || null;
     node.__tableSelectionScope = "cells";
     paintSelectedCells();
     if (typeof activeCell?.focus === "function") activeCell.focus({ preventScroll: true });
@@ -17440,6 +17820,19 @@ function createShapeTable(opts = {}, doSave = true) {
       }
     });
     state.cells = nextCells;
+    // Remap mergeMaster coords after row reorder, then rebuild coverage.
+    for (const cell of state.cells.values()) {
+      if (!cell.mergeMaster) continue;
+      const mapped = rowMap.get(cell.mergeMaster.r);
+      if (mapped == null) {
+        cell.mergeMaster = null;
+        cell.rowSpan = 1;
+        cell.colSpan = 1;
+      } else {
+        cell.mergeMaster = { r: mapped, c: cell.mergeMaster.c };
+      }
+    }
+    resyncMergeCoverage();
     renderTable();
     selectRows(Array.from({ length: blockRows.length }, (_item, index) => insertAt + index), { focusRow: insertAt + blockRows.length - 1 });
     refreshAllFormulaDisplays();
@@ -17481,6 +17874,18 @@ function createShapeTable(opts = {}, doSave = true) {
       });
     }
     state.cells = nextCells;
+    for (const cell of state.cells.values()) {
+      if (!cell.mergeMaster) continue;
+      const mapped = colMap.get(cell.mergeMaster.c);
+      if (mapped == null) {
+        cell.mergeMaster = null;
+        cell.rowSpan = 1;
+        cell.colSpan = 1;
+      } else {
+        cell.mergeMaster = { r: cell.mergeMaster.r, c: mapped };
+      }
+    }
+    resyncMergeCoverage();
     renderTable();
     selectColumns(Array.from({ length: blockCols.length }, (_item, index) => insertAt + index), { focusCol: insertAt + blockCols.length - 1 });
     refreshAllFormulaDisplays();
@@ -17873,6 +18278,7 @@ function createShapeTable(opts = {}, doSave = true) {
         tr.style.display = "none";
       }
       for (let c = 0; c < state.cols; c += 1) {
+        if (isCoveredByMerge(r, c)) continue;
         const td = document.createElement("td");
         const cell = getCellState(r, c) || normalizeCell({}, r, c);
         setCellState(cell);
@@ -17957,8 +18363,12 @@ function createShapeTable(opts = {}, doSave = true) {
     node.dataset.tableRows = String(state.rows);
     node.dataset.tableCols = String(state.cols);
     if (node.__tableSelectionScope === "cells") {
-      selectedCells = selectedCoords.map((pos) => getCellElement(pos.r, pos.c)).filter(Boolean);
-      activeCell = activeCoords ? getCellElement(activeCoords.r, activeCoords.c) : (selectedCells[0] || null);
+      const resolveTd = (pos) => {
+        const anchor = getMergeAnchor(pos.r, pos.c);
+        return getCellElement(anchor.r, anchor.c);
+      };
+      selectedCells = Array.from(new Set(selectedCoords.map((pos) => resolveTd(pos)).filter(Boolean)));
+      activeCell = activeCoords ? resolveTd(activeCoords) : (selectedCells[0] || null);
       if (activeCell && !selectedCells.includes(activeCell)) selectedCells.unshift(activeCell);
       paintSelectedCells();
     }
@@ -18055,6 +18465,7 @@ function createShapeTable(opts = {}, doSave = true) {
       }
     }
     state.cells = nextCells;
+    adjustMergesAfterColInsert(insertAt);
     renderTable();
     const newColCells = [];
     for (let r = 0; r < state.rows; r += 1) {
@@ -18102,6 +18513,7 @@ function createShapeTable(opts = {}, doSave = true) {
       }
     }
     state.cells = nextCells;
+    adjustMergesAfterRowInsert(insertAt);
     renderTable();
     selectRows([insertAt], { focusRow: insertAt });
     syncFormatPanel();
@@ -18140,6 +18552,7 @@ function createShapeTable(opts = {}, doSave = true) {
       });
     }
     state.cells = nextCells;
+    resyncMergeCoverage();
     node.style.width = `${Math.max(220, (node.offsetWidth || Number.parseFloat(node.style.width || "") || sumSizes(state.colWidths) + removedWidth) - removedWidth)}px`;
     renderTable();
     const nextCol = Math.max(0, Math.min(state.cols - 1, cols[0]));
@@ -18184,6 +18597,7 @@ function createShapeTable(opts = {}, doSave = true) {
       }
     });
     state.cells = nextCells;
+    resyncMergeCoverage();
     node.style.height = `${Math.max(120, (node.offsetHeight || Number.parseFloat(node.style.height || "") || HEADER_HEIGHT + sumSizes(state.rowHeights) + removedHeight) - removedHeight)}px`;
     renderTable();
     const nextRow = Math.max(0, Math.min(state.rows - 1, rows[0]));
@@ -18725,6 +19139,8 @@ function createShapeTable(opts = {}, doSave = true) {
     deleteSelectedRows,
     moveSelectedColsBy,
     moveSelectedRowsBy,
+    mergeSelectedCells,
+    unmergeSelectedCells,
     moveSelectionBy,
     selectAllCells,
     clearSelectedText,
@@ -20562,6 +20978,14 @@ safeOn(fpRowUp, "click", () => {
 safeOn(fpRowDown, "click", () => {
   if (!selectedShape || selectedShape.dataset.shapeType !== "shape-table" || !selectedShape.__tableApi?.moveSelectedRowsBy) return;
   if (selectedShape.__tableApi.moveSelectedRowsBy(1)) saveLayout();
+});
+safeOn(fpMergeCells, "click", () => {
+  if (!selectedShape || selectedShape.dataset.shapeType !== "shape-table" || !selectedShape.__tableApi?.mergeSelectedCells) return;
+  if (selectedShape.__tableApi.mergeSelectedCells()) saveLayout();
+});
+safeOn(fpUnmergeCells, "click", () => {
+  if (!selectedShape || selectedShape.dataset.shapeType !== "shape-table" || !selectedShape.__tableApi?.unmergeSelectedCells) return;
+  if (selectedShape.__tableApi.unmergeSelectedCells()) saveLayout();
 });
 safeOn(fpRotateRight, "click", () => {
   if (!rotateSelection(90)) showFeatureHint("Поворот");
