@@ -1862,12 +1862,16 @@ def get_layout():
 def save_layout():
     payload = request.get_json(force=True, silent=True) or {}
     layout = payload.get("layout")
-    doc_id = str(payload.get("documentId") or session.get("active_document_id") or "").strip() or None
+    # Require an explicit documentId so a stale session active doc cannot absorb
+    # another document's canvas during tab/document switches.
+    doc_id = str(payload.get("documentId") or "").strip() or None
     if not isinstance(layout, dict):
         return jsonify({"error": "layout must be object"}), 400
+    if not doc_id:
+        return jsonify({"error": "documentId required"}), 400
     email = _current_email()
     conn = _get_docs_conn(email)
-    row = _get_doc_for_user(conn, email, doc_id) if doc_id else _get_active_doc(conn, email)
+    row = _get_doc_for_user(conn, email, doc_id)
     if not row:
         conn.close()
         return jsonify({"error": "not_found"}), 404

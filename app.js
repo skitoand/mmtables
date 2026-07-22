@@ -306,7 +306,7 @@ let viewportStabilizer = null;
 let viewportInteracted = false;
 let wheelZoomGesture = null;
 const ENABLE_TABLE_SHAPE_HANDLE_RESIZE = false;
-const APP_BUILD = "20260718-align-axes-independent";
+const APP_BUILD = "20260722-doc-switch-save-guard";
 const LAYOUT_SCHEMA_VERSION = 2;
 const DOCUMENT_LAYOUT_SCHEMA_VERSION = 3;
 const DOC_ID_PATTERN = "(?:[0-9a-f]{12}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})";
@@ -4339,22 +4339,27 @@ async function persistCurrentDocument(layoutOverride = null) {
   if (!canEditCurrentDocument()) return;
   clearTimeout(pendingPersistTimer);
   pendingPersistTimer = null;
+  const docIdAtSave = currentDocumentId;
+  if (!docIdAtSave) return;
   if (layoutOverride && !Array.isArray(layoutOverride.sheets)) {
     flushCurrentSheetLayout(layoutOverride);
   } else {
     flushCurrentSheetLayout();
   }
   const layout = buildDocumentLayoutPayload();
+  // If the open document changed while we were building the payload, do not write
+  // the previous canvas into another document id (cross-document overwrite).
+  if (currentDocumentId !== docIdAtSave) return;
   if (currentUser) {
     await fetchJson("/api/layout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ layout, documentId: currentDocumentId })
+      body: JSON.stringify({ layout, documentId: docIdAtSave })
     });
     return;
   }
   const store = ensureLocalDocStore();
-  const doc = getLocalDocById(currentDocumentId) || store.documents[0];
+  const doc = getLocalDocById(docIdAtSave) || store.documents[0];
   if (!doc) return;
   const nextDoc = {
     ...doc,
@@ -4420,21 +4425,44 @@ async function createDocumentRecord(name, mode = "new") {
   return doc;
 }
 
+async function prepareDocumentSwitch(nextDocId) {
+  clearTimeout(pendingPersistTimer);
+  pendingPersistTimer = null;
+  if (!nextDocId || !currentDocumentId || nextDocId === currentDocumentId) return;
+  if (!canEditCurrentDocument() || !autoSaveEnabled) return;
+  try {
+    await persistCurrentDocument();
+  } catch (err) {
+    console.error("Failed to persist before document switch:", err);
+  }
+  clearTimeout(pendingPersistTimer);
+  pendingPersistTimer = null;
+}
+
 async function openDocumentById(docId, opts = {}) {
   if (!docId) return false;
   if (guestPublicView) {
     if (!currentUser) return false;
     exitGuestPublicView();
   }
+  await prepareDocumentSwitch(docId);
   if (currentUser) {
     const data = await fetchJson(`/api/docs/${encodeURIComponent(docId)}/activate`, { method: "POST" });
-    currentDocumentId = data.document?.id || data.activeDocumentId || docId;
+    clearTimeout(pendingPersistTimer);
+    pendingPersistTimer = null;
+    const nextId = data.document?.id || data.activeDocumentId || docId;
+    const nextLayout = data.document && data.document.layout
+      ? data.document.layout
+      : null;
+    // Set id and layout back-to-back so a deferred autosave cannot bind the old
+    // canvas to the newly activated document id.
+    currentDocumentId = nextId;
     currentDocumentName = data.activeDocumentName || currentDocumentName;
     currentDocumentRole = data.activeDocumentRole || currentDocumentRole;
     syncCurrentDocumentTitle();
     updateCurrentDocumentCapabilities();
-    if (data.document && data.document.layout) {
-      applyDocumentLayout(data.document.layout, opts.sheetId ?? parseAppRoute().sheetId);
+    if (nextLayout) {
+      applyDocumentLayout(nextLayout, opts.sheetId ?? parseAppRoute().sheetId);
       documentsCache = documentsCache.map((doc) => ({
         ...doc,
         isActive: doc.id === currentDocumentId
@@ -4495,9 +4523,13 @@ async function copyDocumentShareUrl() {
 async function activateDocumentRecord(docId, opts = {}) {
   if (!docId) return false;
   if (guestPublicView && currentUser) exitGuestPublicView();
+  await prepareDocumentSwitch(docId);
   if (currentUser) {
     const data = await fetchJson(`/api/docs/${encodeURIComponent(docId)}/activate`, { method: "POST" });
-    currentDocumentId = data.document?.id || data.activeDocumentId || docId;
+    clearTimeout(pendingPersistTimer);
+    pendingPersistTimer = null;
+    const nextId = data.document?.id || data.activeDocumentId || docId;
+    currentDocumentId = nextId;
     currentDocumentName = data.activeDocumentName || currentDocumentName;
     currentDocumentRole = data.activeDocumentRole || currentDocumentRole;
     syncCurrentDocumentTitle();
@@ -5061,7 +5093,6 @@ function selectFileBrowserDocument(docId) {
 async function openFileBrowserDocument(docId) {
   if (!docId) return;
   try {
-    await persistCurrentDocument();
     await activateDocumentRecord(docId);
     closeFileModal();
     const doc = documentsCache.find((item) => item.id === docId);
