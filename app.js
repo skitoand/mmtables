@@ -3667,16 +3667,30 @@ function renderSheetSwitcher() {
     name.className = "sheet-switcher-name";
     name.textContent = sheet.name;
     name.title = sheet.name;
+    let sheetNameClickTimer = null;
     name.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (!sameSheetId(sheet.id, currentSheetId)) void switchToSheet(sheet.id);
-      else syncSheetSwitcherPanel(false);
+      // Delay single-click actions so dblclick can rename without closing/rebuilding the panel first.
+      if (sheetNameClickTimer) {
+        clearTimeout(sheetNameClickTimer);
+        sheetNameClickTimer = null;
+      }
+      if (e.detail > 1) return;
+      sheetNameClickTimer = setTimeout(() => {
+        sheetNameClickTimer = null;
+        if (!sameSheetId(sheet.id, currentSheetId)) void switchToSheet(sheet.id);
+        else syncSheetSwitcherPanel(false);
+      }, 280);
     });
     if (editable) {
       name.addEventListener("dblclick", (e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (sheetNameClickTimer) {
+          clearTimeout(sheetNameClickTimer);
+          sheetNameClickTimer = null;
+        }
         startSheetNameEdit(sheet.id, name);
       });
     }
@@ -3702,14 +3716,18 @@ function renderSheetSwitcher() {
 function startSheetNameEdit(sheetId, nameEl) {
   const sheet = getDocumentSheetById(sheetId);
   if (!sheet || !nameEl || !canEditCurrentDocument()) return;
+  syncSheetSwitcherPanel(true);
   const input = document.createElement("input");
   input.type = "text";
   input.className = "sheet-switcher-name-input";
   input.value = sheet.name;
+  let finished = false;
   nameEl.replaceWith(input);
   input.focus();
   input.select();
   const finish = (save) => {
+    if (finished) return;
+    finished = true;
     if (save) void renameDocumentSheet(sheetId, input.value);
     else renderSheetSwitcher();
     syncSheetSwitcherPanel(true);

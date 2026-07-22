@@ -268,7 +268,7 @@ button,input{border:1px solid var(--border);border-radius:8px;padding:6px 10px;f
 .hint.warning{color:#92400e;background:#fffbeb;border-color:rgba(146,64,14,.18)}
 .sheet-switcher{position:fixed;right:24px;bottom:24px;z-index:20040;display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none}
 .sheet-switcher.hidden{display:none}
-.sheet-switcher-toggle,.sheet-switcher-panel,.sheet-switcher-list,.sheet-switcher-add,.sheet-switcher-item,.sheet-switcher-name,.sheet-switcher-delete{pointer-events:auto}
+.sheet-switcher-toggle,.sheet-switcher-panel,.sheet-switcher-list,.sheet-switcher-add,.sheet-switcher-item,.sheet-switcher-name,.sheet-switcher-name-input,.sheet-switcher-delete{pointer-events:auto}
 .sheet-switcher-toggle{min-width:132px;max-width:min(280px, calc(100vw - 48px));padding:10px 16px;border:0;border-radius:14px;background:#fff;color:#111827;font-size:14px;font-weight:600;text-align:left;box-shadow:0 10px 28px rgba(15,23,42,.14),0 0 0 1px rgba(15,23,42,.05);cursor:pointer}
 .sheet-switcher-toggle:hover{background:#f8fafc}
 .sheet-switcher-panel{min-width:220px;max-width:min(320px, calc(100vw - 48px));background:#fff;border-radius:16px;box-shadow:0 16px 36px rgba(15,23,42,.16),0 0 0 1px rgba(15,23,42,.05);padding:8px;display:flex;flex-direction:column;gap:6px}
