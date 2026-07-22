@@ -10,6 +10,18 @@
 
 ---
 
+## 2026-07-22 — optimistic lock против затирания двумя сессиями
+
+**Commit:** `80c1f21` — Add optimistic locking so stale tabs cannot overwrite newer docs.  
+**Деплой:** GitHub Actions [Deploy Production #29928736254](https://github.com/skitoand/mmtables/actions/runs/29928736254)  
+**Статус:** OK
+
+### Что сделано
+- Сохранение требует `baseUpdatedAt`; устаревшая вкладка получает 409 conflict
+- Снимок: `Электрик 1 (снимок 2026-07-22 13-17 до конфликта)` → https://mmtable.crystalsystems.ru/d/019f8a35deea
+
+---
+
 ## 2026-07-22 — объединение ячеек таблицы
 
 **Commit:** `2b50907` — Add table cell merge and unmerge controls.  

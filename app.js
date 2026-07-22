@@ -4379,6 +4379,14 @@ async function persistCurrentDocument(layoutOverride = null) {
   // the previous canvas into another document id (cross-document overwrite).
   if (currentDocumentId !== docIdAtSave) return;
   if (currentUser) {
+    if (!currentDocumentUpdatedAt) {
+      showHint(
+        "Нельзя безопасно сохранить из этой вкладки (нет метки версии). Сделайте «Файл → Копировать», затем обновите страницу Cmd+Shift+R.",
+        "error",
+        8000
+      );
+      return;
+    }
     try {
       const data = await fetchJson("/api/layout", {
         method: "POST",
@@ -4392,7 +4400,7 @@ async function persistCurrentDocument(layoutOverride = null) {
       });
       if (data && data.updatedAt) noteDocumentUpdatedAt(data.updatedAt);
     } catch (err) {
-      if (err && (err.status === 409 || String(err.message || "").includes("conflict"))) {
+      if (err && (err.status === 409 || /conflict|baseUpdatedAt/i.test(String(err.message || "")))) {
         handleDocumentSaveConflict(err);
         return;
       }
