@@ -20157,8 +20157,15 @@ function scheduleHideShareSuggestions() {
     shareSuggestionsBlurTimer = 0;
     if (document.activeElement === shareEmailInput) return;
     if (shareSuggestions && shareSuggestions.contains(document.activeElement)) return;
+    if (shareSearchWrap && shareSearchWrap.matches(":hover")) return;
     hideShareSuggestions();
-  }, 120);
+  }, 160);
+}
+
+function cancelHideShareSuggestions() {
+  if (!shareSuggestionsBlurTimer) return;
+  window.clearTimeout(shareSuggestionsBlurTimer);
+  shareSuggestionsBlurTimer = 0;
 }
 
 safeOn(shareEmailInput, "input", () => {
@@ -20166,10 +20173,7 @@ safeOn(shareEmailInput, "input", () => {
   renderShareSuggestions({ forceOpen: true });
 });
 safeOn(shareEmailInput, "focus", () => {
-  if (shareSuggestionsBlurTimer) {
-    window.clearTimeout(shareSuggestionsBlurTimer);
-    shareSuggestionsBlurTimer = 0;
-  }
+  cancelHideShareSuggestions();
   syncShareSearchFilled();
   renderShareSuggestions({ forceOpen: true });
 });
@@ -20185,15 +20189,10 @@ if (shareSearchWrap) {
     scheduleHideShareSuggestions();
   });
   shareSearchWrap.addEventListener("pointerenter", () => {
-    if (document.activeElement === shareEmailInput) {
-      renderShareSuggestions({ forceOpen: true });
-    }
+    cancelHideShareSuggestions();
   });
-  shareSearchWrap.addEventListener("pointerleave", (e) => {
-    const next = e.relatedTarget;
-    if (next && shareSearchWrap.contains(next)) return;
-    hideShareSuggestions();
-  });
+  // Intentionally no pointerleave hide: absolute suggestions can leave a dead
+  // gap outside the wrap hit-box, and closing there makes the list vanish mid-move.
 }
 safeOn(shareModal, "pointerdown", (e) => {
   if (!shareSearchWrap || !shareSuggestions) return;
