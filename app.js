@@ -504,6 +504,7 @@ let autoSaveEnabled = true;
 let currentDocumentId = null;
 let currentDocumentName = "Рабочий стол";
 let currentDocumentStore = null;
+let currentDocumentUpdatedAt = null;
 let documentsCache = [];
 let foldersCache = [];
 let fileBrowserCollapsedFolders = new Set();
@@ -4318,6 +4319,7 @@ async function loadCurrentDocument() {
     currentDocumentId = data.documentId || currentDocumentId;
     currentDocumentName = data.documentName || currentDocumentName;
     currentDocumentRole = data.documentRole || currentDocumentRole;
+    noteDocumentUpdatedAt(data.updatedAt);
     syncCurrentDocumentTitle();
     updateCurrentDocumentCapabilities();
     const loaded = applyDocumentLayout(data.layout || createBlankDocumentLayout(), parseAppRoute().sheetId);
@@ -4335,6 +4337,21 @@ async function loadCurrentDocument() {
   syncCurrentDocumentTitle();
   updateCurrentDocumentCapabilities();
   return applyDocumentLayout(doc.layout || createBlankDocumentLayout(), parseAppRoute().sheetId);
+}
+
+function noteDocumentUpdatedAt(value) {
+  const next = value == null || value === "" ? null : String(value);
+  currentDocumentUpdatedAt = next;
+  return currentDocumentUpdatedAt;
+}
+
+function handleDocumentSaveConflict(err) {
+  const payload = err && err.payload ? err.payload : {};
+  const serverUpdatedAt = payload.serverUpdatedAt || null;
+  if (serverUpdatedAt) noteDocumentUpdatedAt(serverUpdatedAt);
+  const message = String(payload.message || "").trim()
+    || "Документ уже изменён в другом окне. Сохранение отменено, чтобы не затереть более новую версию.";
+  showHint(`${message} Сделайте «Файл → Копировать», затем обновите страницу.`, "error", 7000);
 }
 
 async function persistCurrentDocument(layoutOverride = null) {
@@ -4362,11 +4379,25 @@ async function persistCurrentDocument(layoutOverride = null) {
   // the previous canvas into another document id (cross-document overwrite).
   if (currentDocumentId !== docIdAtSave) return;
   if (currentUser) {
-    await fetchJson("/api/layout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ layout, documentId: docIdAtSave })
-    });
+    try {
+      const data = await fetchJson("/api/layout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          layout,
+          documentId: docIdAtSave,
+          baseUpdatedAt: currentDocumentUpdatedAt
+        }),
+        silent: true
+      });
+      if (data && data.updatedAt) noteDocumentUpdatedAt(data.updatedAt);
+    } catch (err) {
+      if (err && (err.status === 409 || String(err.message || "").includes("conflict"))) {
+        handleDocumentSaveConflict(err);
+        return;
+      }
+      throw err;
+    }
     return;
   }
   const store = ensureLocalDocStore();
@@ -4470,6 +4501,7 @@ async function openDocumentById(docId, opts = {}) {
     currentDocumentId = nextId;
     currentDocumentName = data.activeDocumentName || currentDocumentName;
     currentDocumentRole = data.activeDocumentRole || currentDocumentRole;
+    noteDocumentUpdatedAt(data.document?.updatedAt || data.updatedAt);
     syncCurrentDocumentTitle();
     updateCurrentDocumentCapabilities();
     if (nextLayout) {
@@ -4543,6 +4575,7 @@ async function activateDocumentRecord(docId, opts = {}) {
     currentDocumentId = nextId;
     currentDocumentName = data.activeDocumentName || currentDocumentName;
     currentDocumentRole = data.activeDocumentRole || currentDocumentRole;
+    noteDocumentUpdatedAt(data.document?.updatedAt || data.updatedAt);
     syncCurrentDocumentTitle();
     updateCurrentDocumentCapabilities();
     if (data.document && data.document.layout) {

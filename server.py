@@ -779,10 +779,20 @@ def _doc_payload(row, include_layout=True):
         "name": row["name"],
         "role": row["role"],
         "ownerEmail": row["owner_email"],
+        "updatedAt": row["updated_at"],
+        "createdAt": row["created_at"] if "created_at" in row.keys() else None,
     }
     if include_layout:
         payload["layout"] = json.loads(row["layout_json"])
     return payload
+
+
+def _normalize_doc_ts(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    # Accept ISO and SQLite datetime forms.
+    return text.replace("T", " ").replace("Z", "")[:19]
 
 
 def _get_doc_row(conn, doc_id):
@@ -1853,6 +1863,7 @@ def get_layout():
             "documentId": active["id"],
             "documentName": active["name"],
             "documentRole": active["role"],
+            "updatedAt": active["updated_at"],
         }
     )
 
@@ -1865,6 +1876,7 @@ def save_layout():
     # Require an explicit documentId so a stale session active doc cannot absorb
     # another document's canvas during tab/document switches.
     doc_id = str(payload.get("documentId") or "").strip() or None
+    base_updated_at = str(payload.get("baseUpdatedAt") or "").strip() or None
     if not isinstance(layout, dict):
         return jsonify({"error": "layout must be object"}), 400
     if not doc_id:
@@ -1886,7 +1898,27 @@ def save_layout():
     # Refuse replacing a non-trivial document with a near-empty payload.
     if len(existing_raw) > 500 and len(json.dumps(layout, ensure_ascii=False)) < 200:
         conn.close()
-        return jsonify({"error": "refusing_empty_overwrite"}), 409
+        return jsonify({"error": "refusing_empty_overwrite", "serverUpdatedAt": row["updated_at"]}), 409
+    # Optimistic lock: stale tabs must not overwrite a newer server version.
+    if not base_updated_at:
+        conn.close()
+        return jsonify(
+            {
+                "error": "baseUpdatedAt_required",
+                "serverUpdatedAt": row["updated_at"],
+                "message": "Обновите страницу: открыта устаревшая сессия сохранения.",
+            }
+        ), 409
+    if _normalize_doc_ts(base_updated_at) != _normalize_doc_ts(row["updated_at"]):
+        conn.close()
+        return jsonify(
+            {
+                "error": "conflict",
+                "serverUpdatedAt": row["updated_at"],
+                "clientBaseUpdatedAt": base_updated_at,
+                "message": "Документ уже изменён в другом окне или у другого пользователя.",
+            }
+        ), 409
     conn.execute(
         """
         UPDATE user_documents
@@ -1896,9 +1928,13 @@ def save_layout():
         (json.dumps(layout, ensure_ascii=False), row["id"]),
     )
     conn.commit()
+    fresh = conn.execute(
+        "SELECT updated_at FROM user_documents WHERE id = ?",
+        (row["id"],),
+    ).fetchone()
     conn.close()
     session["active_document_id"] = row["id"]
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "updatedAt": fresh["updated_at"] if fresh else None})
 
 
 @app.route("/api/docs/<doc_id>/comments", methods=["GET"])
