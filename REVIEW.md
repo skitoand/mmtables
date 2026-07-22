@@ -10,6 +10,24 @@
 
 ---
 
+## 2026-07-22 — фикс переименования листа по двойному клику
+
+**Commit:** `771e75b` — Fix sheet rename by double-click after list collapse.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260722-082153-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29903690153](https://github.com/skitoand/mmtables/actions/runs/29903690153)  
+**Статус:** OK
+
+### Что сделано
+- Двойной клик по названию листа снова открывает переименование
+- Одиночный клик по-прежнему переключает лист / сворачивает список (с небольшой задержкой)
+- Cache-buster: `app.js?v=20260722-sheet-rename`, `styles.css?v=20260722-sheet-rename`
+
+### Проверка
+- [x] Deploy Production #29903690153 success
+- [x] HTTP 200 на https://mmtable.crystalsystems.ru/
+
+---
+
 ## 2026-07-21 — перетаскивание столбцов таблицы
 
 **Commit:** `f44b4b7` — Add drag-and-drop reordering for table columns.  
