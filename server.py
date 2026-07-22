@@ -1869,6 +1869,10 @@ def save_layout():
         return jsonify({"error": "layout must be object"}), 400
     if not doc_id:
         return jsonify({"error": "documentId required"}), 400
+    sheets = layout.get("sheets")
+    # Guard against wipe bugs that POST {"schemaVersion":3,"activeSheetId":1,"sheets":[]}.
+    if not isinstance(sheets, list) or len(sheets) == 0:
+        return jsonify({"error": "layout_sheets_required"}), 400
     email = _current_email()
     conn = _get_docs_conn(email)
     row = _get_doc_for_user(conn, email, doc_id)
@@ -1878,6 +1882,11 @@ def save_layout():
     if not _is_role_at_least(row["role"], ROLE_EDITOR):
         conn.close()
         return jsonify({"error": "forbidden"}), 403
+    existing_raw = row["layout_json"] or ""
+    # Refuse replacing a non-trivial document with a near-empty payload.
+    if len(existing_raw) > 500 and len(json.dumps(layout, ensure_ascii=False)) < 200:
+        conn.close()
+        return jsonify({"error": "refusing_empty_overwrite"}), 409
     conn.execute(
         """
         UPDATE user_documents

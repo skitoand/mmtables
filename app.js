@@ -4346,7 +4346,16 @@ async function persistCurrentDocument(layoutOverride = null) {
   } else {
     flushCurrentSheetLayout();
   }
+  // Never persist an empty sheet list — this is how documents were wiped to 54 bytes.
+  if (!Array.isArray(documentSheetsState) || documentSheetsState.length === 0) {
+    console.warn("Skip persist: document has no sheets in memory", docIdAtSave);
+    return;
+  }
   const layout = buildDocumentLayoutPayload();
+  if (!Array.isArray(layout.sheets) || layout.sheets.length === 0) {
+    console.warn("Skip persist: built layout has no sheets", docIdAtSave);
+    return;
+  }
   // If the open document changed while we were building the payload, do not write
   // the previous canvas into another document id (cross-document overwrite).
   if (currentDocumentId !== docIdAtSave) return;
