@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-07-22 — объединение ячеек таблицы
+
+**Commit:** `2b50907` — Add table cell merge and unmerge controls.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260722-130120-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #29922065941](https://github.com/skitoand/mmtables/actions/runs/29922065941)  
+**Статус:** OK
+
+### Что сделано
+- Кнопки «Объединить» / «Разъединить» в панели Формат → Положение → Таблица
+- Объединение прямоугольного выделения ячеек (`rowSpan` / `colSpan`)
+- Сохранение merge в документе; корректный рендер и выделение через объединённые ячейки
+- Cache-buster: `app.js?v=20260722-merge-cells`
+
+### Проверка
+- [x] Deploy Production #29922065941 success
+- [x] gunicorn healthcheck 200
+- [x] На сервере есть `mergeSelectedCells` / `fpMergeCells`, cache-buster `20260722-merge-cells`
+
+---
+
 ## 2026-07-22 — защита от затирания пустым layout + копии ДЕИ 1С:УНФ
 
 **Commit:** `7a694ad` — Reject empty-sheet autosaves that wipe documents.  
