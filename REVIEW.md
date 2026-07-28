@@ -10,6 +10,25 @@
 
 ---
 
+## 2026-07-28 — регулируемая перевёрнутая трапеция
+
+**Commit:** `8e717bd` — feat: add adjustable inverted trapezoid shape.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260728-082044-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #30342000832](https://github.com/skitoand/mmtables/actions/runs/30342000832)  
+**Статус:** OK
+
+### Что сделано
+- В палитре фигур скруглённый прямоугольник заменён перевёрнутой трапецией.
+- Жёлтая точка на нижней грани меняет наклон её боковых сторон.
+- Обновлён cache-buster: `app.js?v=20260728-trapezoid`.
+
+### Проверка
+- [x] Deploy Production #30342000832 success
+- [x] gunicorn healthcheck 200
+- [x] Публичный URL `https://mmtable.crystalsystems.ru/` вернул 200
+
+---
+
 ## 2026-07-22 — optimistic lock против затирания двумя сессиями
 
 **Commit:** `80c1f21` — Add optimistic locking so stale tabs cannot overwrite newer docs.  
