@@ -241,6 +241,8 @@ def create_shape(doc: dict, sheet_id: int | None, payload: dict) -> tuple[dict, 
         shape["shapeVariant"] = variant
         if variant == "chevron":
             shape["shapeInsetDepthPx"] = int(payload.get("inset", BP_CHEVRON_INSET_PX))
+        if variant == "trapezoid":
+            shape["shapeInsetDepth"] = int(payload.get("inset", 18))
         if variant == "rounded":
             shape["radius"] = int(payload.get("radius", 12))
     if shape_type == "shape-note":

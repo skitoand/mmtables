@@ -34,6 +34,7 @@ SHAPE_TYPES = {
 RECT_VARIANTS = {
     "rectangle",
     "rounded",
+    "trapezoid",
     "circle",
     "chevron",
     "diamond",

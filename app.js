@@ -315,6 +315,7 @@ const DOC_ID_PATTERN = "(?:[0-9a-f]{12}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 const SHAPE_VARIANTS = {
   rectangle: { kind: "native" },
   rounded: { kind: "native", radius: 28 },
+  trapezoid: { kind: "svg", tag: "polygon", points: "0,0 100,0 82,100 18,100" },
   circle: { kind: "svg", tag: "ellipse", attrs: { cx: 50, cy: 50, rx: 49, ry: 49 }, width: "160px", height: "160px" },
   parallelogram: { kind: "svg", tag: "polygon", points: "18,0 100,0 82,100 0,100" },
   diamond: { kind: "svg", tag: "polygon", points: "50,0 100,50 50,100 0,50", width: "150px", height: "150px" },
@@ -325,7 +326,7 @@ const SHAPE_VARIANTS = {
 const WB_ICON_BASE = "assets/whiteboard-icons/";
 const SHAPE_MENU_ITEMS = [
   { variant: "rectangle", label: "Прямоугольник", icon: "shape-rectangle.svg" },
-  { variant: "rounded", label: "Скругленный прямоугольник", icon: "shape-rounded-rectangle.svg" },
+  { variant: "trapezoid", label: "Перевернутая трапеция", icon: "shape-trapezoid.svg" },
   { variant: "circle", label: "Круг", icon: "shape-circle.svg" },
   { variant: "parallelogram", label: "Параллелограмм", icon: "shape-parallelogram.svg" },
   { variant: "diamond", label: "Ромб", icon: "shape-diamond.svg" },
@@ -361,6 +362,9 @@ const BP_CHEVRON_INSET_PX = Math.round(DEFAULT_CHEVRON_INSET_PX / 2);
 const DEFAULT_PARALLELOGRAM_SKEW = 18;
 const MIN_PARALLELOGRAM_SKEW = 6;
 const MAX_PARALLELOGRAM_SKEW = 40;
+const DEFAULT_TRAPEZOID_SKEW = 18;
+const MIN_TRAPEZOID_SKEW = 6;
+const MAX_TRAPEZOID_SKEW = 40;
 const DEFAULT_HEXAGON_CHAMFER = 18;
 const MIN_HEXAGON_CHAMFER = 6;
 const MAX_HEXAGON_CHAMFER = 32;
@@ -787,6 +791,10 @@ function syncLiftedControlsPosition(node) {
         const depth = getShapeVariantDepth(node, variant);
         el.style.left = `${left + (w * depth) / 100}px`;
         el.style.top = `${top}px`;
+      } else if (variant === "trapezoid") {
+        const depth = getShapeVariantDepth(node, variant);
+        el.style.left = `${left + (w * depth) / 100}px`;
+        el.style.top = `${top + h}px`;
       }
       el.style.transform = "translate(-50%, -50%)";
     }
@@ -1669,6 +1677,9 @@ function getVariantDepthConfig(variant) {
   if (variant === "parallelogram") {
     return { key: "shapeSkewDepth", min: MIN_PARALLELOGRAM_SKEW, max: MAX_PARALLELOGRAM_SKEW, fallback: DEFAULT_PARALLELOGRAM_SKEW };
   }
+  if (variant === "trapezoid") {
+    return { key: "shapeTrapezoidSkew", min: MIN_TRAPEZOID_SKEW, max: MAX_TRAPEZOID_SKEW, fallback: DEFAULT_TRAPEZOID_SKEW };
+  }
   if (variant === "hexagon") {
     return { key: "shapeChamferDepth", min: MIN_HEXAGON_CHAMFER, max: MAX_HEXAGON_CHAMFER, fallback: DEFAULT_HEXAGON_CHAMFER };
   }
@@ -1698,6 +1709,10 @@ function getVariantPoints(node, variant, spec) {
   if (variant === "parallelogram") {
     const depth = getShapeVariantDepth(node, variant);
     return `${depth},0 100,0 ${100 - depth},100 0,100`;
+  }
+  if (variant === "trapezoid") {
+    const depth = getShapeVariantDepth(node, variant);
+    return `0,0 100,0 ${100 - depth},100 ${depth},100`;
   }
   if (variant === "hexagon") {
     const depth = getShapeVariantDepth(node, variant);
@@ -1773,6 +1788,9 @@ function syncShapeParamHandle(node) {
   } else if (variant === "parallelogram" || variant === "hexagon") {
     handle.style.left = `${depth}%`;
     handle.style.top = "0%";
+  } else if (variant === "trapezoid") {
+    handle.style.left = `${depth}%`;
+    handle.style.top = "100%";
   }
 }
 function renderShapeVisual(node) {
@@ -8613,6 +8631,10 @@ function getShapePlacePreviewPoints(variant, widthPx) {
   if (variant === "parallelogram") {
     const depth = DEFAULT_PARALLELOGRAM_SKEW;
     return `${depth},0 100,0 ${100 - depth},100 0,100`;
+  }
+  if (variant === "trapezoid") {
+    const depth = DEFAULT_TRAPEZOID_SKEW;
+    return `0,0 100,0 ${100 - depth},100 ${depth},100`;
   }
   if (variant === "hexagon") {
     const depth = DEFAULT_HEXAGON_CHAMFER;
@@ -15696,7 +15718,7 @@ function createShapeRectangle(opts = {}, doSave = true) {
     setShapeVariantDepth(
       node,
       opts.shapeVariant,
-      opts.shapeInsetDepth ?? opts.shapeSkewDepth ?? opts.shapeChamferDepth
+      opts.shapeInsetDepth ?? opts.shapeSkewDepth ?? opts.shapeTrapezoidSkew ?? opts.shapeChamferDepth
     );
   }
   node.dataset.scrollEnabled = opts.scrollEnabled ? "1" : "0";

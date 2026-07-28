@@ -41,7 +41,7 @@ Engine may keep internal `_connCounter` for connector ids (`conn_N`).
 
 | type | Notes |
 |------|--------|
-| `shape-rect` | `shapeVariant`: rectangle, rounded, circle, chevron, diamond, … |
+| `shape-rect` | `shapeVariant`: rectangle, rounded, trapezoid, circle, chevron, diamond, … |
 | `shape-note` | sticky / BP task card |
 | `shape-line` | segment |
 | `shape-frame` | dashed container; label via `frameName` (aliases: `name`, `text` on create/update) |
