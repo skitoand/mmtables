@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-07-29 — копирование/дублирование задач BP + safe-collab UI
+
+**Commit:** `137c116` — fix: allow copy/duplicate of BP tasks without cloning the whole process.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260729-142835-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #30461034269](https://github.com/skitoand/mmtables/actions/runs/30461034269)  
+**Статус:** OK
+
+### Что сделано
+- `⌘D` / `⌘C`→`⌘V` на задаче (или автоматизации) BP больше не клонируют весь процесс — копируется только выбранный элемент в ту же стадию.
+- Докатили pending UI совместного сохранения: presence-баннер и модалку конфликта сохранения.
+- Cache-buster: `app.js?v=20260729-bp-task-copy`, `styles.css?v=20260729-bp-task-copy`.
+
+### Проверка
+- [x] Deploy Production #30461034269 success
+- [x] gunicorn healthcheck 200
+- [x] Публичный URL `https://mmtable.crystalsystems.ru/` вернул 200
+- [x] На проде cache-buster `20260729-bp-task-copy`
+
+---
+
 ## 2026-07-28 — регулируемая перевёрнутая трапеция
 
 **Commit:** `8e717bd` — feat: add adjustable inverted trapezoid shape.  
