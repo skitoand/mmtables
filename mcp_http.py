@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from datetime import datetime
 from typing import Any, Callable
 
 from flask import Response, g, jsonify, make_response, request
@@ -444,10 +445,24 @@ def register_mcp(app, deps: dict[str, Callable]):
         return conn, row
 
     def _save(conn, row, document):
-        conn.execute(
-            "UPDATE user_documents SET layout_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (json.dumps(document, ensure_ascii=False), row["id"]),
+        base_ts = str(row["updated_at"] or "")
+        layout_json = json.dumps(document, ensure_ascii=False)
+        atomic = deps.get("atomic_update_layout")
+        if atomic:
+            fresh, err, _server_ts = atomic(conn, row["id"], layout_json, base_ts)
+            if err:
+                raise ValueError("conflict")
+            return get_doc_for_user(conn, current_email(), row["id"])
+        cur = conn.execute(
+            """
+            UPDATE user_documents
+            SET layout_json = ?, updated_at = ?
+            WHERE id = ? AND updated_at = ?
+            """,
+            (layout_json, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"), row["id"], base_ts),
         )
+        if cur.rowcount != 1:
+            raise ValueError("conflict")
         conn.commit()
         updated = get_doc_for_user(conn, current_email(), row["id"])
         return updated

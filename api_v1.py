@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from flask import jsonify, request
 
@@ -67,21 +68,45 @@ def register_api_v1(app, deps):
         if not expected:
             return
         current = str(row["updated_at"] or "")
-        if str(expected).strip() != current:
+        normalize = deps.get("normalize_doc_ts")
+        if normalize:
+            if normalize(expected) != normalize(current):
+                raise ApiError("conflict", 409)
+        elif str(expected).strip() != current:
             raise ApiError("conflict", 409)
 
     def _save_layout(conn, row, document, name=None):
         doc_id = row["id"]
+        base_ts = str(row["updated_at"] or "")
+        layout_json = json.dumps(document, ensure_ascii=False)
+        atomic = deps.get("atomic_update_layout")
+        if atomic:
+            fresh, err, server_ts = atomic(conn, doc_id, layout_json, base_ts, name=name)
+            if err:
+                raise ApiError(err if err != "baseUpdatedAt_required" else "conflict", 409)
+            return get_doc_for_user(conn, current_email(), doc_id) if fresh else None
         if name:
-            conn.execute(
-                "UPDATE user_documents SET name = ?, layout_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (name, json.dumps(document, ensure_ascii=False), doc_id),
+            next_ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")
+            cur = conn.execute(
+                """
+                UPDATE user_documents
+                SET name = ?, layout_json = ?, updated_at = ?
+                WHERE id = ? AND updated_at = ?
+                """,
+                (name, layout_json, next_ts, doc_id, base_ts),
             )
         else:
-            conn.execute(
-                "UPDATE user_documents SET layout_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (json.dumps(document, ensure_ascii=False), doc_id),
+            next_ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")
+            cur = conn.execute(
+                """
+                UPDATE user_documents
+                SET layout_json = ?, updated_at = ?
+                WHERE id = ? AND updated_at = ?
+                """,
+                (layout_json, next_ts, doc_id, base_ts),
             )
+        if cur.rowcount != 1:
+            raise ApiError("conflict", 409)
         conn.commit()
         return get_doc_for_user(conn, current_email(), doc_id)
 

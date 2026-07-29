@@ -122,6 +122,12 @@ const authBtn = $("authBtn");
 const userLabel = $("userLabel");
 const currentDocumentTitle = $("currentDocumentTitle");
 const freeModeHint = $("freeModeHint");
+const presenceBanner = $("presenceBanner");
+const saveConflictModal = $("saveConflictModal");
+const saveConflictMessage = $("saveConflictMessage");
+const saveConflictStayBtn = $("saveConflictStayBtn");
+const saveConflictCopyBtn = $("saveConflictCopyBtn");
+const saveConflictReloadBtn = $("saveConflictReloadBtn");
 const formatToggle = $("formatToggle");
 const formatToggleLabel = formatToggle ? formatToggle.closest("label") : null;
 const formatPanel = $("formatPanel");
@@ -505,6 +511,10 @@ const DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQhEx
 let styleClipboard = null;
 let defaultStyles = loadDefaultStyles();
 let autoSaveEnabled = true;
+let documentSaveFrozen = false;
+let presenceSessionId = null;
+let presenceTimer = null;
+let presenceWarnedDocId = null;
 let currentDocumentId = null;
 let currentDocumentName = "Рабочий стол";
 let currentDocumentStore = null;
@@ -4345,6 +4355,7 @@ async function loadCurrentDocument() {
       ...doc,
       isActive: doc.id === currentDocumentId
     }));
+    startDocumentPresence();
     return loaded;
   }
   const doc = loadActiveLocalDocument();
@@ -4363,17 +4374,192 @@ function noteDocumentUpdatedAt(value) {
   return currentDocumentUpdatedAt;
 }
 
+function ensurePresenceSessionId() {
+  if (presenceSessionId) return presenceSessionId;
+  try {
+    const key = "mmtable-presence-session-v1";
+    let sid = sessionStorage.getItem(key);
+    if (!sid) {
+      sid = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `s-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      sessionStorage.setItem(key, sid);
+    }
+    presenceSessionId = sid;
+  } catch {
+    presenceSessionId = `s-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  return presenceSessionId;
+}
+
+function renderPresenceBanner(editors) {
+  if (!presenceBanner) return;
+  const list = Array.isArray(editors) ? editors : [];
+  if (!list.length) {
+    presenceBanner.classList.add("hidden");
+    presenceBanner.textContent = "";
+    return;
+  }
+  const labels = list.map((e) => e.name || e.email || "пользователь").filter(Boolean);
+  const unique = [...new Set(labels)];
+  const text = unique.length === 1
+    ? `Сейчас также открыто: ${unique[0]}`
+    : `Сейчас также открыто: ${unique.slice(0, 3).join(", ")}${unique.length > 3 ? ` и ещё ${unique.length - 3}` : ""}`;
+  presenceBanner.textContent = text;
+  presenceBanner.classList.remove("hidden");
+}
+
+async function stopDocumentPresence() {
+  if (presenceTimer) {
+    clearInterval(presenceTimer);
+    presenceTimer = null;
+  }
+  renderPresenceBanner([]);
+  if (!currentUser || !currentDocumentId || !presenceSessionId) return;
+  const docId = currentDocumentId;
+  const sid = presenceSessionId;
+  try {
+    await fetchJson(`/api/docs/${encodeURIComponent(docId)}/presence`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: sid }),
+      silent: true
+    });
+  } catch {
+    // ignore leave errors
+  }
+}
+
+async function beatDocumentPresence() {
+  if (!currentUser || !currentDocumentId || guestPublicView) {
+    renderPresenceBanner([]);
+    return;
+  }
+  const sid = ensurePresenceSessionId();
+  try {
+    const data = await fetchJson(`/api/docs/${encodeURIComponent(currentDocumentId)}/presence`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: sid }),
+      silent: true
+    });
+    const editors = Array.isArray(data.editors) ? data.editors : [];
+    renderPresenceBanner(editors);
+    if (
+      editors.length
+      && canEditCurrentDocument()
+      && presenceWarnedDocId !== currentDocumentId
+    ) {
+      presenceWarnedDocId = currentDocumentId;
+      showHint(
+        "Документ уже открыт у другого пользователя. Сохранения могут конфликтовать — договоритесь, кто пишет, или работайте в копии.",
+        "warning",
+        5000
+      );
+    }
+  } catch {
+    // presence is best-effort
+  }
+}
+
+function startDocumentPresence() {
+  if (presenceTimer) {
+    clearInterval(presenceTimer);
+    presenceTimer = null;
+  }
+  if (!currentUser || !currentDocumentId || guestPublicView) {
+    renderPresenceBanner([]);
+    return;
+  }
+  void beatDocumentPresence();
+  presenceTimer = setInterval(() => { void beatDocumentPresence(); }, 12000);
+}
+
+function freezeDocumentSave(message) {
+  documentSaveFrozen = true;
+  clearTimeout(pendingPersistTimer);
+  pendingPersistTimer = null;
+  if (message) showHint(message, "error", 6000);
+}
+
+function clearDocumentSaveFreeze() {
+  documentSaveFrozen = false;
+}
+
+function openSaveConflictModal(message) {
+  if (saveConflictMessage && message) saveConflictMessage.textContent = message;
+  if (saveConflictModal) saveConflictModal.classList.remove("hidden");
+}
+
+function closeSaveConflictModal() {
+  if (saveConflictModal) saveConflictModal.classList.add("hidden");
+}
+
 function handleDocumentSaveConflict(err) {
+  // Do NOT adopt serverUpdatedAt without reloading layout — that would let the
+  // next autosave overwrite the newer server version with this tab's stale canvas.
   const payload = err && err.payload ? err.payload : {};
-  const serverUpdatedAt = payload.serverUpdatedAt || null;
-  if (serverUpdatedAt) noteDocumentUpdatedAt(serverUpdatedAt);
   const message = String(payload.message || "").trim()
-    || "Документ уже изменён в другом окне. Сохранение отменено, чтобы не затереть более новую версию.";
-  showHint(`${message} Сделайте «Файл → Копировать», затем обновите страницу.`, "error", 7000);
+    || "Документ уже изменён в другом окне или у другого пользователя. Локальные правки не записаны на сервер.";
+  freezeDocumentSave(message);
+  openSaveConflictModal(message);
+}
+
+async function reloadCurrentDocumentFromServer() {
+  if (!currentUser || !currentDocumentId) return false;
+  clearTimeout(pendingPersistTimer);
+  pendingPersistTimer = null;
+  const docId = currentDocumentId;
+  const data = await fetchJson(`/api/docs/${encodeURIComponent(docId)}/activate`, { method: "POST" });
+  const nextId = data.document?.id || data.activeDocumentId || docId;
+  currentDocumentId = nextId;
+  currentDocumentName = data.activeDocumentName || data.document?.name || currentDocumentName;
+  currentDocumentRole = data.activeDocumentRole || data.document?.role || currentDocumentRole;
+  noteDocumentUpdatedAt(data.document?.updatedAt || data.updatedAt);
+  syncCurrentDocumentTitle();
+  updateCurrentDocumentCapabilities();
+  if (data.document && data.document.layout) {
+    applyDocumentLayout(data.document.layout, currentSheetId || parseAppRoute().sheetId);
+  } else {
+    await loadCurrentDocument();
+  }
+  clearDocumentSaveFreeze();
+  closeSaveConflictModal();
+  startDocumentPresence();
+  showHint("Документ обновлён с сервера. Локальные несохранённые правки отброшены.", "warning", 4000);
+  return true;
+}
+
+async function copyLocalDocumentAfterConflict() {
+  if (!currentUser || !currentDocumentId) return false;
+  flushCurrentSheetLayout();
+  const layout = buildDocumentLayoutPayload();
+  if (!Array.isArray(layout.sheets) || layout.sheets.length === 0) {
+    showHint("Нечего копировать: локальный документ пуст.", "error", 3000);
+    return false;
+  }
+  const suggested = `${currentDocumentName || "Документ"} (моя копия)`;
+  let name = suggested;
+  try {
+    const prompted = window.prompt("Название копии с вашими правками:", suggested);
+    if (prompted === null) return false;
+    if (String(prompted).trim()) name = String(prompted).trim();
+  } catch {
+    // use suggested
+  }
+  await stopDocumentPresence();
+  await createDocumentRecord(name, "new", { layout });
+  clearDocumentSaveFreeze();
+  closeSaveConflictModal();
+  await loadCurrentDocument();
+  startDocumentPresence();
+  showHint(`Создана копия с вашими правками: ${currentDocumentName}`, "warning", 3500);
+  return true;
 }
 
 async function persistCurrentDocument(layoutOverride = null) {
   if (!canEditCurrentDocument()) return;
+  if (documentSaveFrozen) return;
   clearTimeout(pendingPersistTimer);
   pendingPersistTimer = null;
   const docIdAtSave = currentDocumentId;
@@ -4398,10 +4584,11 @@ async function persistCurrentDocument(layoutOverride = null) {
   if (currentDocumentId !== docIdAtSave) return;
   if (currentUser) {
     if (!currentDocumentUpdatedAt) {
-      showHint(
-        "Нельзя безопасно сохранить из этой вкладки (нет метки версии). Сделайте «Файл → Копировать», затем обновите страницу Cmd+Shift+R.",
-        "error",
-        8000
+      freezeDocumentSave(
+        "Нельзя безопасно сохранить из этой вкладки (нет метки версии). Скопируйте документ или обновите страницу."
+      );
+      openSaveConflictModal(
+        "Нельзя безопасно сохранить из этой вкладки (нет метки версии). Скопируйте локальные правки или обновите документ с сервера."
       );
       return;
     }
@@ -4418,7 +4605,7 @@ async function persistCurrentDocument(layoutOverride = null) {
       });
       if (data && data.updatedAt) noteDocumentUpdatedAt(data.updatedAt);
     } catch (err) {
-      if (err && (err.status === 409 || /conflict|baseUpdatedAt/i.test(String(err.message || "")))) {
+      if (err && (err.status === 409 || /conflict|baseUpdatedAt|refusing_empty/i.test(String(err.message || "")))) {
         handleDocumentSaveConflict(err);
         return;
       }
@@ -4444,12 +4631,15 @@ async function persistCurrentDocument(layoutOverride = null) {
   }));
 }
 
-async function createDocumentRecord(name, mode = "new") {
+async function createDocumentRecord(name, mode = "new", opts = {}) {
   const safeName = defaultDocumentName(name);
   if (currentUser) {
-    const payload = mode === "copy"
-      ? { name: safeName, sourceDocumentId: currentDocumentId }
-      : { name: safeName };
+    const payload = { name: safeName };
+    if (opts.layout && typeof opts.layout === "object" && Array.isArray(opts.layout.sheets)) {
+      payload.layout = opts.layout;
+    } else if (mode === "copy") {
+      payload.sourceDocumentId = currentDocumentId;
+    }
     const data = await fetchJson("/api/docs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -4458,6 +4648,7 @@ async function createDocumentRecord(name, mode = "new") {
     currentDocumentId = data.activeDocumentId || data.document?.id || currentDocumentId;
     currentDocumentName = data.document?.name || safeName;
     currentDocumentRole = data.activeDocumentRole || data.document?.role || "owner";
+    noteDocumentUpdatedAt(data.document?.updatedAt || data.updatedAt);
     syncCurrentDocumentTitle();
     updateCurrentDocumentCapabilities();
     documentsCache = Array.isArray(data.documents) ? data.documents.slice() : documentsCache;
@@ -4465,9 +4656,11 @@ async function createDocumentRecord(name, mode = "new") {
     return data.document || null;
   }
 
-  const layout = mode === "copy" && currentDocumentId
-    ? cloneLayout(buildDocumentLayoutPayload())
-    : createBlankDocumentLayout();
+  const layout = opts.layout && typeof opts.layout === "object"
+    ? cloneLayout(opts.layout)
+    : (mode === "copy" && currentDocumentId
+      ? cloneLayout(buildDocumentLayoutPayload())
+      : createBlankDocumentLayout());
   const doc = {
     id: createDocId(),
     name: safeName,
@@ -4497,6 +4690,7 @@ async function prepareDocumentSwitch(nextDocId) {
   clearTimeout(pendingPersistTimer);
   pendingPersistTimer = null;
   if (!nextDocId || !currentDocumentId || nextDocId === currentDocumentId) return;
+  if (documentSaveFrozen) return;
   if (!canEditCurrentDocument() || !autoSaveEnabled) return;
   try {
     await persistCurrentDocument();
@@ -4513,6 +4707,11 @@ async function openDocumentById(docId, opts = {}) {
     if (!currentUser) return false;
     exitGuestPublicView();
   }
+  const prevDocId = currentDocumentId;
+  if (prevDocId && prevDocId !== docId) {
+    await stopDocumentPresence();
+    presenceWarnedDocId = null;
+  }
   await prepareDocumentSwitch(docId);
   if (currentUser) {
     const data = await fetchJson(`/api/docs/${encodeURIComponent(docId)}/activate`, { method: "POST" });
@@ -4528,6 +4727,8 @@ async function openDocumentById(docId, opts = {}) {
     currentDocumentName = data.activeDocumentName || currentDocumentName;
     currentDocumentRole = data.activeDocumentRole || currentDocumentRole;
     noteDocumentUpdatedAt(data.document?.updatedAt || data.updatedAt);
+    clearDocumentSaveFreeze();
+    closeSaveConflictModal();
     syncCurrentDocumentTitle();
     updateCurrentDocumentCapabilities();
     if (nextLayout) {
@@ -4542,6 +4743,7 @@ async function openDocumentById(docId, opts = {}) {
     }
     navigateToDocument(currentDocumentId, { sheetId: currentSheetId, ...opts });
     syncWorkspaceAccessMode();
+    startDocumentPresence();
     return true;
   }
   const loaded = await activateDocumentRecord(docId, opts);
@@ -8982,9 +9184,31 @@ function getMultiSelectedShapes() {
   return Array.from(multiSelectedShapeIds).map((id) => getShapeById(id)).filter(Boolean);
 }
 
+function isBpClipboardMemberNode(node) {
+  return isBpProcessTask(node) || isBpProcessAutomation(node);
+}
+
+function isBpClipboardMemberShapeData(item) {
+  const role = String(item?.bpRole || "").trim();
+  return role === "task" || role === "automation";
+}
+
+function isBpClipboardMemberFragment(shapes) {
+  const items = Array.isArray(shapes) ? shapes.filter(Boolean) : [];
+  return items.length > 0 && items.every(isBpClipboardMemberShapeData);
+}
+
+function bpProcessExistsOnDesktop(processId) {
+  const id = String(processId || "").trim();
+  if (!id || !desktop) return false;
+  return !!desktop.querySelector(`.shape[data-bp-process-id="${id}"][data-bp-role="stage"]`);
+}
+
 function expandSelectionToWholeGroup(shapes) {
   const nodes = Array.isArray(shapes) ? shapes.filter(Boolean) : [];
   if (!nodes.length) return nodes;
+  // BP tasks/automations are independently selectable — keep them as-is for copy/duplicate.
+  if (nodes.every(isBpClipboardMemberNode)) return nodes;
   const groupIds = new Set(nodes.map(getShapeGroupId).filter(Boolean));
   if (groupIds.size === 1 && nodes.every((node) => getShapeGroupId(node))) {
     return getGroupMembers([...groupIds][0]);
@@ -8994,6 +9218,8 @@ function expandSelectionToWholeGroup(shapes) {
 
 function getActiveShapeSelection() {
   if (selectedShape) {
+    // Individually selected BP task/automation should not expand to the whole process group.
+    if (isBpClipboardMemberNode(selectedShape)) return [selectedShape];
     const groupId = getShapeGroupId(selectedShape);
     if (groupId) return getGroupMembers(groupId);
     return [selectedShape];
@@ -9030,11 +9256,25 @@ function buildClipboardPasteRemaps(payload) {
   const processMap = new Map();
   const frameMap = new Map();
   const shapes = payload?.shapes || [];
+  const memberFragment = isBpClipboardMemberFragment(shapes);
+  const fragmentProcessIds = new Set(
+    shapes.map((item) => String(item?.bpProcessId || "").trim()).filter(Boolean)
+  );
+  const reuseExistingBpProcess = memberFragment
+    && fragmentProcessIds.size === 1
+    && bpProcessExistsOnDesktop([...fragmentProcessIds][0]);
   shapes.forEach((item) => {
     const oldGroupId = String(item?.groupId || "").trim();
-    if (oldGroupId && !groupMap.has(oldGroupId)) groupMap.set(oldGroupId, `g${groupCounter++}`);
     const oldProcessId = String(item?.bpProcessId || "").trim();
-    if (oldProcessId && !processMap.has(oldProcessId)) processMap.set(oldProcessId, `bp${bpProcessCounter++}`);
+    if (reuseExistingBpProcess) {
+      // Keep tasks/automations inside the live process instead of cloning the whole BP.
+      if (oldGroupId && !groupMap.has(oldGroupId)) groupMap.set(oldGroupId, oldGroupId);
+      if (oldProcessId && !processMap.has(oldProcessId)) processMap.set(oldProcessId, oldProcessId);
+    } else if (!(memberFragment && oldProcessId)) {
+      // Full BP (or non-BP) paste → new ids. Orphaned BP members omit processMap so meta is stripped.
+      if (oldGroupId && !groupMap.has(oldGroupId)) groupMap.set(oldGroupId, `g${groupCounter++}`);
+      if (oldProcessId && !processMap.has(oldProcessId)) processMap.set(oldProcessId, `bp${bpProcessCounter++}`);
+    }
     if (item?.type === "shape-frame" && item?.id) frameMap.set(String(item.id), "");
   });
   const ungroupedCount = shapes.filter((item) => !String(item?.groupId || "").trim()).length;
@@ -9078,10 +9318,61 @@ function finalizePastedShapeGroups(createdEntries, remaps) {
   });
 }
 
+function isIdentityBpProcessRemap(remaps, processId) {
+  const id = String(processId || "").trim();
+  if (!id || !remaps?.processMap) return false;
+  return remaps.processMap.get(id) === id;
+}
+
+function finalizePastedBpMemberOrders(createdEntries, remaps) {
+  if (!createdEntries?.length || !remaps?.processMap?.size) return;
+  createdEntries.forEach(({ source, node }) => {
+    if (!node) return;
+    const oldProcessId = String(source?.bpProcessId || "").trim();
+    if (!oldProcessId || !isIdentityBpProcessRemap(remaps, oldProcessId)) return;
+    if (isBpProcessTask(node)) {
+      const stageIndex = Number(node.dataset.bpTaskStageIndex);
+      const sourceOrder = Number(source?.bpTaskOrder);
+      if (Number.isFinite(sourceOrder)) {
+        getBpTasksForStage(oldProcessId, stageIndex).forEach((task) => {
+          if (task === node) return;
+          const ord = Number(task.dataset.bpTaskOrder) || 0;
+          if (ord > sourceOrder) task.dataset.bpTaskOrder = String(ord + 1);
+        });
+        node.dataset.bpTaskOrder = String(sourceOrder + 1);
+      } else {
+        node.dataset.bpTaskOrder = String(
+          getBpTasksForStage(oldProcessId, stageIndex).filter((task) => task !== node).length
+        );
+      }
+      delete node.dataset.bpTaskManualPosition;
+      return;
+    }
+    if (isBpProcessAutomation(node)) {
+      const stageIndex = Number(node.dataset.bpAutomationStageIndex);
+      const sourceOrder = Number(source?.bpAutomationOrder);
+      if (Number.isFinite(sourceOrder)) {
+        getBpAutomationsForStage(oldProcessId, stageIndex).forEach((auto) => {
+          if (auto === node) return;
+          const ord = Number(auto.dataset.bpAutomationOrder) || 0;
+          if (ord > sourceOrder) auto.dataset.bpAutomationOrder = String(ord + 1);
+        });
+        node.dataset.bpAutomationOrder = String(sourceOrder + 1);
+      } else {
+        node.dataset.bpAutomationOrder = String(
+          getBpAutomationsForStage(oldProcessId, stageIndex).filter((auto) => auto !== node).length
+        );
+      }
+      delete node.dataset.bpAutomationManualPosition;
+    }
+  });
+}
+
 function finalizePastedBpProcessCopies(processMap) {
   if (!processMap || !processMap.size) return;
-  processMap.forEach((processId) => {
-    relayoutBpStagesAfter(processId, 1);
+  processMap.forEach((processId, oldProcessId) => {
+    const identity = processId === oldProcessId;
+    if (!identity) relayoutBpStagesAfter(processId, 1);
     layoutBpProcessBase(processId);
     layoutAllBpTasksInProcess(processId);
     layoutAllBpAutomationsInProcess(processId);
@@ -11477,6 +11768,7 @@ function pasteShapeClipboard(offsetX = 24, offsetY = 24, sourcePayload = null) {
     finalizePastedFrameMembership(createdEntries, remaps);
     stripSyntheticPasteGroupIds(createdEntries, remaps);
     finalizePastedTableCopies(createdEntries);
+    finalizePastedBpMemberOrders(createdEntries, remaps);
     finalizePastedBpProcessCopies(remaps.processMap);
     finalizePastedAttachedNotes(createdEntries, maps);
     const createdConnectors = payload.connectors
@@ -19488,7 +19780,7 @@ function scheduleHistorySnapshot(delay = 350) {
 }
 
 async function flushPersistDocument() {
-  if (!canEditCurrentDocument() || !autoSaveEnabled) return;
+  if (!canEditCurrentDocument() || !autoSaveEnabled || documentSaveFrozen) return;
   flushCurrentSheetLayout();
   const docPayload = buildDocumentLayoutPayload();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(docPayload));
@@ -19500,6 +19792,7 @@ async function flushPersistDocument() {
 }
 
 function scheduleDocumentPersist(delay = 700) {
+  if (documentSaveFrozen) return;
   clearTimeout(pendingPersistTimer);
   if (delay <= 0) {
     void flushPersistDocument();
@@ -20776,6 +21069,39 @@ window.addEventListener("blur", () => {
 });
 window.addEventListener("beforeunload", () => {
   flushPendingLayoutSave();
+  if (currentUser && currentDocumentId && presenceSessionId) {
+    try {
+      fetch(`/api/docs/${encodeURIComponent(currentDocumentId)}/presence`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: presenceSessionId }),
+        keepalive: true,
+        credentials: "same-origin"
+      }).catch(() => {});
+    } catch {
+      // ignore
+    }
+  }
+});
+safeOn(saveConflictStayBtn, "click", () => {
+  closeSaveConflictModal();
+  showHint("Сохранение остановлено. Скопируйте документ или обновите с сервера, когда будете готовы.", "warning", 5000);
+});
+safeOn(saveConflictReloadBtn, "click", async () => {
+  try {
+    await reloadCurrentDocumentFromServer();
+  } catch (err) {
+    console.error(err);
+    showHint("Не удалось обновить документ с сервера.", "error", 3000);
+  }
+});
+safeOn(saveConflictCopyBtn, "click", async () => {
+  try {
+    await copyLocalDocumentAfterConflict();
+  } catch (err) {
+    console.error(err);
+    showHint("Не удалось создать копию.", "error", 3000);
+  }
 });
 document.addEventListener("pointermove", (e) => {
   if (window.DrawTools?.handlePointerMove?.(e)) return;

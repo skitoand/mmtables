@@ -382,6 +382,21 @@ def _init_db():
           AND trim(a.user_email) <> ''
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS document_presence (
+          document_id TEXT NOT NULL,
+          user_email TEXT NOT NULL,
+          display_name TEXT,
+          session_id TEXT NOT NULL,
+          last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (document_id, session_id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_document_presence_doc_seen ON document_presence(document_id, last_seen)"
+    )
     init_oauth_tables(conn)
     _migrate_legacy_doc_ids(conn)
     conn.commit()
@@ -791,8 +806,113 @@ def _normalize_doc_ts(value):
     text = str(value or "").strip()
     if not text:
         return ""
-    # Accept ISO and SQLite datetime forms.
-    return text.replace("T", " ").replace("Z", "")[:19]
+    # Accept ISO and SQLite datetime forms; preserve fractional seconds when present.
+    text = text.replace("T", " ").replace("Z", "")
+    if "." in text:
+        main, frac = text.split(".", 1)
+        digits = "".join(ch for ch in frac if ch.isdigit())[:6]
+        return f"{main[:19]}.{digits}" if digits else main[:19]
+    return text[:19]
+
+
+def _new_doc_ts(prev=None):
+    """UTC document version stamp with microsecond precision; always advances vs prev."""
+    stamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")
+    if prev and _normalize_doc_ts(stamp) <= _normalize_doc_ts(prev):
+        # Guaranteed lexical advance within the same wall-clock microsecond.
+        base = _normalize_doc_ts(prev)
+        stamp = f"{base}+"
+    return stamp
+
+
+PRESENCE_TTL_SECONDS = 45
+
+
+def _atomic_update_layout(conn, doc_id, layout_json, base_updated_at, name=None):
+    """Optimistic lock: update only if updated_at still matches the client's base.
+
+    Returns (fresh_row_dict_or_none, error_code_or_none, server_updated_at).
+    Uses the exact DB timestamp in WHERE to close the check-then-write race.
+    """
+    row = conn.execute(
+        "SELECT id, updated_at, layout_json, name FROM user_documents WHERE id = ?",
+        (doc_id,),
+    ).fetchone()
+    if not row:
+        return None, "not_found", None
+    server_ts = row["updated_at"]
+    if not base_updated_at:
+        return row, "baseUpdatedAt_required", server_ts
+    if _normalize_doc_ts(base_updated_at) != _normalize_doc_ts(server_ts):
+        return row, "conflict", server_ts
+    next_ts = _new_doc_ts(server_ts)
+    if name is not None:
+        cur = conn.execute(
+            """
+            UPDATE user_documents
+            SET name = ?, layout_json = ?, updated_at = ?
+            WHERE id = ? AND updated_at = ?
+            """,
+            (name, layout_json, next_ts, doc_id, server_ts),
+        )
+    else:
+        cur = conn.execute(
+            """
+            UPDATE user_documents
+            SET layout_json = ?, updated_at = ?
+            WHERE id = ? AND updated_at = ?
+            """,
+            (layout_json, next_ts, doc_id, server_ts),
+        )
+    if cur.rowcount != 1:
+        fresh = conn.execute(
+            "SELECT id, updated_at, layout_json, name FROM user_documents WHERE id = ?",
+            (doc_id,),
+        ).fetchone()
+        return fresh, "conflict", fresh["updated_at"] if fresh else server_ts
+    conn.commit()
+    fresh = conn.execute(
+        "SELECT id, updated_at, layout_json, name FROM user_documents WHERE id = ?",
+        (doc_id,),
+    ).fetchone()
+    return fresh, None, fresh["updated_at"] if fresh else None
+
+
+def _purge_stale_presence(conn, doc_id):
+    conn.execute(
+        """
+        DELETE FROM document_presence
+        WHERE document_id = ?
+          AND last_seen < datetime('now', ?)
+        """,
+        (doc_id, f"-{PRESENCE_TTL_SECONDS} seconds"),
+    )
+
+
+def _list_presence(conn, doc_id, exclude_session_id=None):
+    _purge_stale_presence(conn, doc_id)
+    rows = conn.execute(
+        """
+        SELECT user_email, display_name, session_id, last_seen
+        FROM document_presence
+        WHERE document_id = ?
+        ORDER BY last_seen DESC
+        """,
+        (doc_id,),
+    ).fetchall()
+    editors = []
+    for row in rows:
+        if exclude_session_id and row["session_id"] == exclude_session_id:
+            continue
+        editors.append(
+            {
+                "email": row["user_email"],
+                "name": row["display_name"] or row["user_email"],
+                "sessionId": row["session_id"],
+                "lastSeen": row["last_seen"],
+            }
+        )
+    return editors
 
 
 def _get_doc_row(conn, doc_id):
@@ -1458,7 +1578,11 @@ def create_doc():
     email = _current_email()
     conn = _get_docs_conn(email)
     layout = _blank_layout()
-    if source_id:
+    # Explicit layout wins (used to preserve local edits on save conflict → copy).
+    raw_layout = payload.get("layout")
+    if isinstance(raw_layout, dict) and isinstance(raw_layout.get("sheets"), list) and raw_layout.get("sheets"):
+        layout = raw_layout
+    elif source_id:
         source_row = _get_doc_for_user(conn, email, source_id)
         if source_row:
             try:
@@ -1512,6 +1636,7 @@ def update_doc(doc_id):
     payload = request.get_json(force=True, silent=True) or {}
     name = payload.get("name")
     layout = payload.get("layout")
+    base_updated_at = str(payload.get("baseUpdatedAt") or "").strip() or None
     email = _current_email()
     conn = _get_docs_conn(email)
     row = _get_doc_for_user(conn, email, doc_id)
@@ -1522,15 +1647,38 @@ def update_doc(doc_id):
         conn.close()
         return jsonify({"error": "forbidden"}), 403
     doc_key = row["id"]
-    if isinstance(name, str) and name.strip():
-        conn.execute(
-            "UPDATE user_documents SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (name.strip(), doc_key),
-        )
     if isinstance(layout, dict):
+        sheets = layout.get("sheets")
+        if not isinstance(sheets, list) or len(sheets) == 0:
+            conn.close()
+            return jsonify({"error": "layout_sheets_required"}), 400
+        next_name = name.strip() if isinstance(name, str) and name.strip() else None
+        fresh, err, server_ts = _atomic_update_layout(
+            conn,
+            doc_key,
+            json.dumps(layout, ensure_ascii=False),
+            base_updated_at,
+            name=next_name,
+        )
+        if err == "not_found":
+            conn.close()
+            return jsonify({"error": "not_found"}), 404
+        if err:
+            conn.close()
+            return jsonify(
+                {
+                    "error": err,
+                    "serverUpdatedAt": server_ts,
+                    "message": "Документ уже изменён в другом окне или у другого пользователя.",
+                }
+            ), 409
+        # Name already applied atomically with layout when provided.
+        name = None
+    elif isinstance(name, str) and name.strip():
+        # Metadata-only rename: do not bump updated_at so canvas editors keep a valid base.
         conn.execute(
-            "UPDATE user_documents SET layout_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (json.dumps(layout, ensure_ascii=False), doc_key),
+            "UPDATE user_documents SET name = ? WHERE id = ?",
+            (name.strip(), doc_key),
         )
     if "folderId" in payload:
         if _normalize_email(row["owner_email"]) != _normalize_email(email):
@@ -1540,8 +1688,9 @@ def update_doc(doc_id):
         if folder_id and not _get_folder_for_user(conn, email, folder_id):
             conn.close()
             return jsonify({"error": "folder_not_found"}), 404
+        # Folder move is metadata-only — keep layout version stable.
         conn.execute(
-            "UPDATE user_documents SET folder_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            "UPDATE user_documents SET folder_id = ? WHERE id = ?",
             (folder_id, doc_key),
         )
     conn.commit()
@@ -1895,46 +2044,98 @@ def save_layout():
         conn.close()
         return jsonify({"error": "forbidden"}), 403
     existing_raw = row["layout_json"] or ""
+    layout_json = json.dumps(layout, ensure_ascii=False)
     # Refuse replacing a non-trivial document with a near-empty payload.
-    if len(existing_raw) > 500 and len(json.dumps(layout, ensure_ascii=False)) < 200:
+    if len(existing_raw) > 500 and len(layout_json) < 200:
         conn.close()
         return jsonify({"error": "refusing_empty_overwrite", "serverUpdatedAt": row["updated_at"]}), 409
-    # Optimistic lock: stale tabs must not overwrite a newer server version.
-    if not base_updated_at:
+    fresh, err, server_ts = _atomic_update_layout(conn, row["id"], layout_json, base_updated_at)
+    if err == "not_found":
+        conn.close()
+        return jsonify({"error": "not_found"}), 404
+    if err == "baseUpdatedAt_required":
         conn.close()
         return jsonify(
             {
                 "error": "baseUpdatedAt_required",
-                "serverUpdatedAt": row["updated_at"],
+                "serverUpdatedAt": server_ts,
                 "message": "Обновите страницу: открыта устаревшая сессия сохранения.",
             }
         ), 409
-    if _normalize_doc_ts(base_updated_at) != _normalize_doc_ts(row["updated_at"]):
+    if err:
         conn.close()
         return jsonify(
             {
                 "error": "conflict",
-                "serverUpdatedAt": row["updated_at"],
+                "serverUpdatedAt": server_ts,
                 "clientBaseUpdatedAt": base_updated_at,
                 "message": "Документ уже изменён в другом окне или у другого пользователя.",
             }
         ), 409
-    conn.execute(
-        """
-        UPDATE user_documents
-        SET layout_json = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-        """,
-        (json.dumps(layout, ensure_ascii=False), row["id"]),
-    )
-    conn.commit()
-    fresh = conn.execute(
-        "SELECT updated_at FROM user_documents WHERE id = ?",
-        (row["id"],),
-    ).fetchone()
     conn.close()
     session["active_document_id"] = row["id"]
     return jsonify({"ok": True, "updatedAt": fresh["updated_at"] if fresh else None})
+
+
+@app.route("/api/docs/<doc_id>/presence", methods=["GET", "POST", "DELETE"])
+@require_login
+def doc_presence(doc_id):
+    email = _current_email()
+    conn = _get_docs_conn(email)
+    row = _get_doc_for_user(conn, email, doc_id)
+    if not row:
+        conn.close()
+        return jsonify({"error": "not_found"}), 404
+    if not _is_role_at_least(row["role"], ROLE_READER):
+        conn.close()
+        return jsonify({"error": "forbidden"}), 403
+    doc_key = row["id"]
+    payload = request.get_json(force=True, silent=True) or {}
+    session_id = str(payload.get("sessionId") or request.args.get("sessionId") or "").strip()
+
+    if request.method == "DELETE":
+        if session_id:
+            conn.execute(
+                "DELETE FROM document_presence WHERE document_id = ? AND session_id = ?",
+                (doc_key, session_id),
+            )
+            conn.commit()
+        editors = _list_presence(conn, doc_key)
+        conn.close()
+        return jsonify({"ok": True, "editors": editors})
+
+    if request.method == "POST":
+        if not session_id:
+            conn.close()
+            return jsonify({"error": "sessionId_required"}), 400
+        if not _is_role_at_least(row["role"], ROLE_EDITOR):
+            # Readers may poll presence but should not register as editors.
+            editors = _list_presence(conn, doc_key, exclude_session_id=session_id)
+            conn.close()
+            return jsonify({"ok": True, "editors": editors, "selfRegistered": False})
+        display_name = (
+            str(session.get("name") or session.get("display_name") or "").strip()
+            or email
+        )
+        conn.execute(
+            """
+            INSERT INTO document_presence(document_id, user_email, display_name, session_id, last_seen)
+            VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(document_id, session_id) DO UPDATE SET
+              user_email = excluded.user_email,
+              display_name = excluded.display_name,
+              last_seen = CURRENT_TIMESTAMP
+            """,
+            (doc_key, email, display_name, session_id),
+        )
+        conn.commit()
+        editors = _list_presence(conn, doc_key, exclude_session_id=session_id)
+        conn.close()
+        return jsonify({"ok": True, "editors": editors, "selfRegistered": True})
+
+    editors = _list_presence(conn, doc_key, exclude_session_id=session_id or None)
+    conn.close()
+    return jsonify({"ok": True, "editors": editors})
 
 
 @app.route("/api/docs/<doc_id>/comments", methods=["GET"])
@@ -3300,6 +3501,8 @@ register_api_v1(
         "role_owner": ROLE_OWNER,
         "blank_layout": _blank_layout,
         "normalize_email": _normalize_email,
+        "atomic_update_layout": _atomic_update_layout,
+        "normalize_doc_ts": _normalize_doc_ts,
     },
 )
 
@@ -3333,6 +3536,7 @@ register_mcp(
         "role_owner": ROLE_OWNER,
         "set_auth_context": _set_auth_context,
         "unauthorized_headers": lambda: {"WWW-Authenticate": _mcp_oauth["www_authenticate"]()},
+        "atomic_update_layout": _atomic_update_layout,
     },
 )
 
