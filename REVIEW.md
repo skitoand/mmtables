@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-07-30 — масштаб страницы в окне: угол vs середина
+
+**Commit:** `3d8d1bd` — feat: scale embedded window pages on corner resize.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260730-080428-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #30525211279](https://github.com/skitoand/mmtables/actions/runs/30525211279)  
+**Статус:** OK
+
+### Что сделано
+- Угловые хендлы окна меняют `pageScale` содержимого iframe (страница крупнее/мельче, пропорции сохраняются)
+- Средние хендлы (лево/право/верх/низ) расширяют viewport без смены масштаба — видно больше/меньше
+- `pageScale` сохраняется в документе; iframe обёрнут в `.sheet-frame-viewport`
+- Cache-buster: `app.js?v=20260730-window-page-scale`, `styles.css?v=20260730-window-page-scale`
+
+### Проверка
+- [x] Deploy Production #30525211279 success
+- [x] Публичный URL `https://mmtable.crystalsystems.ru/` вернул 200
+- [x] На проде cache-buster `20260730-window-page-scale`, есть `sheet-frame-viewport` и `applySheetWindowHandleResize`
+
+---
+
 ## 2026-07-29 — копирование/дублирование задач BP + safe-collab UI
 
 **Commit:** `137c116` — fix: allow copy/duplicate of BP tasks without cloning the whole process.  
