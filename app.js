@@ -11007,7 +11007,14 @@ function ensureSheetFrameViewport(node) {
   } else if (frame.parentElement !== viewport) {
     viewport.appendChild(frame);
   }
-  return { viewport, frame };
+  let catcher = viewport.querySelector(":scope > .sheet-frame-wheel-catcher");
+  if (!catcher) {
+    catcher = document.createElement("div");
+    catcher.className = "sheet-frame-wheel-catcher";
+    catcher.setAttribute("aria-hidden", "true");
+    viewport.appendChild(catcher);
+  }
+  return { viewport, frame, catcher };
 }
 
 function applySheetWindowFrameLayout(node) {
@@ -11026,7 +11033,27 @@ function applySheetWindowFrameLayout(node) {
   frame.style.transformOrigin = "0 0";
 }
 
+function getSheetWindowContentAtClientPoint(clientX, clientY) {
+  if (!desktop || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+  let best = null;
+  let bestZ = -Infinity;
+  desktop.querySelectorAll(".sheet-window").forEach((node) => {
+    const vp = node.querySelector(".sheet-frame-viewport");
+    if (!vp) return;
+    const rect = vp.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return;
+    const z = Number(node.style.zIndex || 0);
+    if (z >= bestZ) {
+      bestZ = z;
+      best = node;
+    }
+  });
+  return best;
+}
+
 function getSheetWindowFromPoint(clientX, clientY, eventTarget = null) {
+  const byRect = getSheetWindowContentAtClientPoint(clientX, clientY);
+  if (byRect) return byRect;
   const fromTarget = eventTarget?.closest?.(".sheet-window");
   if (fromTarget) return fromTarget;
   if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
@@ -11035,11 +11062,24 @@ function getSheetWindowFromPoint(clientX, clientY, eventTarget = null) {
 }
 
 function isSheetWindowContentUnder(el) {
-  return !!el?.closest?.(".sheet-frame-viewport, .sheet-frame");
+  return !!el?.closest?.(".sheet-frame-viewport, .sheet-frame, .sheet-frame-wheel-catcher");
+}
+
+function setSheetWindowInteract(node, enabled) {
+  if (!isSheetWindowNode(node)) return;
+  node.classList.toggle("sheet-interact", !!enabled);
+  if (enabled) setViewportScrollLock(true);
+}
+
+function clearAllSheetWindowInteract(exceptNode = null) {
+  desktop?.querySelectorAll?.(".sheet-window.sheet-interact").forEach((node) => {
+    if (exceptNode && node === exceptNode) return;
+    node.classList.remove("sheet-interact");
+  });
 }
 
 function adjustSheetWindowPageScaleFromWheel(node, event) {
-  if (!isSheetWindowNode(node) || !canEditCurrentDocument()) return false;
+  if (!isSheetWindowNode(node)) return false;
   const delta = clamp(event.deltaY, -WHEEL_ZOOM_MAX_DELTA, WHEEL_ZOOM_MAX_DELTA);
   const factor = Math.exp(-delta * WHEEL_ZOOM_SENSITIVITY);
   const current = getSheetWindowPageScale(node);
@@ -11049,7 +11089,29 @@ function adjustSheetWindowPageScaleFromWheel(node, event) {
   layoutConnectorPoints(node);
   renderConnectors();
   syncAllLiftedControlsPositions();
-  saveLayout();
+  if (canEditCurrentDocument()) saveLayout();
+  return true;
+}
+
+function handleWheelOverSheetWindow(node, event) {
+  if (!node) return false;
+  const interactive = node.classList.contains("sheet-interact");
+  const zoomModifier = event.altKey || event.ctrlKey || event.metaKey;
+
+  // Default mode: wheel/pinch scales the page inside the window, never the desktop.
+  // Interactive mode (double-click): plain wheel scrolls the embed; modifiers still scale.
+  if (!interactive || zoomModifier) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+    adjustSheetWindowPageScaleFromWheel(node, event);
+    return true;
+  }
+
+  // Overscroll chaining from the iframe must not pan/zoom the desktop.
+  if (!event.target?.closest?.(".sheet-window")) {
+    event.preventDefault();
+  }
   return true;
 }
 
@@ -11190,22 +11252,33 @@ function createSheetWindow(url, opts = {}, doSave = true) {
   });
   frame.addEventListener("mouseenter", () => setViewportScrollLock(true));
   frame.addEventListener("mouseleave", () => setViewportScrollLock(false));
-  const frameViewport = node.querySelector(".sheet-frame-viewport");
+  const frameParts = ensureSheetFrameViewport(node);
+  const frameViewport = frameParts?.viewport || node.querySelector(".sheet-frame-viewport");
+  const wheelCatcher = frameParts?.catcher || frameViewport?.querySelector?.(".sheet-frame-wheel-catcher");
   if (frameViewport) {
     frameViewport.addEventListener("mouseenter", () => setViewportScrollLock(true));
-    frameViewport.addEventListener("mouseleave", () => setViewportScrollLock(false));
-    frameViewport.addEventListener("wheel", (event) => {
-      const zoomModifier = event.altKey || event.ctrlKey || event.metaKey;
-      if (!zoomModifier) {
-        // Keep desktop from chaining scroll/zoom while the pointer is over window content.
-        event.stopPropagation();
-        return;
-      }
+    frameViewport.addEventListener("mouseleave", () => {
+      setViewportScrollLock(false);
+      setSheetWindowInteract(node, false);
+    });
+  }
+  if (wheelCatcher) {
+    wheelCatcher.addEventListener("wheel", (event) => {
+      handleWheelOverSheetWindow(node, event);
+    }, { passive: false });
+    wheelCatcher.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.stopPropagation();
+      selectWindow(node);
+    });
+    wheelCatcher.addEventListener("dblclick", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
-      adjustSheetWindowPageScaleFromWheel(node, event);
-    }, { passive: false });
+      clearAllSheetWindowInteract(node);
+      setSheetWindowInteract(node, true);
+      selectWindow(node);
+      showHint("Режим работы с таблицей: скролл внутри окна. Esc или уход курсора — выход.", "warning", 3200);
+    });
   }
 
   attachDrag(node, header, { raiseOnDrag: false });
@@ -11392,6 +11465,7 @@ function clearSelectedWindow() {
   if (selectedWindow) {
     restoreLiftedShapeControls(getControlOwnerId(selectedWindow));
     selectedWindow.classList.remove("selected-window");
+    setSheetWindowInteract(selectedWindow, false);
   }
   selectedWindow = null;
 }
@@ -22544,36 +22618,21 @@ resetZoomBtn.addEventListener("click", () => {
   saveLayout();
 });
 viewportEl.addEventListener("wheel", (e) => {
-  const zoomModifier = e.altKey || e.ctrlKey;
-  const underEl = document.elementFromPoint(e.clientX, e.clientY);
-  const sheetWindow = getSheetWindowFromPoint(e.clientX, e.clientY, e.target);
-  const overSheetContent = isSheetWindowContentUnder(e.target) || isSheetWindowContentUnder(underEl);
+  const sheetWindow = getSheetWindowContentAtClientPoint(e.clientX, e.clientY)
+    || ((isSheetWindowContentUnder(e.target) || viewportEl.dataset.scrollLock === "1")
+      ? getSheetWindowFromPoint(e.clientX, e.clientY, e.target)
+      : null);
 
-  // Wheel / pinch over an embedded window must never zoom or pan the desktop.
-  if (sheetWindow && overSheetContent) {
-    if (zoomModifier || e.metaKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
-      adjustSheetWindowPageScaleFromWheel(sheetWindow, e);
-      return;
-    }
-    // Overscroll chaining can re-target the parent while the cursor is still over the iframe.
-    // Block desktop pan in that case, but do not cancel events that still target the window/iframe.
-    if (!e.target?.closest?.(".sheet-window")) {
-      e.preventDefault();
-    }
+  // Any wheel/pinch over embedded window content must never zoom/pan the desktop.
+  if (sheetWindow) {
+    handleWheelOverSheetWindow(sheetWindow, e);
     return;
   }
 
+  const zoomModifier = e.altKey || e.ctrlKey;
   const locked = viewportEl.dataset.scrollLock === "1";
   if (locked) {
-    // Even with Ctrl/Alt (trackpad pinch), do not zoom the desktop while locked on a window.
     e.preventDefault();
-    if (zoomModifier || e.metaKey) {
-      const lockedWindow = getSheetWindowFromPoint(e.clientX, e.clientY, e.target);
-      if (lockedWindow) adjustSheetWindowPageScaleFromWheel(lockedWindow, e);
-    }
     return;
   }
   markViewportInteracted();
@@ -22600,6 +22659,23 @@ viewportEl.addEventListener("wheel", (e) => {
   zoomToWorldPoint(wheelZoomGesture.worldX, wheelZoomGesture.worldY, e.clientX, e.clientY, zoom * factor);
   saveLayout();
 }, { passive: false, capture: true });
+
+// Safari pinch gestures over an embedded window must not zoom the page/desktop.
+["gesturestart", "gesturechange", "gestureend"].forEach((type) => {
+  document.addEventListener(type, (event) => {
+    const x = Number(event.clientX);
+    const y = Number(event.clientY);
+    const sheetWindow = getSheetWindowContentAtClientPoint(x, y)
+      || getSheetWindowFromPoint(x, y, event.target);
+    if (!sheetWindow) return;
+    event.preventDefault();
+  }, { passive: false, capture: true });
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  clearAllSheetWindowInteract();
+}, true);
 
 // Pan workspace with middle mouse button (wheel click).
 viewportEl.addEventListener("pointerdown", (e) => {
