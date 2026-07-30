@@ -10,6 +10,25 @@
 
 ---
 
+## 2026-07-30 — wheel/pinch внутри окна не зумит рабочий стол
+
+**Commit:** `e397dd8` — fix: keep wheel zoom inside embedded windows.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260730-082011-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #30526277225](https://github.com/skitoand/mmtables/actions/runs/30526277225)  
+**Статус:** OK
+
+### Что сделано
+- Скролл/pinch над содержимым окна больше не меняет zoom всего рабочего стола
+- Ctrl/Alt/pinch над окном меняет `pageScale` самой страницы в окне
+- Overscroll chaining из iframe не пан/зумит canvas
+- Cache-buster: `app.js?v=20260730-window-wheel-scale`
+
+### Проверка
+- [x] Deploy Production #30526277225 success
+- [x] На проде cache-buster `20260730-window-wheel-scale` и `adjustSheetWindowPageScaleFromWheel`
+
+---
+
 ## 2026-07-30 — масштаб страницы в окне: угол vs середина
 
 **Commit:** `3d8d1bd` — feat: scale embedded window pages on corner resize.  
