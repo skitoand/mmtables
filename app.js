@@ -10924,6 +10924,8 @@ function attachResize(node, handle, minW, minH, opts = {}) {
     event.stopPropagation();
     if (node.dataset.shapeType === "shape-table" && node.__tableApi?.createResizeSnapshot) {
       state = node.__tableApi.createResizeSnapshot("se", event);
+    } else if (isSheetWindowNode(node)) {
+      state = createSheetWindowResizeSnapshot(node, "se", event);
     } else {
       state = { x: event.clientX, y: event.clientY, w: node.offsetWidth, h: node.offsetHeight };
     }
@@ -10938,6 +10940,10 @@ function attachResize(node, handle, minW, minH, opts = {}) {
       const dx = (event.clientX - state.x) / zoom;
       const dy = (event.clientY - state.y) / zoom;
       node.__tableApi.applyHandleResize(state, dx, dy);
+    } else if (isSheetWindowNode(node)) {
+      const dx = (event.clientX - state.x) / zoom;
+      const dy = (event.clientY - state.y) / zoom;
+      applySheetWindowHandleResize(node, state, dx, dy, minW, minH);
     } else {
       node.style.width = `${Math.max(minW, state.w + (event.clientX - state.x) / zoom)}px`;
       node.style.height = `${Math.max(minH, state.h + (event.clientY - state.y) / zoom)}px`;
@@ -10969,6 +10975,127 @@ function attachResize(node, handle, minW, minH, opts = {}) {
   handle.addEventListener("pointercancel", stop);
 }
 
+const SHEET_WINDOW_HEADER_HEIGHT = 40;
+const MIN_SHEET_PAGE_SCALE = 0.25;
+const MAX_SHEET_PAGE_SCALE = 4;
+
+function isSheetWindowNode(node) {
+  return !!(node && node.classList && node.classList.contains("sheet-window"));
+}
+
+function getSheetWindowPageScale(node) {
+  const raw = Number(node?.dataset?.pageScale);
+  if (!Number.isFinite(raw) || raw <= 0) return 1;
+  return clamp(raw, MIN_SHEET_PAGE_SCALE, MAX_SHEET_PAGE_SCALE);
+}
+
+function setSheetWindowPageScale(node, scale) {
+  const next = clamp(Number(scale) || 1, MIN_SHEET_PAGE_SCALE, MAX_SHEET_PAGE_SCALE);
+  node.dataset.pageScale = String(Number(next.toFixed(4)));
+  return next;
+}
+
+function ensureSheetFrameViewport(node) {
+  const frame = node.querySelector(".sheet-frame");
+  if (!frame) return null;
+  let viewport = node.querySelector(":scope > .sheet-frame-viewport");
+  if (!viewport) {
+    viewport = document.createElement("div");
+    viewport.className = "sheet-frame-viewport";
+    frame.parentNode.insertBefore(viewport, frame);
+    viewport.appendChild(frame);
+  } else if (frame.parentElement !== viewport) {
+    viewport.appendChild(frame);
+  }
+  return { viewport, frame };
+}
+
+function applySheetWindowFrameLayout(node) {
+  if (!isSheetWindowNode(node)) return;
+  const parts = ensureSheetFrameViewport(node);
+  if (!parts) return;
+  const { frame } = parts;
+  const scale = getSheetWindowPageScale(node);
+  const width = Math.max(1, node.offsetWidth || Number.parseFloat(node.style.width || "") || 640);
+  const height = Math.max(SHEET_WINDOW_HEADER_HEIGHT + 1, node.offsetHeight || Number.parseFloat(node.style.height || "") || 420);
+  const viewW = Math.max(1, width);
+  const viewH = Math.max(1, height - SHEET_WINDOW_HEADER_HEIGHT);
+  frame.style.width = `${viewW / scale}px`;
+  frame.style.height = `${viewH / scale}px`;
+  frame.style.transform = Math.abs(scale - 1) < 0.0001 ? "none" : `scale(${scale})`;
+  frame.style.transformOrigin = "0 0";
+}
+
+function createSheetWindowResizeSnapshot(node, dir, event) {
+  const direction = String(dir || "se");
+  return {
+    x: event.clientX,
+    y: event.clientY,
+    l: node.offsetLeft,
+    t: node.offsetTop,
+    w: Math.max(1, node.offsetWidth || Number.parseFloat(node.style.width || "") || 1),
+    h: Math.max(1, node.offsetHeight || Number.parseFloat(node.style.height || "") || 1),
+    dir: direction,
+    pageScale: getSheetWindowPageScale(node),
+    isCorner: direction.length === 2
+  };
+}
+
+function applySheetWindowHandleResize(node, drag, dx, dy, minW, minH) {
+  if (!drag) return;
+  let nextLeft = drag.l;
+  let nextTop = drag.t;
+  let nextWidth = drag.w;
+  let nextHeight = drag.h;
+  let nextScale = drag.pageScale;
+  const startContentH = Math.max(1, drag.h - SHEET_WINDOW_HEADER_HEIGHT);
+
+  if (drag.isCorner) {
+    const proposedW = drag.dir.includes("e") ? drag.w + dx : (drag.dir.includes("w") ? drag.w - dx : drag.w);
+    const proposedOuterH = drag.dir.includes("s") ? drag.h + dy : (drag.dir.includes("n") ? drag.h - dy : drag.h);
+    const proposedContentH = Math.max(1, proposedOuterH - SHEET_WINDOW_HEADER_HEIGHT);
+    const factorW = proposedW / drag.w;
+    const factorH = proposedContentH / startContentH;
+    let factor = (Math.abs(dx) / drag.w >= Math.abs(dy) / Math.max(1, startContentH)) ? factorW : factorH;
+    const minContentH = Math.max(1, minH - SHEET_WINDOW_HEADER_HEIGHT);
+    const minFactor = Math.max(
+      minW / drag.w,
+      minContentH / startContentH,
+      MIN_SHEET_PAGE_SCALE / Math.max(drag.pageScale, 0.0001)
+    );
+    const maxFactor = MAX_SHEET_PAGE_SCALE / Math.max(drag.pageScale, 0.0001);
+    factor = clamp(factor, minFactor, maxFactor);
+    nextWidth = drag.w * factor;
+    nextHeight = startContentH * factor + SHEET_WINDOW_HEADER_HEIGHT;
+    nextScale = drag.pageScale * factor;
+    if (drag.dir.includes("w")) nextLeft = drag.l + (drag.w - nextWidth);
+    if (drag.dir.includes("n")) nextTop = drag.t + (drag.h - nextHeight);
+  } else {
+    if (drag.dir.includes("e")) nextWidth = drag.w + dx;
+    if (drag.dir.includes("s")) nextHeight = drag.h + dy;
+    if (drag.dir.includes("w")) {
+      nextWidth = drag.w - dx;
+      nextLeft = drag.l + dx;
+    }
+    if (drag.dir.includes("n")) {
+      nextHeight = drag.h - dy;
+      nextTop = drag.t + dy;
+    }
+    nextWidth = Math.max(minW, nextWidth);
+    nextHeight = Math.max(minH, nextHeight);
+    if (drag.dir.includes("w")) nextLeft = drag.l + (drag.w - nextWidth);
+    if (drag.dir.includes("n")) nextTop = drag.t + (drag.h - nextHeight);
+  }
+
+  setNodePosition(node, nextLeft, nextTop);
+  node.style.width = `${nextWidth}px`;
+  node.style.height = `${nextHeight}px`;
+  setSheetWindowPageScale(node, nextScale);
+  applySheetWindowFrameLayout(node);
+  layoutConnectorPoints(node);
+  renderConnectors();
+}
+
 function createSheetWindow(url, opts = {}, doSave = true) {
   const node = template.content.firstElementChild.cloneNode(true);
   const frame = node.querySelector(".sheet-frame");
@@ -10984,6 +11111,7 @@ function createSheetWindow(url, opts = {}, doSave = true) {
   node.style.height = opts.height || "420px";
   node.style.zIndex = String(opts.zIndex || ++zCounter);
   if (opts.aboveConnectors) node.dataset.aboveConnectors = "1";
+  setSheetWindowPageScale(node, opts.pageScale ?? opts.contentScale ?? 1);
 
   function updateWindowTitle() {
     const base = (node.dataset.docTitle || "").trim() || (opts.title || `Таблица ${index}`);
@@ -11051,6 +11179,7 @@ function createSheetWindow(url, opts = {}, doSave = true) {
     saveLayout();
   });
   appendToDesktop(node);
+  applySheetWindowFrameLayout(node);
   updateDesktopExtent();
   layoutConnectorPoints(node);
   windowCounter += 1;
@@ -11091,6 +11220,8 @@ function addShapeHandles(node, isLine = false, opts = {}) {
       if (bulkDrag && runBulkSelectionDragSession(node, bulkDrag, e, h)) return;
       if (node.dataset.shapeType === "shape-table" && node.__tableApi?.createResizeSnapshot) {
         rs = node.__tableApi.createResizeSnapshot(h.dataset.dir, e);
+      } else if (isSheetWindowNode(node)) {
+        rs = createSheetWindowResizeSnapshot(node, h.dataset.dir, e);
       } else {
         rs = { x: e.clientX, y: e.clientY, l: node.offsetLeft, t: node.offsetTop, w: node.offsetWidth, h: node.offsetHeight, dir: h.dataset.dir };
       }
@@ -11103,6 +11234,8 @@ function addShapeHandles(node, isLine = false, opts = {}) {
       const dy = (e.clientY - rs.y) / zoom;
       if (node.dataset.shapeType === "shape-table" && node.__tableApi?.applyHandleResize) {
         node.__tableApi.applyHandleResize(rs, dx, dy);
+      } else if (isSheetWindowNode(node)) {
+        applySheetWindowHandleResize(node, rs, dx, dy, minW, minH);
       } else {
         let l = rs.l, t = rs.t, w = rs.w, hh = rs.h;
         if (rs.dir.includes("e")) w = rs.w + dx;
@@ -19564,6 +19697,7 @@ function readWindowData(win) {
     title: win.querySelector(".window-title").textContent,
     src: win.dataset.sourceUrl || win.querySelector(".sheet-frame").src,
     left: win.style.left, top: win.style.top, width: win.style.width, height: win.style.height,
+    pageScale: getSheetWindowPageScale(win),
     zIndex: Number(win.style.zIndex || 0),
     aboveConnectors: win.dataset.aboveConnectors === "1"
   };
