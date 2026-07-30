@@ -10,6 +10,24 @@
 
 ---
 
+## 2026-07-30 — перехват wheel над окном (catcher overlay)
+
+**Commit:** `1987449` — fix: capture wheel over embedded windows with a catcher overlay.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260730-084139-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #30527687121](https://github.com/skitoand/mmtables/actions/runs/30527687121)  
+**Статус:** OK
+
+### Что сделано
+- Поверх iframe — `sheet-frame-wheel-catcher`: скролл/pinch по умолчанию меняет `pageScale` внутри окна, не zoom стола
+- Двойной клик по окну — режим работы с таблицей (скролл внутри Sheets); Esc / уход курсора — выход
+- Hit-test по bounding rect + блокировка Safari gesture
+- Cache-buster: `app.js?v=20260730-window-wheel-catcher`
+
+### Проверка
+- [x] Deploy Production #30527687121 success
+
+---
+
 ## 2026-07-30 — wheel/pinch внутри окна не зумит рабочий стол
 
 **Commit:** `e397dd8` — fix: keep wheel zoom inside embedded windows.  
