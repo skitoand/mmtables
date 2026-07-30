@@ -11026,6 +11026,33 @@ function applySheetWindowFrameLayout(node) {
   frame.style.transformOrigin = "0 0";
 }
 
+function getSheetWindowFromPoint(clientX, clientY, eventTarget = null) {
+  const fromTarget = eventTarget?.closest?.(".sheet-window");
+  if (fromTarget) return fromTarget;
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+  const under = document.elementFromPoint(clientX, clientY);
+  return under?.closest?.(".sheet-window") || null;
+}
+
+function isSheetWindowContentUnder(el) {
+  return !!el?.closest?.(".sheet-frame-viewport, .sheet-frame");
+}
+
+function adjustSheetWindowPageScaleFromWheel(node, event) {
+  if (!isSheetWindowNode(node) || !canEditCurrentDocument()) return false;
+  const delta = clamp(event.deltaY, -WHEEL_ZOOM_MAX_DELTA, WHEEL_ZOOM_MAX_DELTA);
+  const factor = Math.exp(-delta * WHEEL_ZOOM_SENSITIVITY);
+  const current = getSheetWindowPageScale(node);
+  const next = setSheetWindowPageScale(node, current * factor);
+  if (Math.abs(next - current) < 0.0001) return false;
+  applySheetWindowFrameLayout(node);
+  layoutConnectorPoints(node);
+  renderConnectors();
+  syncAllLiftedControlsPositions();
+  saveLayout();
+  return true;
+}
+
 function createSheetWindowResizeSnapshot(node, dir, event) {
   const direction = String(dir || "se");
   return {
@@ -11163,6 +11190,23 @@ function createSheetWindow(url, opts = {}, doSave = true) {
   });
   frame.addEventListener("mouseenter", () => setViewportScrollLock(true));
   frame.addEventListener("mouseleave", () => setViewportScrollLock(false));
+  const frameViewport = node.querySelector(".sheet-frame-viewport");
+  if (frameViewport) {
+    frameViewport.addEventListener("mouseenter", () => setViewportScrollLock(true));
+    frameViewport.addEventListener("mouseleave", () => setViewportScrollLock(false));
+    frameViewport.addEventListener("wheel", (event) => {
+      const zoomModifier = event.altKey || event.ctrlKey || event.metaKey;
+      if (!zoomModifier) {
+        // Keep desktop from chaining scroll/zoom while the pointer is over window content.
+        event.stopPropagation();
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+      adjustSheetWindowPageScaleFromWheel(node, event);
+    }, { passive: false });
+  }
 
   attachDrag(node, header, { raiseOnDrag: false });
   attachResize(node, resizeHandle, 360, 240, { raiseOnResize: false });
@@ -22501,9 +22545,35 @@ resetZoomBtn.addEventListener("click", () => {
 });
 viewportEl.addEventListener("wheel", (e) => {
   const zoomModifier = e.altKey || e.ctrlKey;
+  const underEl = document.elementFromPoint(e.clientX, e.clientY);
+  const sheetWindow = getSheetWindowFromPoint(e.clientX, e.clientY, e.target);
+  const overSheetContent = isSheetWindowContentUnder(e.target) || isSheetWindowContentUnder(underEl);
+
+  // Wheel / pinch over an embedded window must never zoom or pan the desktop.
+  if (sheetWindow && overSheetContent) {
+    if (zoomModifier || e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+      adjustSheetWindowPageScaleFromWheel(sheetWindow, e);
+      return;
+    }
+    // Overscroll chaining can re-target the parent while the cursor is still over the iframe.
+    // Block desktop pan in that case, but do not cancel events that still target the window/iframe.
+    if (!e.target?.closest?.(".sheet-window")) {
+      e.preventDefault();
+    }
+    return;
+  }
+
   const locked = viewportEl.dataset.scrollLock === "1";
-  if (locked && !zoomModifier) {
+  if (locked) {
+    // Even with Ctrl/Alt (trackpad pinch), do not zoom the desktop while locked on a window.
     e.preventDefault();
+    if (zoomModifier || e.metaKey) {
+      const lockedWindow = getSheetWindowFromPoint(e.clientX, e.clientY, e.target);
+      if (lockedWindow) adjustSheetWindowPageScaleFromWheel(lockedWindow, e);
+    }
     return;
   }
   markViewportInteracted();
