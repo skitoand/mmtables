@@ -7,7 +7,7 @@
     <title>MMTable</title>
     <link rel="icon" type="image/png" sizes="128x128" href="assets/favicon.png?v=20260701-crop" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=20260701-crop" />
-    <link rel="stylesheet" href="styles.css?v=20260730-window-wheel-catcher" />
+    <link rel="stylesheet" href="styles.css?v=20260803-open-mode-fix-v7" />
   </head>
   <body>
     <div class="app">
@@ -139,7 +139,9 @@
       </header>
 
       <div class="hint hidden" id="freeModeHint"></div>
-      <div id="presenceBanner" class="presence-banner hidden" role="status" aria-live="polite"></div>
+      <div id="editLockBadge" class="edit-lock-badge hidden" role="status" aria-live="polite">
+        <span id="editLockBadgeText" class="edit-lock-badge-text"></span>
+      </div>
 
       <main id="viewport" class="viewport">
         <div id="desktop" class="desktop">
@@ -583,6 +585,7 @@
         </div>
         <div class="modal-actions">
           <button id="fileModalOpenBtn" type="button" class="file-doc-open">Открыть</button>
+          <button id="fileModalEditBtn" type="button" class="file-doc-edit">Редактировать</button>
           <button id="fileModalCloseBtn" type="button">Закрыть</button>
         </div>
         <div class="file-browser-resize-handle" aria-hidden="true"></div>
@@ -875,24 +878,10 @@
       </div>
     </div>
 
-    <div id="saveConflictModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="saveConflictTitle">
-      <div class="modal-card modal-form-card">
-        <h3 id="saveConflictTitle">Конфликт сохранения</h3>
-        <p id="saveConflictMessage" class="save-conflict-message">
-          Документ уже изменён в другом окне или у другого пользователя. Локальные правки не записаны на сервер.
-        </p>
-        <div class="modal-actions save-conflict-actions">
-          <button id="saveConflictStayBtn" type="button">Остаться без записи</button>
-          <button id="saveConflictCopyBtn" type="button">Копировать мой документ</button>
-          <button id="saveConflictReloadBtn" type="button" class="primary">Обновить с сервера</button>
-        </div>
-      </div>
-    </div>
-
     <script src="vendor/laser-pointer.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="vendor/perfect-freehand.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="draw-tools.js?v=20260714-toolbar-active-tooltip-v1"></script>
-    <script src="app.js?v=20260730-window-wheel-catcher"></script>
+    <script src="app.js?v=20260803-open-mode-fix-v7"></script>
     <script src="bitrix-chart.js?v=20260713-laser-fade-v1"></script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-"""Tests for draw.io-style exclusive save: atomic optimistic lock + presence."""
+"""Tests for exclusive edit lock + optimistic layout versioning."""
 
 from __future__ import annotations
 
@@ -69,6 +69,17 @@ class SafeCollabSaveTests(unittest.TestCase):
             ],
         }
 
+    def _acquire_edit(self, doc_id, session_id):
+        post = self.client.post(
+            f"/api/docs/{doc_id}/presence",
+            json={"sessionId": session_id, "mode": "edit"},
+        )
+        self.assertEqual(post.status_code, 200, post.get_data(as_text=True))
+        body = post.get_json()
+        self.assertTrue(body.get("lockAcquired"), body)
+        self.assertEqual(body.get("mode"), "edit")
+        return body
+
     def test_atomic_conflict_blocks_stale_save(self):
         create = self.client.post("/api/docs", json={"name": "Collab Doc", "layout": self._blank_layout()})
         self.assertEqual(create.status_code, 200, create.get_data(as_text=True))
@@ -76,12 +87,19 @@ class SafeCollabSaveTests(unittest.TestCase):
         doc_id = doc["id"]
         base = doc["updatedAt"]
         self.assertTrue(base)
+        sid = "sess-atomic-1"
+        self._acquire_edit(doc_id, sid)
 
         layout_a = self._blank_layout()
         layout_a["sheets"][0]["layout"]["shapes"][0]["x"] = 50
         ok = self.client.post(
             "/api/layout",
-            json={"documentId": doc_id, "layout": layout_a, "baseUpdatedAt": base},
+            json={
+                "documentId": doc_id,
+                "layout": layout_a,
+                "baseUpdatedAt": base,
+                "sessionId": sid,
+            },
         )
         self.assertEqual(ok.status_code, 200, ok.get_data(as_text=True))
         new_base = ok.get_json()["updatedAt"]
@@ -91,7 +109,12 @@ class SafeCollabSaveTests(unittest.TestCase):
         layout_b["sheets"][0]["layout"]["shapes"][0]["x"] = 999
         conflict = self.client.post(
             "/api/layout",
-            json={"documentId": doc_id, "layout": layout_b, "baseUpdatedAt": base},
+            json={
+                "documentId": doc_id,
+                "layout": layout_b,
+                "baseUpdatedAt": base,
+                "sessionId": sid,
+            },
         )
         self.assertEqual(conflict.status_code, 409, conflict.get_data(as_text=True))
         body = conflict.get_json()
@@ -102,31 +125,104 @@ class SafeCollabSaveTests(unittest.TestCase):
         shapes = got.get_json()["document"]["layout"]["sheets"][0]["layout"]["shapes"]
         self.assertEqual(shapes[0]["x"], 50)
 
-    def test_presence_heartbeat(self):
-        create = self.client.post("/api/docs", json={"name": "Presence Doc", "layout": self._blank_layout()})
+    def test_save_without_lock_rejected(self):
+        create = self.client.post("/api/docs", json={"name": "Lock Req", "layout": self._blank_layout()})
+        self.assertEqual(create.status_code, 200, create.get_data(as_text=True))
+        doc = create.get_json()["document"]
+        doc_id = doc["id"]
+        base = doc["updatedAt"]
+
+        denied = self.client.post(
+            "/api/layout",
+            json={
+                "documentId": doc_id,
+                "layout": self._blank_layout(),
+                "baseUpdatedAt": base,
+            },
+        )
+        self.assertEqual(denied.status_code, 403, denied.get_data(as_text=True))
+        self.assertEqual(denied.get_json().get("error"), "lock_required")
+
+    def test_second_session_cannot_acquire_edit_lock(self):
+        create = self.client.post("/api/docs", json={"name": "Exclusive", "layout": self._blank_layout()})
         self.assertEqual(create.status_code, 200, create.get_data(as_text=True))
         doc_id = create.get_json()["document"]["id"]
-        sid = "test-session-1"
-        post = self.client.post(
-            f"/api/docs/{doc_id}/presence",
-            json={"sessionId": sid},
-        )
-        self.assertEqual(post.status_code, 200, post.get_data(as_text=True))
-        self.assertTrue(post.get_json().get("selfRegistered"))
 
-        other = self.client.get(f"/api/docs/{doc_id}/presence?sessionId=other-session")
-        self.assertEqual(other.status_code, 200)
-        editors = other.get_json().get("editors") or []
-        self.assertTrue(any(e.get("sessionId") == sid for e in editors))
+        first = self._acquire_edit(doc_id, "sess-a")
+        self.assertTrue(first.get("lockAcquired"))
+
+        second = self.client.post(
+            f"/api/docs/{doc_id}/presence",
+            json={"sessionId": "sess-b", "mode": "edit"},
+        )
+        self.assertEqual(second.status_code, 200, second.get_data(as_text=True))
+        body = second.get_json()
+        self.assertFalse(body.get("lockAcquired"))
+        self.assertEqual(body.get("mode"), "view")
+        self.assertEqual(body.get("editLock", {}).get("sessionId"), "sess-a")
+        self.assertEqual(body.get("editLock", {}).get("name"), "Collab A")
+
+    def test_view_mode_does_not_hold_lock(self):
+        create = self.client.post("/api/docs", json={"name": "View Only", "layout": self._blank_layout()})
+        self.assertEqual(create.status_code, 200, create.get_data(as_text=True))
+        doc_id = create.get_json()["document"]["id"]
+
+        view = self.client.post(
+            f"/api/docs/{doc_id}/presence",
+            json={"sessionId": "sess-view", "mode": "view"},
+        )
+        self.assertEqual(view.status_code, 200, view.get_data(as_text=True))
+        body = view.get_json()
+        self.assertFalse(body.get("lockAcquired"))
+        self.assertEqual(body.get("mode"), "view")
+        self.assertIsNone(body.get("editLock"))
+
+        # Another session can still take edit.
+        edit = self._acquire_edit(doc_id, "sess-edit")
+        self.assertTrue(edit.get("lockAcquired"))
+
+    def test_edit_lock_expires_after_ttl(self):
+        create = self.client.post("/api/docs", json={"name": "TTL Doc", "layout": self._blank_layout()})
+        self.assertEqual(create.status_code, 200, create.get_data(as_text=True))
+        doc_id = create.get_json()["document"]["id"]
+        self._acquire_edit(doc_id, "sess-old")
+
+        conn = self.srv._db()
+        conn.execute(
+            """
+            UPDATE document_edit_locks
+            SET last_seen = datetime('now', ?)
+            WHERE document_id = ?
+            """,
+            (f"-{self.srv.EDIT_LOCK_TTL_SECONDS + 5} seconds", doc_id),
+        )
+        conn.commit()
+        conn.close()
+
+        takeover = self.client.post(
+            f"/api/docs/{doc_id}/presence",
+            json={"sessionId": "sess-new", "mode": "edit"},
+        )
+        self.assertEqual(takeover.status_code, 200, takeover.get_data(as_text=True))
+        body = takeover.get_json()
+        self.assertTrue(body.get("lockAcquired"), body)
+        self.assertEqual(body.get("mode"), "edit")
+
+    def test_release_lock_on_delete_presence(self):
+        create = self.client.post("/api/docs", json={"name": "Release", "layout": self._blank_layout()})
+        self.assertEqual(create.status_code, 200, create.get_data(as_text=True))
+        doc_id = create.get_json()["document"]["id"]
+        self._acquire_edit(doc_id, "sess-rel")
 
         delete = self.client.delete(
             f"/api/docs/{doc_id}/presence",
-            json={"sessionId": sid},
+            json={"sessionId": "sess-rel"},
         )
         self.assertEqual(delete.status_code, 200)
-        after = self.client.get(f"/api/docs/{doc_id}/presence")
-        editors_after = after.get_json().get("editors") or []
-        self.assertFalse(any(e.get("sessionId") == sid for e in editors_after))
+        self.assertIsNone(delete.get_json().get("editLock"))
+
+        again = self._acquire_edit(doc_id, "sess-other")
+        self.assertTrue(again.get("lockAcquired"))
 
 
 if __name__ == "__main__":

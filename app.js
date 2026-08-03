@@ -28,6 +28,7 @@ const fileBrowserPreview = $("fileBrowserPreview");
 const fileBrowserInfo = $("fileBrowserInfo");
 const fileBrowserNewFolderBtn = $("fileBrowserNewFolderBtn");
 const fileModalOpenBtn = $("fileModalOpenBtn");
+const fileModalEditBtn = $("fileModalEditBtn");
 const fileModalCloseBtn = $("fileModalCloseBtn");
 const authModal = $("authModal");
 const authModalCloseBtn = $("authModalCloseBtn");
@@ -122,12 +123,9 @@ const authBtn = $("authBtn");
 const userLabel = $("userLabel");
 const currentDocumentTitle = $("currentDocumentTitle");
 const freeModeHint = $("freeModeHint");
-const presenceBanner = $("presenceBanner");
-const saveConflictModal = $("saveConflictModal");
-const saveConflictMessage = $("saveConflictMessage");
-const saveConflictStayBtn = $("saveConflictStayBtn");
-const saveConflictCopyBtn = $("saveConflictCopyBtn");
-const saveConflictReloadBtn = $("saveConflictReloadBtn");
+const editLockBadge = $("editLockBadge");
+const editLockBadgeText = $("editLockBadgeText");
+const editLockUpgradeBtn = null;
 const formatToggle = $("formatToggle");
 const formatToggleLabel = formatToggle ? formatToggle.closest("label") : null;
 const formatPanel = $("formatPanel");
@@ -511,10 +509,12 @@ const DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQhEx
 let styleClipboard = null;
 let defaultStyles = loadDefaultStyles();
 let autoSaveEnabled = true;
-let documentSaveFrozen = false;
 let presenceSessionId = null;
 let presenceTimer = null;
-let presenceWarnedDocId = null;
+let documentOpenMode = "view"; // "view" | "edit" — requested/effective open mode
+let editLockOwned = false;
+let editLockHolder = null; // { email, name, sessionId } | null
+let editLockWarnedDocId = null;
 let currentDocumentId = null;
 let currentDocumentName = "Рабочий стол";
 let currentDocumentStore = null;
@@ -531,6 +531,9 @@ let sheetSwitcherOpen = false;
 let commentsCache = [];
 let desktopStyleState = { ...DEFAULT_DESKTOP_STYLE };
 let formatPanelExpandedPosition = null;
+let formatPanelPreferred = true;
+let lastFormatEditable = null;
+let editLockBadgeTimer = null;
 let expandedAttachedNoteId = null;
 const ATTACHED_NOTE_FILL = "#fef9c3";
 const ATTACHED_NOTE_DEFAULT_WIDTH = 220;
@@ -4078,7 +4081,13 @@ function canManagePublicLinkCurrentDocument() {
 
 function canEditCurrentDocument() {
   if (guestPublicView) return false;
-  return currentUser && ["owner", "admin", "editor"].includes(getCurrentDocumentRole());
+  if (!(currentUser && ["owner", "admin", "editor"].includes(getCurrentDocumentRole()))) return false;
+  return documentOpenMode === "edit" && editLockOwned;
+}
+
+function canRequestDocumentEdit() {
+  if (guestPublicView) return false;
+  return !!(currentUser && ["owner", "admin", "editor"].includes(getCurrentDocumentRole()));
 }
 
 function isWorkspaceReadOnly() {
@@ -4161,60 +4170,32 @@ function getPersonalAccessForCurrentPublicDoc() {
 
 function updateWorkspaceAccessBanner() {
   let banner = document.getElementById("workspaceAccessBanner");
-  const ensureBanner = () => {
-    if (!banner) {
-      banner = document.createElement("div");
-      banner.id = "workspaceAccessBanner";
-      banner.className = "workspace-view-mode-label";
-      banner.setAttribute("role", "status");
-      const host = document.querySelector(".app") || document.body;
-      host.appendChild(banner);
-    } else {
-      banner.className = "workspace-view-mode-label";
-    }
-    return banner;
-  };
   const removeBanner = () => {
     if (banner) banner.remove();
     banner = null;
   };
 
-  const readonly = guestPublicView || document.body.classList.contains("workspace-readonly");
-  if (!readonly) {
+  // Authenticated mode status lives in #editLockBadge only.
+  // Guest public link keeps a single quiet label without action buttons.
+  if (!guestPublicView) {
     removeBanner();
     return;
   }
 
-  const el = ensureBanner();
-  el.replaceChildren();
-  const text = document.createElement("span");
-  text.textContent = "режим просмотра";
-  el.appendChild(text);
-
-  if (guestPublicView) {
-    const personal = getPersonalAccessForCurrentPublicDoc();
-    if (personal && ["owner", "admin", "editor"].includes(String(personal.role || "").toLowerCase())) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "workspace-view-mode-edit";
-      btn.textContent = "Редактировать";
-      btn.addEventListener("click", async () => {
-        try {
-          const opened = await openDocumentById(currentDocumentId, {
-            replace: true,
-            sheetId: currentSheetId || 1
-          });
-          if (opened) {
-            showHint(`Документ открыт с правами: ${roleLabel(currentDocumentRole)}.`, "warning", 2200);
-          }
-        } catch (err) {
-          console.error(err);
-          showHint("Не удалось открыть документ для редактирования.", "error", 2500);
-        }
-      });
-      el.appendChild(btn);
-    }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "workspaceAccessBanner";
+    banner.className = "workspace-view-mode-label";
+    banner.setAttribute("role", "status");
+    const host = document.querySelector(".app") || document.body;
+    host.appendChild(banner);
+  } else {
+    banner.className = "workspace-view-mode-label";
   }
+  banner.replaceChildren();
+  const text = document.createElement("span");
+  text.textContent = "Сейчас режим просмотра";
+  banner.appendChild(text);
 }
 
 function escapeHtml(value) {
@@ -4268,8 +4249,20 @@ function updateCurrentDocumentCapabilities() {
   if (shapeButton) shapeButton.disabled = !editable;
   if (undoBtn) undoBtn.disabled = !editable;
   if (redoBtn) redoBtn.disabled = !editable;
-  if (formatToggle) formatToggle.disabled = !editable;
-  if (objectsToggle) objectsToggle.disabled = !editable;
+  if (formatToggle) {
+    formatToggle.disabled = !editable;
+    if (!editable) {
+      formatToggle.checked = false;
+      if (formatPanel) formatPanel.classList.add("hidden");
+    } else if (lastFormatEditable === false) {
+      formatToggle.checked = !!formatPanelPreferred;
+      if (formatPanelPreferred) ensureFormatPanelEnabledCollapsed();
+    } else if (formatPanelPreferred && formatToggle.checked && formatPanel?.classList.contains("hidden")) {
+      ensureFormatPanelEnabledCollapsed();
+    }
+  }
+  lastFormatEditable = editable;
+  if (objectsToggle) objectsToggle.disabled = !canRequestDocumentEdit();
   syncObjectsToolbarVisibility();
 }
 
@@ -4341,7 +4334,7 @@ async function loadDocumentsIndex() {
   };
 }
 
-async function loadCurrentDocument() {
+async function loadCurrentDocument(opts = {}) {
   if (currentUser) {
     const data = await fetchJson("/api/layout");
     currentDocumentId = data.documentId || currentDocumentId;
@@ -4355,7 +4348,11 @@ async function loadCurrentDocument() {
       ...doc,
       isActive: doc.id === currentDocumentId
     }));
-    startDocumentPresence();
+    // Presence/mode must be started by the caller with an explicit open mode.
+    // Auto-starting here without mode made "Открыть" inconsistently keep edit lock.
+    if (opts.startPresence) {
+      await startDocumentPresence(opts.mode === "edit" ? "edit" : "view");
+    }
     return loaded;
   }
   const doc = loadActiveLocalDocument();
@@ -4392,21 +4389,70 @@ function ensurePresenceSessionId() {
   return presenceSessionId;
 }
 
-function renderPresenceBanner(editors) {
-  if (!presenceBanner) return;
-  const list = Array.isArray(editors) ? editors : [];
-  if (!list.length) {
-    presenceBanner.classList.add("hidden");
-    presenceBanner.textContent = "";
+function setDocumentOpenMode(mode, { owned = false, holder = null, warn = false } = {}) {
+  const nextMode = mode === "edit" && owned ? "edit" : "view";
+  const nextOwned = nextMode === "edit" && !!owned;
+  const nextHolder = holder && typeof holder === "object" ? holder : null;
+  const changed = (
+    documentOpenMode !== nextMode
+    || editLockOwned !== nextOwned
+    || (editLockHolder && editLockHolder.sessionId) !== (nextHolder && nextHolder.sessionId)
+  );
+  documentOpenMode = nextMode;
+  editLockOwned = nextOwned;
+  editLockHolder = nextHolder;
+  updateCurrentDocumentCapabilities();
+  syncWorkspaceAccessMode();
+  if (changed) refreshObjectsToolbarForMode();
+  if (warn && !editLockOwned && editLockHolder) {
+    const who = editLockHolder.name || editLockHolder.email || "другой пользователь";
+    flashDocumentModeBadge({
+      text: `Документ редактирует ${who}`,
+      durationMs: 4500
+    });
+  } else if (changed) {
+    flashDocumentModeBadge();
+  }
+}
+
+function hideEditLockBadge() {
+  if (editLockBadgeTimer) {
+    clearTimeout(editLockBadgeTimer);
+    editLockBadgeTimer = null;
+  }
+  if (!editLockBadge) return;
+  editLockBadge.classList.add("hidden");
+  if (editLockBadgeText) editLockBadgeText.textContent = "";
+}
+
+function flashDocumentModeBadge(options = {}) {
+  if (!editLockBadge) return;
+  if (guestPublicView || !currentUser || !currentDocumentId) {
+    hideEditLockBadge();
     return;
   }
-  const labels = list.map((e) => e.name || e.email || "пользователь").filter(Boolean);
-  const unique = [...new Set(labels)];
-  const text = unique.length === 1
-    ? `Сейчас также открыто: ${unique[0]}`
-    : `Сейчас также открыто: ${unique.slice(0, 3).join(", ")}${unique.length > 3 ? ` и ещё ${unique.length - 3}` : ""}`;
-  presenceBanner.textContent = text;
-  presenceBanner.classList.remove("hidden");
+  const opts = typeof options === "number" ? { durationMs: options } : (options || {});
+  const durationMs = Math.max(800, Number(opts.durationMs) || 2600);
+  let text = String(opts.text || "").trim();
+  if (!text) {
+    const inEdit = !!editLockOwned && documentOpenMode === "edit";
+    text = inEdit ? "Сейчас режим редактирования" : "Сейчас режим просмотра";
+  }
+  // Mode status lives only in the top-right badge — never duplicate via bottom hint.
+  hideHint();
+  if (editLockBadgeText) editLockBadgeText.textContent = text;
+  editLockBadge.classList.remove("hidden");
+  if (editLockBadgeTimer) clearTimeout(editLockBadgeTimer);
+  editLockBadgeTimer = setTimeout(() => {
+    editLockBadgeTimer = null;
+    if (editLockBadge) editLockBadge.classList.add("hidden");
+  }, durationMs);
+}
+
+function renderEditLockBadge() {
+  // Persistent badge removed — mode is shown by the pencil/eye toggle.
+  // Keep this as a no-op hide so older callers stay safe.
+  hideEditLockBadge();
 }
 
 async function stopDocumentPresence() {
@@ -4414,10 +4460,13 @@ async function stopDocumentPresence() {
     clearInterval(presenceTimer);
     presenceTimer = null;
   }
-  renderPresenceBanner([]);
-  if (!currentUser || !currentDocumentId || !presenceSessionId) return;
   const docId = currentDocumentId;
   const sid = presenceSessionId;
+  editLockOwned = false;
+  editLockHolder = null;
+  if (documentOpenMode === "edit") documentOpenMode = "view";
+  hideEditLockBadge();
+  if (!currentUser || !docId || !sid) return;
   try {
     await fetchJson(`/api/docs/${encodeURIComponent(docId)}/presence`, {
       method: "DELETE",
@@ -4432,84 +4481,96 @@ async function stopDocumentPresence() {
 
 async function beatDocumentPresence() {
   if (!currentUser || !currentDocumentId || guestPublicView) {
-    renderPresenceBanner([]);
+    setDocumentOpenMode("view", { owned: false, holder: null });
     return;
   }
   const sid = ensurePresenceSessionId();
+  const requested = documentOpenMode === "edit" ? "edit" : "view";
   try {
     const data = await fetchJson(`/api/docs/${encodeURIComponent(currentDocumentId)}/presence`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: sid }),
+      body: JSON.stringify({ sessionId: sid, mode: requested }),
       silent: true
     });
-    const editors = Array.isArray(data.editors) ? data.editors : [];
-    renderPresenceBanner(editors);
-    if (
-      editors.length
-      && canEditCurrentDocument()
-      && presenceWarnedDocId !== currentDocumentId
-    ) {
-      presenceWarnedDocId = currentDocumentId;
-      showHint(
-        "Документ уже открыт у другого пользователя. Сохранения могут конфликтовать — договоритесь, кто пишет, или работайте в копии.",
-        "warning",
-        5000
-      );
-    }
+    const acquired = !!data.lockAcquired && data.mode === "edit";
+    const holder = data.editLock || null;
+    setDocumentOpenMode(acquired ? "edit" : "view", {
+      owned: acquired,
+      holder: acquired ? null : holder,
+      warn: requested === "edit" && !acquired
+    });
   } catch {
     // presence is best-effort
   }
 }
 
-function startDocumentPresence() {
+async function startDocumentPresence(mode = null) {
   if (presenceTimer) {
     clearInterval(presenceTimer);
     presenceTimer = null;
   }
+  if (mode === "edit" || mode === "view") {
+    documentOpenMode = mode;
+    if (mode === "view") {
+      editLockOwned = false;
+    }
+  }
   if (!currentUser || !currentDocumentId || guestPublicView) {
-    renderPresenceBanner([]);
+    setDocumentOpenMode("view", { owned: false, holder: null });
     return;
   }
-  void beatDocumentPresence();
+  await beatDocumentPresence();
   presenceTimer = setInterval(() => { void beatDocumentPresence(); }, 12000);
 }
 
-function freezeDocumentSave(message) {
-  documentSaveFrozen = true;
-  clearTimeout(pendingPersistTimer);
-  pendingPersistTimer = null;
-  if (message) showHint(message, "error", 6000);
+async function requestDocumentEditMode() {
+  if (!currentUser || !currentDocumentId || guestPublicView) return false;
+  if (!canRequestDocumentEdit()) {
+    showHint("Нет прав на редактирование этого документа.", "error", 2800);
+    return false;
+  }
+  documentOpenMode = "edit";
+  editLockWarnedDocId = null;
+  await beatDocumentPresence();
+  refreshObjectsToolbarForMode();
+  // Badge text is set inside setDocumentOpenMode:
+  // success → режим редактирования; lock busy → «Документ редактирует …»
+  if (editLockOwned) return true;
+  if (editLockHolder) {
+    const who = editLockHolder.name || editLockHolder.email || "другой пользователь";
+    flashDocumentModeBadge({
+      text: `Документ редактирует ${who}`,
+      durationMs: 4500
+    });
+  }
+  return false;
 }
 
-function clearDocumentSaveFreeze() {
-  documentSaveFrozen = false;
+async function requestDocumentViewMode() {
+  if (!currentUser || !currentDocumentId || guestPublicView) return false;
+  if (canEditCurrentDocument() && autoSaveEnabled) {
+    try {
+      await persistCurrentDocument();
+    } catch (err) {
+      console.warn("Не удалось сохранить перед переходом в просмотр:", err);
+    }
+  }
+  // Request view via presence, but keep editLockOwned until setDocumentOpenMode
+  // applies the server response — otherwise the toolbar thinks nothing changed.
+  documentOpenMode = "view";
+  await beatDocumentPresence();
+  refreshObjectsToolbarForMode();
+  flashDocumentModeBadge();
+  return true;
 }
 
-function openSaveConflictModal(message) {
-  if (saveConflictMessage && message) saveConflictMessage.textContent = message;
-  if (saveConflictModal) saveConflictModal.classList.remove("hidden");
-}
-
-function closeSaveConflictModal() {
-  if (saveConflictModal) saveConflictModal.classList.add("hidden");
-}
-
-function handleDocumentSaveConflict(err) {
-  // Do NOT adopt serverUpdatedAt without reloading layout — that would let the
-  // next autosave overwrite the newer server version with this tab's stale canvas.
-  const payload = err && err.payload ? err.payload : {};
-  const message = String(payload.message || "").trim()
-    || "Документ уже изменён в другом окне или у другого пользователя. Локальные правки не записаны на сервер.";
-  freezeDocumentSave(message);
-  openSaveConflictModal(message);
-}
-
-async function reloadCurrentDocumentFromServer() {
+async function reloadCurrentDocumentFromServer({ quiet = false } = {}) {
   if (!currentUser || !currentDocumentId) return false;
   clearTimeout(pendingPersistTimer);
   pendingPersistTimer = null;
   const docId = currentDocumentId;
+  const keepMode = documentOpenMode === "edit" ? "edit" : "view";
   const data = await fetchJson(`/api/docs/${encodeURIComponent(docId)}/activate`, { method: "POST" });
   const nextId = data.document?.id || data.activeDocumentId || docId;
   currentDocumentId = nextId;
@@ -4521,45 +4582,18 @@ async function reloadCurrentDocumentFromServer() {
   if (data.document && data.document.layout) {
     applyDocumentLayout(data.document.layout, currentSheetId || parseAppRoute().sheetId);
   } else {
-    await loadCurrentDocument();
+    await loadCurrentDocument({ startPresence: false });
   }
-  clearDocumentSaveFreeze();
-  closeSaveConflictModal();
-  startDocumentPresence();
-  showHint("Документ обновлён с сервера. Локальные несохранённые правки отброшены.", "warning", 4000);
-  return true;
-}
-
-async function copyLocalDocumentAfterConflict() {
-  if (!currentUser || !currentDocumentId) return false;
-  flushCurrentSheetLayout();
-  const layout = buildDocumentLayoutPayload();
-  if (!Array.isArray(layout.sheets) || layout.sheets.length === 0) {
-    showHint("Нечего копировать: локальный документ пуст.", "error", 3000);
-    return false;
+  await startDocumentPresence(keepMode);
+  refreshObjectsToolbarForMode();
+  if (!quiet) {
+    showHint("Документ обновлён с сервера.", "warning", 3000);
   }
-  const suggested = `${currentDocumentName || "Документ"} (моя копия)`;
-  let name = suggested;
-  try {
-    const prompted = window.prompt("Название копии с вашими правками:", suggested);
-    if (prompted === null) return false;
-    if (String(prompted).trim()) name = String(prompted).trim();
-  } catch {
-    // use suggested
-  }
-  await stopDocumentPresence();
-  await createDocumentRecord(name, "new", { layout });
-  clearDocumentSaveFreeze();
-  closeSaveConflictModal();
-  await loadCurrentDocument();
-  startDocumentPresence();
-  showHint(`Создана копия с вашими правками: ${currentDocumentName}`, "warning", 3500);
   return true;
 }
 
 async function persistCurrentDocument(layoutOverride = null) {
   if (!canEditCurrentDocument()) return;
-  if (documentSaveFrozen) return;
   clearTimeout(pendingPersistTimer);
   pendingPersistTimer = null;
   const docIdAtSave = currentDocumentId;
@@ -4584,12 +4618,12 @@ async function persistCurrentDocument(layoutOverride = null) {
   if (currentDocumentId !== docIdAtSave) return;
   if (currentUser) {
     if (!currentDocumentUpdatedAt) {
-      freezeDocumentSave(
-        "Нельзя безопасно сохранить из этой вкладки (нет метки версии). Скопируйте документ или обновите страницу."
-      );
-      openSaveConflictModal(
-        "Нельзя безопасно сохранить из этой вкладки (нет метки версии). Скопируйте локальные правки или обновите документ с сервера."
-      );
+      showHint("Нет метки версии документа. Обновляю с сервера…", "warning", 3000);
+      try {
+        await reloadCurrentDocumentFromServer({ quiet: true });
+      } catch (err) {
+        console.error(err);
+      }
       return;
     }
     try {
@@ -4599,14 +4633,25 @@ async function persistCurrentDocument(layoutOverride = null) {
         body: JSON.stringify({
           layout,
           documentId: docIdAtSave,
-          baseUpdatedAt: currentDocumentUpdatedAt
+          baseUpdatedAt: currentDocumentUpdatedAt,
+          sessionId: ensurePresenceSessionId()
         }),
         silent: true
       });
       if (data && data.updatedAt) noteDocumentUpdatedAt(data.updatedAt);
     } catch (err) {
+      if (err && (err.status === 403 || /edit_locked|lock_required/i.test(String(err.message || "")))) {
+        const holder = err.payload && err.payload.editLock;
+        setDocumentOpenMode("view", { owned: false, holder, warn: true });
+        return;
+      }
       if (err && (err.status === 409 || /conflict|baseUpdatedAt|refusing_empty/i.test(String(err.message || "")))) {
-        handleDocumentSaveConflict(err);
+        showHint("Версия на сервере новее. Обновляю документ…", "warning", 3500);
+        try {
+          await reloadCurrentDocumentFromServer({ quiet: true });
+        } catch (reloadErr) {
+          console.error(reloadErr);
+        }
         return;
       }
       throw err;
@@ -4649,6 +4694,10 @@ async function createDocumentRecord(name, mode = "new", opts = {}) {
     currentDocumentName = data.document?.name || safeName;
     currentDocumentRole = data.activeDocumentRole || data.document?.role || "owner";
     noteDocumentUpdatedAt(data.document?.updatedAt || data.updatedAt);
+    documentOpenMode = "edit";
+    editLockOwned = false;
+    editLockHolder = null;
+    editLockWarnedDocId = null;
     syncCurrentDocumentTitle();
     updateCurrentDocumentCapabilities();
     documentsCache = Array.isArray(data.documents) ? data.documents.slice() : documentsCache;
@@ -4690,7 +4739,6 @@ async function prepareDocumentSwitch(nextDocId) {
   clearTimeout(pendingPersistTimer);
   pendingPersistTimer = null;
   if (!nextDocId || !currentDocumentId || nextDocId === currentDocumentId) return;
-  if (documentSaveFrozen) return;
   if (!canEditCurrentDocument() || !autoSaveEnabled) return;
   try {
     await persistCurrentDocument();
@@ -4707,11 +4755,9 @@ async function openDocumentById(docId, opts = {}) {
     if (!currentUser) return false;
     exitGuestPublicView();
   }
-  const prevDocId = currentDocumentId;
-  if (prevDocId && prevDocId !== docId) {
-    await stopDocumentPresence();
-    presenceWarnedDocId = null;
-  }
+  const openMode = opts.mode === "edit" ? "edit" : "view";
+  await stopDocumentPresence();
+  editLockWarnedDocId = null;
   await prepareDocumentSwitch(docId);
   if (currentUser) {
     const data = await fetchJson(`/api/docs/${encodeURIComponent(docId)}/activate`, { method: "POST" });
@@ -4727,8 +4773,9 @@ async function openDocumentById(docId, opts = {}) {
     currentDocumentName = data.activeDocumentName || currentDocumentName;
     currentDocumentRole = data.activeDocumentRole || currentDocumentRole;
     noteDocumentUpdatedAt(data.document?.updatedAt || data.updatedAt);
-    clearDocumentSaveFreeze();
-    closeSaveConflictModal();
+    documentOpenMode = openMode;
+    editLockOwned = false;
+    editLockHolder = null;
     syncCurrentDocumentTitle();
     updateCurrentDocumentCapabilities();
     if (nextLayout) {
@@ -4739,11 +4786,18 @@ async function openDocumentById(docId, opts = {}) {
       }));
       ensureFormatPanelEnabledCollapsed();
     } else {
-      await loadCurrentDocument();
+      await loadCurrentDocument({ startPresence: false });
     }
     navigateToDocument(currentDocumentId, { sheetId: currentSheetId, ...opts });
     syncWorkspaceAccessMode();
-    startDocumentPresence();
+    await startDocumentPresence(openMode);
+    refreshObjectsToolbarForMode();
+    if (openMode === "edit" && !editLockOwned && editLockHolder) {
+      const who = editLockHolder.name || editLockHolder.email || "другой пользователь";
+      flashDocumentModeBadge({ text: `Документ редактирует ${who}`, durationMs: 4500 });
+    } else {
+      flashDocumentModeBadge();
+    }
     return true;
   }
   const loaded = await activateDocumentRecord(docId, opts);
@@ -4794,6 +4848,11 @@ async function copyDocumentShareUrl() {
 async function activateDocumentRecord(docId, opts = {}) {
   if (!docId) return false;
   if (guestPublicView && currentUser) exitGuestPublicView();
+  const openMode = opts.mode === "edit" ? "edit" : "view";
+  // Always drop previous lock/presence, even when re-opening the same document
+  // (e.g. switch from edit → view via «Открыть»).
+  await stopDocumentPresence();
+  editLockWarnedDocId = null;
   await prepareDocumentSwitch(docId);
   if (currentUser) {
     const data = await fetchJson(`/api/docs/${encodeURIComponent(docId)}/activate`, { method: "POST" });
@@ -4804,6 +4863,9 @@ async function activateDocumentRecord(docId, opts = {}) {
     currentDocumentName = data.activeDocumentName || currentDocumentName;
     currentDocumentRole = data.activeDocumentRole || currentDocumentRole;
     noteDocumentUpdatedAt(data.document?.updatedAt || data.updatedAt);
+    documentOpenMode = openMode;
+    editLockOwned = false;
+    editLockHolder = null;
     syncCurrentDocumentTitle();
     updateCurrentDocumentCapabilities();
     if (data.document && data.document.layout) {
@@ -4815,11 +4877,27 @@ async function activateDocumentRecord(docId, opts = {}) {
       ensureFormatPanelEnabledCollapsed();
       navigateToDocument(currentDocumentId, { sheetId: currentSheetId, replace: false });
       syncWorkspaceAccessMode();
+      await startDocumentPresence(openMode);
+      refreshObjectsToolbarForMode();
+      if (openMode === "edit" && !editLockOwned && editLockHolder) {
+        const who = editLockHolder.name || editLockHolder.email || "другой пользователь";
+        flashDocumentModeBadge({ text: `Документ редактирует ${who}`, durationMs: 4500 });
+      } else {
+        flashDocumentModeBadge();
+      }
       return loaded;
     }
-    await loadCurrentDocument();
+    await loadCurrentDocument({ startPresence: false });
     await loadDocumentsIndex();
     ensureFormatPanelEnabledCollapsed();
+    await startDocumentPresence(openMode);
+    refreshObjectsToolbarForMode();
+    if (openMode === "edit" && !editLockOwned && editLockHolder) {
+      const who = editLockHolder.name || editLockHolder.email || "другой пользователь";
+      flashDocumentModeBadge({ text: `Документ редактирует ${who}`, durationMs: 4500 });
+    } else {
+      flashDocumentModeBadge();
+    }
     return true;
   }
   const doc = setActiveLocalDoc(docId);
@@ -4827,6 +4905,9 @@ async function activateDocumentRecord(docId, opts = {}) {
   currentDocumentId = doc.id;
   currentDocumentName = doc.name;
   currentDocumentRole = "owner";
+  documentOpenMode = openMode === "edit" ? "edit" : "view";
+  editLockOwned = documentOpenMode === "edit";
+  editLockHolder = null;
   syncCurrentDocumentTitle();
   updateCurrentDocumentCapabilities();
   documentsCache = ensureLocalDocStore().documents.map((item) => ({
@@ -4838,6 +4919,7 @@ async function activateDocumentRecord(docId, opts = {}) {
   }));
   const loaded = applyDocumentLayout(doc.layout || createBlankDocumentLayout(), opts.sheetId ?? parseAppRoute().sheetId);
   ensureFormatPanelEnabledCollapsed();
+  refreshObjectsToolbarForMode();
   return loaded;
 }
 
@@ -5351,8 +5433,9 @@ function renderFileBrowserPreview(docId) {
 }
 
 function syncFileBrowserOpenButton() {
-  if (!fileModalOpenBtn) return;
-  fileModalOpenBtn.disabled = !fileBrowserSelectedDocId;
+  const disabled = !fileBrowserSelectedDocId;
+  if (fileModalOpenBtn) fileModalOpenBtn.disabled = disabled;
+  if (fileModalEditBtn) fileModalEditBtn.disabled = disabled;
 }
 
 function selectFileBrowserDocument(docId) {
@@ -5362,25 +5445,25 @@ function selectFileBrowserDocument(docId) {
   syncFileBrowserOpenButton();
 }
 
-async function openFileBrowserDocument(docId) {
+async function openFileBrowserDocument(docId, mode = "view") {
   if (!docId) return;
+  const openMode = mode === "edit" ? "edit" : "view";
   try {
-    await activateDocumentRecord(docId);
+    await activateDocumentRecord(docId, { mode: openMode });
     closeFileModal();
-    const doc = documentsCache.find((item) => item.id === docId);
-    showHint(`Открыт документ: ${doc ? doc.name : currentDocumentName}`, "warning", 1800);
+    hideHint();
   } catch (err) {
     console.error(err);
     showHint("Не удалось открыть документ.", "error", 2500);
   }
 }
 
-async function openSelectedFileBrowserDocument() {
+async function openSelectedFileBrowserDocument(mode = "view") {
   if (!fileBrowserSelectedDocId) {
     showHint("Выбери документ для открытия.", "error", 2200);
     return;
   }
-  await openFileBrowserDocument(fileBrowserSelectedDocId);
+  await openFileBrowserDocument(fileBrowserSelectedDocId, mode);
 }
 
 function toggleFileBrowserFolder(folderKey) {
@@ -6331,7 +6414,11 @@ async function submitAuthForm() {
       // Stay on the view-only public link; personal edit access is offered via the banner button.
       await loadPublicDocument(route);
     } else {
-      await loadCurrentDocument();
+      await loadCurrentDocument({ startPresence: false });
+      documentOpenMode = "view";
+      editLockOwned = false;
+      await startDocumentPresence("view");
+      refreshObjectsToolbarForMode();
       if (currentDocumentId) navigateToDocument(currentDocumentId, { sheetId: currentSheetId, replace: true });
     }
     ensureFormatPanelEnabledCollapsed();
@@ -6844,14 +6931,58 @@ function openNestedMenu(kind) {
     return;
   }
   if (kind === "shape") {
+    if (!canEditCurrentDocument()) {
+      toggleShapeMenu(false);
+      return;
+    }
     toggleShapeMenu(true);
     toggleFileActionsMenu(false);
   }
 }
 
+function closeNestedMenus() {
+  toggleFileActionsMenu(false);
+  toggleShapeMenu(false);
+}
+
+function bindNestedMenuHover(kind, nestEl) {
+  if (!nestEl) return;
+  let leaveTimer = null;
+  const clearLeave = () => {
+    if (!leaveTimer) return;
+    clearTimeout(leaveTimer);
+    leaveTimer = null;
+  };
+  nestEl.addEventListener("mouseenter", () => {
+    clearLeave();
+    openNestedMenu(kind);
+  });
+  nestEl.addEventListener("focusin", () => {
+    clearLeave();
+    openNestedMenu(kind);
+  });
+  nestEl.addEventListener("mouseleave", () => {
+    clearLeave();
+    leaveTimer = setTimeout(() => {
+      leaveTimer = null;
+      if (kind === "file") toggleFileActionsMenu(false);
+      if (kind === "shape") toggleShapeMenu(false);
+    }, 160);
+  });
+  nestEl.addEventListener("focusout", (event) => {
+    if (nestEl.contains(event.relatedTarget)) return;
+    clearLeave();
+    leaveTimer = setTimeout(() => {
+      leaveTimer = null;
+      if (kind === "file") toggleFileActionsMenu(false);
+      if (kind === "shape") toggleShapeMenu(false);
+    }, 160);
+  });
+}
+
 function closeAllMenus() {
   toggleFileMenu(false);
-  toggleShapeMenu(false);
+  closeNestedMenus();
 }
 
 function resetViewportToOrigin() {
@@ -9850,8 +9981,26 @@ function createContextSubmenuButton(child, options = {}) {
 
 function attachContextSubmenu(group, submenu, item, options = {}) {
   const { toolbar = false } = options;
-  const openSubmenu = () => openContextSubmenu(group);
-  const closeSubmenu = () => scheduleContextSubmenuClose(group);
+  let leaveTimer = null;
+  const clearLeave = () => {
+    if (!leaveTimer) return;
+    clearTimeout(leaveTimer);
+    leaveTimer = null;
+  };
+  const openSubmenu = () => {
+    const trigger = group.querySelector(".objects-toolbar-item, .context-toolbar-item, .context-menu-parent");
+    if (trigger && trigger.disabled) return;
+    if (item.disabled) return;
+    clearLeave();
+    openContextSubmenu(group);
+  };
+  const closeSubmenu = () => {
+    clearLeave();
+    leaveTimer = setTimeout(() => {
+      leaveTimer = null;
+      if (group && group.isConnected) group.classList.remove("open");
+    }, 160);
+  };
   group.addEventListener("pointerenter", openSubmenu);
   group.addEventListener("pointerleave", closeSubmenu);
   group.addEventListener("focusin", openSubmenu);
@@ -10207,15 +10356,17 @@ function populateObjectsToolbar() {
   if (!objectsToolbar) return;
   hideObjectsToolbarTooltip();
   objectsToolbar.innerHTML = "";
+  const editable = canEditCurrentDocument();
   const items = getDesktopInsertMenuItems(() => lastDesktopPointer || getViewportCenterDesktopPoint());
   items.forEach((item) => {
+    const itemDisabled = !!item.disabled || !editable;
     if (Array.isArray(item.children) && item.children.length) {
       const group = document.createElement("div");
       group.className = "context-menu-group";
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "objects-toolbar-item";
-      btn.disabled = !!item.disabled;
+      btn.disabled = itemDisabled;
       if (item.tool) btn.dataset.tool = item.tool;
       if (item.placeTool) btn.dataset.placeTool = item.placeTool;
       bindObjectsToolbarTooltip(btn, item.label);
@@ -10233,17 +10384,64 @@ function populateObjectsToolbar() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "objects-toolbar-item";
-    btn.disabled = !!item.disabled;
+    btn.disabled = itemDisabled;
     if (item.tool) btn.dataset.tool = item.tool;
     if (item.placeTool) btn.dataset.placeTool = item.placeTool;
     bindObjectsToolbarTooltip(btn, item.label);
     if (item.icon) btn.appendChild(createWhiteboardIcon(item.icon));
     btn.addEventListener("click", () => {
-      if (!item.disabled && typeof item.action === "function") item.action();
+      if (!itemDisabled && typeof item.action === "function") item.action();
       syncObjectsToolbarToolState();
     });
     objectsToolbar.appendChild(btn);
   });
+
+  const modeSep = document.createElement("span");
+  modeSep.className = "objects-toolbar-sep";
+  modeSep.setAttribute("aria-hidden", "true");
+  objectsToolbar.appendChild(modeSep);
+
+  const modeToggle = document.createElement("div");
+  modeToggle.className = "doc-mode-toggle";
+  modeToggle.setAttribute("role", "group");
+  modeToggle.setAttribute("aria-label", "Режим документа");
+
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "doc-mode-btn";
+  editBtn.dataset.mode = "edit";
+  editBtn.title = "Редактирование";
+  bindObjectsToolbarTooltip(editBtn, "Редактирование");
+  editBtn.appendChild(createWhiteboardIcon("mode-edit.svg"));
+  editBtn.disabled = !canRequestDocumentEdit();
+  editBtn.addEventListener("click", () => {
+    if (editLockOwned && documentOpenMode === "edit") return;
+    void requestDocumentEditMode();
+  });
+
+  const viewBtn = document.createElement("button");
+  viewBtn.type = "button";
+  viewBtn.className = "doc-mode-btn";
+  viewBtn.dataset.mode = "view";
+  viewBtn.title = "Просмотр";
+  bindObjectsToolbarTooltip(viewBtn, "Просмотр");
+  viewBtn.appendChild(createWhiteboardIcon("mode-view.svg"));
+  viewBtn.disabled = !canRequestDocumentEdit();
+  viewBtn.addEventListener("click", () => {
+    if (!(editLockOwned && documentOpenMode === "edit")) return;
+    void requestDocumentViewMode();
+  });
+
+  const inEdit = editable;
+  editBtn.classList.toggle("active", inEdit);
+  viewBtn.classList.toggle("active", !inEdit);
+  editBtn.setAttribute("aria-pressed", inEdit ? "true" : "false");
+  viewBtn.setAttribute("aria-pressed", inEdit ? "false" : "true");
+
+  modeToggle.appendChild(editBtn);
+  modeToggle.appendChild(viewBtn);
+  objectsToolbar.appendChild(modeToggle);
+
   if (!objectsToolbar.dataset.tooltipBound) {
     objectsToolbar.dataset.tooltipBound = "1";
     objectsToolbar.addEventListener("pointerover", (event) => {
@@ -10264,13 +10462,30 @@ function populateObjectsToolbar() {
   syncObjectsToolbarToolState();
 }
 
+function refreshObjectsToolbarForMode() {
+  if (!objectsToolbar) return;
+  syncObjectsToolbarVisibility();
+  if (!objectsToolbar.classList.contains("hidden") && !objectsToolbar.hasAttribute("hidden")) {
+    populateObjectsToolbar();
+  }
+}
+
 function syncObjectsToolbarVisibility() {
   if (!objectsToolbar) return;
-  const show = !!(objectsToggle && objectsToggle.checked && canEditCurrentDocument() && !guestPublicView);
+  const show = !!(
+    objectsToggle
+    && objectsToggle.checked
+    && canRequestDocumentEdit()
+    && !guestPublicView
+  );
   objectsToolbar.classList.toggle("hidden", !show);
   if (show) {
     objectsToolbar.removeAttribute("hidden");
     if (!objectsToolbar.childElementCount) populateObjectsToolbar();
+    else {
+      // Keep mode button / disabled tools in sync without full rebuild on every capability tick
+      // when children already exist — callers that need rebuild use refreshObjectsToolbarForMode.
+    }
   } else {
     objectsToolbar.setAttribute("hidden", "");
     objectsToolbar.querySelectorAll(".context-menu-group.open").forEach((node) => node.classList.remove("open"));
@@ -10605,11 +10820,20 @@ function toggleFormatPanelCollapsed() {
 }
 
 function showHint(text, type = "warning", timeoutMs = 5000) {
+  if (!freeModeHint) return;
   freeModeHint.textContent = text;
   freeModeHint.classList.remove("hidden", "error", "warning");
   freeModeHint.classList.add(type);
   if (hintTimer) clearTimeout(hintTimer);
   hintTimer = setTimeout(() => freeModeHint.classList.add("hidden"), timeoutMs);
+}
+
+function hideHint() {
+  if (hintTimer) {
+    clearTimeout(hintTimer);
+    hintTimer = null;
+  }
+  if (freeModeHint) freeModeHint.classList.add("hidden");
 }
 
 function openAddModal() { modal.classList.remove("hidden"); modalSheetUrl.value = ""; modalSheetUrl.focus(); }
@@ -20032,7 +20256,7 @@ function scheduleHistorySnapshot(delay = 350) {
 }
 
 async function flushPersistDocument() {
-  if (!canEditCurrentDocument() || !autoSaveEnabled || documentSaveFrozen) return;
+  if (!canEditCurrentDocument() || !autoSaveEnabled) return;
   flushCurrentSheetLayout();
   const docPayload = buildDocumentLayoutPayload();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(docPayload));
@@ -20044,7 +20268,6 @@ async function flushPersistDocument() {
 }
 
 function scheduleDocumentPersist(delay = 700) {
-  if (documentSaveFrozen) return;
   clearTimeout(pendingPersistTimer);
   if (delay <= 0) {
     void flushPersistDocument();
@@ -20167,7 +20390,13 @@ async function loadRemoteLayout() {
   if (!currentUser) return false;
   try {
     await loadDocumentsIndex();
-    return loadCurrentDocument();
+    const loaded = await loadCurrentDocument({ startPresence: false });
+    documentOpenMode = "view";
+    editLockOwned = false;
+    editLockHolder = null;
+    await startDocumentPresence("view");
+    refreshObjectsToolbarForMode();
+    return loaded;
   } catch {
     return false;
   }
@@ -20213,7 +20442,7 @@ async function handleFileCreate() {
     if (!currentUser) return;
     exitGuestPublicView();
     syncWorkspaceAccessMode();
-  } else if (!canEditCurrentDocument()) {
+  } else if (!currentUser) {
     return;
   }
   let name = "Новый документ";
@@ -20229,8 +20458,12 @@ async function handleFileCreate() {
     } catch (persistErr) {
       console.warn("Не удалось сохранить текущий документ перед созданием нового:", persistErr);
     }
+    await stopDocumentPresence();
     await createDocumentRecord(name, "new");
-    await loadCurrentDocument();
+    await loadCurrentDocument({ startPresence: false });
+    await startDocumentPresence("edit");
+    refreshObjectsToolbarForMode();
+    flashDocumentModeBadge();
     resetViewportToOrigin();
     await loadDocumentsIndex();
     closeFileModal();
@@ -20253,8 +20486,12 @@ async function handleFileCopy() {
   }
   try {
     await persistCurrentDocument();
+    await stopDocumentPresence();
     await createDocumentRecord(name, "copy");
-    await loadCurrentDocument();
+    await loadCurrentDocument({ startPresence: false });
+    await startDocumentPresence("edit");
+    refreshObjectsToolbarForMode();
+    flashDocumentModeBadge();
     resetViewportToOrigin();
     await loadDocumentsIndex();
     closeFileModal();
@@ -20281,7 +20518,11 @@ async function handleFileDelete() {
     await persistCurrentDocument();
     await deleteDocumentRecord(currentDocumentId);
     await loadDocumentsIndex();
-    await loadCurrentDocument();
+    await loadCurrentDocument({ startPresence: false });
+    documentOpenMode = "view";
+    editLockOwned = false;
+    await startDocumentPresence("view");
+    refreshObjectsToolbarForMode();
     closeFileModal();
     showHint("Документ удалён.", "warning", 1800);
   } catch (err) {
@@ -21088,8 +21329,7 @@ safeOn(fileActionsBtn, "click", (e) => {
   e.stopPropagation();
   openNestedMenu("file");
 });
-safeOn(fileActionsBtn && fileActionsBtn.closest(".app-menu-nested"), "mouseenter", () => openNestedMenu("file"));
-safeOn(fileActionsBtn && fileActionsBtn.closest(".app-menu-nested"), "focusin", () => openNestedMenu("file"));
+bindNestedMenuHover("file", fileActionsBtn && fileActionsBtn.closest(".app-menu-nested"));
 safeOn(fileCreateBtn, "click", async (e) => {
   e.stopPropagation();
   closeAllMenus();
@@ -21129,7 +21369,8 @@ safeOn(fileAutosaveToggle, "change", () => {
   setAutosaveEnabled(!!fileAutosaveToggle.checked);
   showHint(autoSaveEnabled ? "Автоматическое сохранение включено." : "Автоматическое сохранение выключено.", "warning", 1800);
 });
-safeOn(fileModalOpenBtn, "click", () => { void openSelectedFileBrowserDocument(); });
+safeOn(fileModalOpenBtn, "click", () => { void openSelectedFileBrowserDocument("view"); });
+safeOn(fileModalEditBtn, "click", () => { void openSelectedFileBrowserDocument("edit"); });
 safeOn(fileModalCloseBtn, "click", closeFileModal);
 safeOn(fileBrowserNewFolderBtn, "click", async () => {
   let name = "Новая папка";
@@ -21335,26 +21576,6 @@ window.addEventListener("beforeunload", () => {
     }
   }
 });
-safeOn(saveConflictStayBtn, "click", () => {
-  closeSaveConflictModal();
-  showHint("Сохранение остановлено. Скопируйте документ или обновите с сервера, когда будете готовы.", "warning", 5000);
-});
-safeOn(saveConflictReloadBtn, "click", async () => {
-  try {
-    await reloadCurrentDocumentFromServer();
-  } catch (err) {
-    console.error(err);
-    showHint("Не удалось обновить документ с сервера.", "error", 3000);
-  }
-});
-safeOn(saveConflictCopyBtn, "click", async () => {
-  try {
-    await copyLocalDocumentAfterConflict();
-  } catch (err) {
-    console.error(err);
-    showHint("Не удалось создать копию.", "error", 3000);
-  }
-});
 document.addEventListener("pointermove", (e) => {
   if (window.DrawTools?.handlePointerMove?.(e)) return;
   if (shapePlaceDraw && e.pointerId === shapePlaceDraw.pointerId) {
@@ -21399,7 +21620,13 @@ document.addEventListener("pointerup", (e) => {
 });
 
 safeOn(formatToggle, "change", () => {
+  formatPanelPreferred = !!formatToggle.checked;
   if (formatToggle.checked) {
+    if (!canEditCurrentDocument()) {
+      formatToggle.checked = false;
+      formatPanelPreferred = false;
+      return;
+    }
     ensureFormatPanelEnabledCollapsed();
     syncFormatPanel();
   } else if (formatPanel) {
@@ -21886,8 +22113,7 @@ safeOn(shapeButton, "click", (e) => {
   e.stopPropagation();
   openNestedMenu("shape");
 });
-safeOn(shapeButton && shapeButton.closest(".app-menu-nested"), "mouseenter", () => openNestedMenu("shape"));
-safeOn(shapeButton && shapeButton.closest(".app-menu-nested"), "focusin", () => openNestedMenu("shape"));
+bindNestedMenuHover("shape", shapeButton && shapeButton.closest(".app-menu-nested"));
 
 (shapeDropdown ? shapeDropdown.querySelectorAll("button[data-shape]") : []).forEach((btn) => {
   btn.addEventListener("click", (e) => {

@@ -397,6 +397,20 @@ def _init_db():
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_document_presence_doc_seen ON document_presence(document_id, last_seen)"
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS document_edit_locks (
+          document_id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          user_email TEXT NOT NULL,
+          display_name TEXT,
+          last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_document_edit_locks_seen ON document_edit_locks(last_seen)"
+    )
     init_oauth_tables(conn)
     _migrate_legacy_doc_ids(conn)
     conn.commit()
@@ -826,6 +840,106 @@ def _new_doc_ts(prev=None):
 
 
 PRESENCE_TTL_SECONDS = 45
+EDIT_LOCK_TTL_SECONDS = 120
+
+
+def _purge_stale_edit_locks(conn, doc_id=None):
+    if doc_id:
+        conn.execute(
+            """
+            DELETE FROM document_edit_locks
+            WHERE document_id = ?
+              AND last_seen < datetime('now', ?)
+            """,
+            (doc_id, f"-{EDIT_LOCK_TTL_SECONDS} seconds"),
+        )
+    else:
+        conn.execute(
+            """
+            DELETE FROM document_edit_locks
+            WHERE last_seen < datetime('now', ?)
+            """,
+            (f"-{EDIT_LOCK_TTL_SECONDS} seconds",),
+        )
+
+
+def _edit_lock_payload(row):
+    if not row:
+        return None
+    return {
+        "email": row["user_email"],
+        "name": row["display_name"] or row["user_email"],
+        "sessionId": row["session_id"],
+        "lastSeen": row["last_seen"],
+    }
+
+
+def _get_edit_lock(conn, doc_id):
+    _purge_stale_edit_locks(conn, doc_id)
+    return conn.execute(
+        """
+        SELECT document_id, session_id, user_email, display_name, last_seen
+        FROM document_edit_locks
+        WHERE document_id = ?
+        """,
+        (doc_id,),
+    ).fetchone()
+
+
+def _acquire_edit_lock(conn, doc_id, email, display_name, session_id):
+    """Try to take or renew exclusive edit lock for this tab session.
+
+    Returns (acquired: bool, lock_row).
+    """
+    lock = _get_edit_lock(conn, doc_id)
+    if lock and lock["session_id"] != session_id:
+        return False, lock
+    conn.execute(
+        """
+        INSERT INTO document_edit_locks(document_id, session_id, user_email, display_name, last_seen)
+        VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(document_id) DO UPDATE SET
+          session_id = excluded.session_id,
+          user_email = excluded.user_email,
+          display_name = excluded.display_name,
+          last_seen = CURRENT_TIMESTAMP
+        """,
+        (doc_id, session_id, email, display_name),
+    )
+    conn.commit()
+    return True, _get_edit_lock(conn, doc_id)
+
+
+def _release_edit_lock(conn, doc_id, session_id):
+    if not session_id:
+        return False
+    cur = conn.execute(
+        """
+        DELETE FROM document_edit_locks
+        WHERE document_id = ? AND session_id = ?
+        """,
+        (doc_id, session_id),
+    )
+    return cur.rowcount > 0
+
+
+def _require_edit_lock(conn, doc_id, session_id):
+    """Renew lock if caller holds it. Returns (ok, lock_row_or_holder)."""
+    if not session_id:
+        return False, _get_edit_lock(conn, doc_id)
+    lock = _get_edit_lock(conn, doc_id)
+    if not lock or lock["session_id"] != session_id:
+        return False, lock
+    conn.execute(
+        """
+        UPDATE document_edit_locks
+        SET last_seen = CURRENT_TIMESTAMP
+        WHERE document_id = ? AND session_id = ?
+        """,
+        (doc_id, session_id),
+    )
+    conn.commit()
+    return True, _get_edit_lock(conn, doc_id)
 
 
 def _atomic_update_layout(conn, doc_id, layout_json, base_updated_at, name=None):
@@ -1637,6 +1751,7 @@ def update_doc(doc_id):
     name = payload.get("name")
     layout = payload.get("layout")
     base_updated_at = str(payload.get("baseUpdatedAt") or "").strip() or None
+    session_id = str(payload.get("sessionId") or "").strip() or None
     email = _current_email()
     conn = _get_docs_conn(email)
     row = _get_doc_for_user(conn, email, doc_id)
@@ -1652,6 +1767,21 @@ def update_doc(doc_id):
         if not isinstance(sheets, list) or len(sheets) == 0:
             conn.close()
             return jsonify({"error": "layout_sheets_required"}), 400
+        lock_ok, lock_row = _require_edit_lock(conn, doc_key, session_id)
+        if not lock_ok:
+            holder = _edit_lock_payload(lock_row)
+            conn.close()
+            return jsonify(
+                {
+                    "error": "edit_locked" if holder else "lock_required",
+                    "editLock": holder,
+                    "message": (
+                        f"Документ сейчас редактирует {holder['name']}."
+                        if holder
+                        else "Откройте документ на редактирование, чтобы сохранять изменения."
+                    ),
+                }
+            ), 403
         next_name = name.strip() if isinstance(name, str) and name.strip() else None
         fresh, err, server_ts = _atomic_update_layout(
             conn,
@@ -2026,6 +2156,7 @@ def save_layout():
     # another document's canvas during tab/document switches.
     doc_id = str(payload.get("documentId") or "").strip() or None
     base_updated_at = str(payload.get("baseUpdatedAt") or "").strip() or None
+    session_id = str(payload.get("sessionId") or "").strip() or None
     if not isinstance(layout, dict):
         return jsonify({"error": "layout must be object"}), 400
     if not doc_id:
@@ -2043,6 +2174,21 @@ def save_layout():
     if not _is_role_at_least(row["role"], ROLE_EDITOR):
         conn.close()
         return jsonify({"error": "forbidden"}), 403
+    lock_ok, lock_row = _require_edit_lock(conn, row["id"], session_id)
+    if not lock_ok:
+        holder = _edit_lock_payload(lock_row)
+        conn.close()
+        return jsonify(
+            {
+                "error": "edit_locked" if holder else "lock_required",
+                "editLock": holder,
+                "message": (
+                    f"Документ сейчас редактирует {holder['name']}."
+                    if holder
+                    else "Откройте документ на редактирование, чтобы сохранять изменения."
+                ),
+            }
+        ), 403
     existing_raw = row["layout_json"] or ""
     layout_json = json.dumps(layout, ensure_ascii=False)
     # Refuse replacing a non-trivial document with a near-empty payload.
@@ -2092,6 +2238,9 @@ def doc_presence(doc_id):
     doc_key = row["id"]
     payload = request.get_json(force=True, silent=True) or {}
     session_id = str(payload.get("sessionId") or request.args.get("sessionId") or "").strip()
+    mode = str(payload.get("mode") or request.args.get("mode") or "view").strip().lower()
+    if mode not in ("edit", "view"):
+        mode = "view"
 
     if request.method == "DELETE":
         if session_id:
@@ -2099,44 +2248,81 @@ def doc_presence(doc_id):
                 "DELETE FROM document_presence WHERE document_id = ? AND session_id = ?",
                 (doc_key, session_id),
             )
+            _release_edit_lock(conn, doc_key, session_id)
             conn.commit()
         editors = _list_presence(conn, doc_key)
+        edit_lock = _edit_lock_payload(_get_edit_lock(conn, doc_key))
         conn.close()
-        return jsonify({"ok": True, "editors": editors})
+        return jsonify({"ok": True, "editors": editors, "editLock": edit_lock, "mode": "view", "lockAcquired": False})
 
     if request.method == "POST":
         if not session_id:
             conn.close()
             return jsonify({"error": "sessionId_required"}), 400
-        if not _is_role_at_least(row["role"], ROLE_EDITOR):
-            # Readers may poll presence but should not register as editors.
-            editors = _list_presence(conn, doc_key, exclude_session_id=session_id)
-            conn.close()
-            return jsonify({"ok": True, "editors": editors, "selfRegistered": False})
         display_name = (
             str(session.get("name") or session.get("display_name") or "").strip()
             or email
         )
-        conn.execute(
-            """
-            INSERT INTO document_presence(document_id, user_email, display_name, session_id, last_seen)
-            VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(document_id, session_id) DO UPDATE SET
-              user_email = excluded.user_email,
-              display_name = excluded.display_name,
-              last_seen = CURRENT_TIMESTAMP
-            """,
-            (doc_key, email, display_name, session_id),
-        )
-        conn.commit()
+        can_edit_role = _is_role_at_least(row["role"], ROLE_EDITOR)
+        lock_acquired = False
+        effective_mode = "view"
+
+        if mode == "edit" and can_edit_role:
+            lock_acquired, lock_row = _acquire_edit_lock(
+                conn, doc_key, email, display_name, session_id
+            )
+            if lock_acquired:
+                effective_mode = "edit"
+                conn.execute(
+                    """
+                    INSERT INTO document_presence(document_id, user_email, display_name, session_id, last_seen)
+                    VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(document_id, session_id) DO UPDATE SET
+                      user_email = excluded.user_email,
+                      display_name = excluded.display_name,
+                      last_seen = CURRENT_TIMESTAMP
+                    """,
+                    (doc_key, email, display_name, session_id),
+                )
+                conn.commit()
+            else:
+                # Someone else holds the lock — stay view, drop our stale presence.
+                conn.execute(
+                    "DELETE FROM document_presence WHERE document_id = ? AND session_id = ?",
+                    (doc_key, session_id),
+                )
+                conn.commit()
+        else:
+            # View mode (or no edit role): release our lock if we held it.
+            _release_edit_lock(conn, doc_key, session_id)
+            conn.execute(
+                "DELETE FROM document_presence WHERE document_id = ? AND session_id = ?",
+                (doc_key, session_id),
+            )
+            conn.commit()
+            lock_row = _get_edit_lock(conn, doc_key)
+
         editors = _list_presence(conn, doc_key, exclude_session_id=session_id)
+        if lock_acquired:
+            edit_lock = None
+        else:
+            edit_lock = _edit_lock_payload(_get_edit_lock(conn, doc_key))
         conn.close()
-        return jsonify({"ok": True, "editors": editors, "selfRegistered": True})
+        return jsonify(
+            {
+                "ok": True,
+                "editors": editors,
+                "selfRegistered": lock_acquired,
+                "mode": effective_mode,
+                "lockAcquired": lock_acquired,
+                "editLock": edit_lock,
+            }
+        )
 
     editors = _list_presence(conn, doc_key, exclude_session_id=session_id or None)
+    edit_lock = _edit_lock_payload(_get_edit_lock(conn, doc_key))
     conn.close()
-    return jsonify({"ok": True, "editors": editors})
-
+    return jsonify({"ok": True, "editors": editors, "editLock": edit_lock})
 
 @app.route("/api/docs/<doc_id>/comments", methods=["GET"])
 @require_login
