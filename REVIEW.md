@@ -10,6 +10,35 @@
 
 ---
 
+## 2026-08-03 — exclusive edit lock + режимы Открыть/Редактировать
+
+**Commit:** `9f9764f` — feat: exclusive edit lock with open/view mode toggle  
+**Бэкап:** `mmtable-PROD-BACKUP-20260803-162223-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #30831839792](https://github.com/skitoand/mmtables/actions/runs/30831839792)  
+**Статус:** OK
+
+### Что сделано
+- Убрана блокирующая модалка «Конфликт сохранения»; вместо неё exclusive edit lock на вкладку/сессию (TTL ~120 с)
+- В файловом браузере: **Открыть** = просмотр, **Редактировать** = edit; deep-link по умолчанию view
+- Переключатель карандаш/глаз в панели объектов; краткая плашка справа вверху (режим или «Документ редактирует …»)
+- Сохранение на сервер требует свой edit lock (`sessionId`)
+- Cache-buster: `app.js?v=20260803-open-mode-fix-v7`, `styles.css?v=20260803-open-mode-fix-v7`
+
+### Откат
+```bash
+ssh -i ~/.ssh/lumalms_deploy root@95.163.226.145
+cd /opt/apps/mmtable
+tar -xzf /opt/apps/backups/mmtable-PROD-BACKUP-20260803-162223-before-deploy.tar.gz
+systemctl restart mmtable.service || true
+```
+
+### Проверка
+- [x] Deploy Production #30831839792 success
+- [x] Публичный URL `https://mmtable.crystalsystems.ru/` вернул 200
+- [x] На проде cache-buster `20260803-open-mode-fix-v7`
+
+---
+
 ## 2026-07-30 — перехват wheel над окном (catcher overlay)
 
 **Commit:** `1987449` — fix: capture wheel over embedded windows with a catcher overlay.  
