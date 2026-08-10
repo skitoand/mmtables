@@ -10,6 +10,33 @@
 
 ---
 
+## 2026-08-10 — развёрнутая задача БП поверх элементов стола
+
+**Commit:** `ee6dcaf` — fix: raise expanded BP task cards above other desktop shapes.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260810-090655-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #31373076690](https://github.com/skitoand/mmtables/actions/runs/31373076690)  
+**Статус:** OK
+
+### Что сделано
+- При разворачивании карточки задачи БП она поднимается поверх остальных фигур и коннекторов на рабочем столе
+- Уже развёрнутые задачи при загрузке документа также поднимаются наверх
+- Cache-buster: `app.js?v=20260810-bp-task-expand-z`
+
+### Откат
+```bash
+ssh -i ~/.ssh/lumalms_deploy root@95.163.226.145
+cd /opt/apps/mmtable
+tar -xzf /opt/apps/backups/mmtable-PROD-BACKUP-20260810-090655-before-deploy.tar.gz
+systemctl restart mmtable.service || true
+```
+
+### Проверка
+- [x] Deploy Production #31373076690 success
+- [x] Публичный URL `https://mmtable.crystalsystems.ru/` вернул 200
+- [x] На проде cache-buster `20260810-bp-task-expand-z`
+
+---
+
 ## 2026-08-10 — drag-and-drop порядок листов
 
 **Commit:** `e289a8d` — feat: drag-and-drop reorder sheets in the sheet switcher.  
