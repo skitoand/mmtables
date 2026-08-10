@@ -528,6 +528,8 @@ let shareModalDocId = null;
 let documentSheetsState = [];
 let currentSheetId = 1;
 let sheetSwitcherOpen = false;
+let sheetListDrag = null;
+let sheetListDragSuppressClick = false;
 let commentsCache = [];
 let desktopStyleState = { ...DEFAULT_DESKTOP_STYLE };
 let formatPanelExpandedPosition = null;
@@ -3472,17 +3474,16 @@ function sameSheetId(a, b) {
 
 function normalizeDocumentSheets(sheets) {
   const list = Array.isArray(sheets) ? sheets.slice() : [];
-  const normalized = list
-    .map((sheet, index) => {
-      const id = Math.max(1, Number(sheet?.id) || index + 1);
-      const name = String(sheet?.name || "").trim() || defaultSheetName(id);
-      return {
-        id,
-        name,
-        layout: migrateLayout(sheet?.layout || createBlankLayout())
-      };
-    })
-    .sort((a, b) => a.id - b.id);
+  // Preserve array order — it is the user-facing sheet order (drag-and-drop).
+  const normalized = list.map((sheet, index) => {
+    const id = Math.max(1, Number(sheet?.id) || index + 1);
+    const name = String(sheet?.name || "").trim() || defaultSheetName(id);
+    return {
+      id,
+      name,
+      layout: migrateLayout(sheet?.layout || createBlankLayout())
+    };
+  });
   if (!normalized.length) {
     normalized.push({ id: 1, name: "Лист 1", layout: createBlankLayout() });
   }
@@ -3624,10 +3625,31 @@ async function addDocumentSheet() {
   const id = nextDocumentSheetId();
   const sheet = { id, name: defaultSheetName(id), layout: createBlankLayout() };
   documentSheetsState.push(sheet);
-  documentSheetsState.sort((a, b) => a.id - b.id);
   await switchToSheet(id, { replace: false, keepPanelOpen: true });
   showHint(`Создан ${sheet.name}`, "warning", 1600);
   return sheet;
+}
+
+async function moveDocumentSheet(sheetId, insertBeforeIndex) {
+  if (!canEditCurrentDocument()) return false;
+  const fromIndex = documentSheetsState.findIndex((sheet) => sameSheetId(sheet.id, sheetId));
+  if (fromIndex < 0) return false;
+  const total = documentSheetsState.length;
+  let dropIndex = Math.max(0, Math.min(total, Number(insertBeforeIndex) || 0));
+  let toIndex = dropIndex > fromIndex ? dropIndex - 1 : dropIndex;
+  if (toIndex === fromIndex) return false;
+  const [sheet] = documentSheetsState.splice(fromIndex, 1);
+  documentSheetsState.splice(toIndex, 0, sheet);
+  renderSheetSwitcher();
+  syncSheetSwitcherPanel(true);
+  if (autoSaveEnabled) {
+    try {
+      await persistCurrentDocument();
+    } catch (err) {
+      console.error("Failed to persist sheet reorder:", err);
+    }
+  }
+  return true;
 }
 
 async function deleteDocumentSheet(sheetId) {
@@ -3684,35 +3706,162 @@ function syncSheetSwitcherVisibility() {
   sheetSwitcher.classList.toggle("hidden", !visible);
 }
 
+function getSheetDropIndexFromClientY(clientY) {
+  if (!sheetSwitcherList) return 0;
+  const items = Array.from(sheetSwitcherList.querySelectorAll(".sheet-switcher-item"));
+  for (let i = 0; i < items.length; i += 1) {
+    const rect = items[i].getBoundingClientRect();
+    if (clientY < rect.top + rect.height / 2) return i;
+  }
+  return items.length;
+}
+
+function setSheetDropIndicator(insertBeforeIndex) {
+  if (!sheetSwitcherList) return;
+  const indicator = sheetSwitcherList.querySelector(".sheet-switcher-drop-indicator");
+  if (!indicator) return;
+  const items = Array.from(sheetSwitcherList.querySelectorAll(".sheet-switcher-item"));
+  if (insertBeforeIndex == null || !items.length) {
+    indicator.classList.add("hidden");
+    return;
+  }
+  const listRect = sheetSwitcherList.getBoundingClientRect();
+  let top;
+  if (insertBeforeIndex <= 0) {
+    top = items[0].getBoundingClientRect().top - listRect.top + sheetSwitcherList.scrollTop;
+  } else if (insertBeforeIndex >= items.length) {
+    const last = items[items.length - 1].getBoundingClientRect();
+    top = last.bottom - listRect.top + sheetSwitcherList.scrollTop;
+  } else {
+    top = items[insertBeforeIndex].getBoundingClientRect().top - listRect.top + sheetSwitcherList.scrollTop;
+  }
+  indicator.style.top = `${Math.max(0, top - 1)}px`;
+  indicator.classList.remove("hidden");
+}
+
+function autoScrollSheetSwitcherList(clientY) {
+  if (!sheetSwitcherList) return;
+  const rect = sheetSwitcherList.getBoundingClientRect();
+  const edge = 28;
+  const step = 10;
+  if (clientY < rect.top + edge) sheetSwitcherList.scrollTop -= step;
+  else if (clientY > rect.bottom - edge) sheetSwitcherList.scrollTop += step;
+}
+
+function bindSheetItemDrag(item, sheet, nameBtn) {
+  if (!item || !canEditCurrentDocument()) return;
+  item.classList.add("is-draggable");
+  item.title = "Перетащите, чтобы изменить порядок";
+  item.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if (event.target.closest(".sheet-switcher-delete")) return;
+    if (event.target.closest(".sheet-switcher-name-input")) return;
+    const fromIndex = documentSheetsState.findIndex((entry) => sameSheetId(entry.id, sheet.id));
+    if (fromIndex < 0) return;
+    sheetListDrag = {
+      pointerId: event.pointerId,
+      sheetId: sheet.id,
+      fromIndex,
+      startY: event.clientY,
+      moved: false,
+      dropIndex: fromIndex,
+      nameClickTimerRef: nameBtn
+    };
+    try {
+      item.setPointerCapture(event.pointerId);
+    } catch (_) {
+      /* ignore */
+    }
+    const onMove = (moveEvent) => {
+      if (!sheetListDrag || moveEvent.pointerId !== sheetListDrag.pointerId) return;
+      const dy = Math.abs(moveEvent.clientY - sheetListDrag.startY);
+      if (!sheetListDrag.moved && dy > 4) {
+        sheetListDrag.moved = true;
+        item.classList.add("is-dragging");
+        sheetSwitcherList?.classList.add("is-reordering");
+        if (nameBtn?._sheetNameClickTimer) {
+          clearTimeout(nameBtn._sheetNameClickTimer);
+          nameBtn._sheetNameClickTimer = null;
+        }
+      }
+      if (!sheetListDrag.moved) return;
+      moveEvent.preventDefault();
+      autoScrollSheetSwitcherList(moveEvent.clientY);
+      const nextDropIndex = getSheetDropIndexFromClientY(moveEvent.clientY);
+      sheetListDrag.dropIndex = nextDropIndex;
+      setSheetDropIndicator(nextDropIndex);
+    };
+    const onUp = (upEvent) => {
+      if (!sheetListDrag || upEvent.pointerId !== sheetListDrag.pointerId) return;
+      document.removeEventListener("pointermove", onMove, true);
+      document.removeEventListener("pointerup", onUp, true);
+      document.removeEventListener("pointercancel", onUp, true);
+      try {
+        item.releasePointerCapture(upEvent.pointerId);
+      } catch (_) {
+        /* ignore */
+      }
+      const dragState = sheetListDrag;
+      sheetListDrag = null;
+      item.classList.remove("is-dragging");
+      sheetSwitcherList?.classList.remove("is-reordering");
+      setSheetDropIndicator(null);
+      if (!dragState.moved) return;
+      sheetListDragSuppressClick = true;
+      setTimeout(() => {
+        sheetListDragSuppressClick = false;
+      }, 0);
+      upEvent.preventDefault();
+      upEvent.stopPropagation();
+      void moveDocumentSheet(dragState.sheetId, dragState.dropIndex);
+    };
+    document.addEventListener("pointermove", onMove, true);
+    document.addEventListener("pointerup", onUp, true);
+    document.addEventListener("pointercancel", onUp, true);
+  });
+}
+
 function renderSheetSwitcher() {
   syncSheetSwitcherVisibility();
   const activeSheet = getDocumentSheetById(currentSheetId);
   if (sheetSwitcherCurrent) sheetSwitcherCurrent.textContent = activeSheet?.name || defaultSheetName(currentSheetId);
   if (!sheetSwitcherList) return;
   sheetSwitcherList.innerHTML = "";
+  sheetListDrag = null;
   const editable = canEditCurrentDocument();
+  const dropIndicator = document.createElement("div");
+  dropIndicator.className = "sheet-switcher-drop-indicator hidden";
+  dropIndicator.setAttribute("aria-hidden", "true");
+  sheetSwitcherList.appendChild(dropIndicator);
   documentSheetsState.forEach((sheet) => {
     const item = document.createElement("li");
     const isActive = sameSheetId(sheet.id, currentSheetId);
     item.className = `sheet-switcher-item${isActive ? " is-active" : ""}`;
     item.dataset.sheetId = String(sheet.id);
+    if (editable) {
+      const grip = document.createElement("span");
+      grip.className = "sheet-switcher-grip";
+      grip.setAttribute("aria-hidden", "true");
+      grip.textContent = "⋮⋮";
+      item.appendChild(grip);
+    }
     const name = document.createElement("button");
     name.type = "button";
     name.className = "sheet-switcher-name";
     name.textContent = sheet.name;
     name.title = sheet.name;
-    let sheetNameClickTimer = null;
+    name._sheetNameClickTimer = null;
     name.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // Delay single-click actions so dblclick can rename without closing/rebuilding the panel first.
-      if (sheetNameClickTimer) {
-        clearTimeout(sheetNameClickTimer);
-        sheetNameClickTimer = null;
+      if (sheetListDragSuppressClick || sheetListDrag?.moved) return;
+      if (name._sheetNameClickTimer) {
+        clearTimeout(name._sheetNameClickTimer);
+        name._sheetNameClickTimer = null;
       }
       if (e.detail > 1) return;
-      sheetNameClickTimer = setTimeout(() => {
-        sheetNameClickTimer = null;
+      name._sheetNameClickTimer = setTimeout(() => {
+        name._sheetNameClickTimer = null;
         if (!sameSheetId(sheet.id, currentSheetId)) void switchToSheet(sheet.id);
         else syncSheetSwitcherPanel(false);
       }, 280);
@@ -3721,9 +3870,9 @@ function renderSheetSwitcher() {
       name.addEventListener("dblclick", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (sheetNameClickTimer) {
-          clearTimeout(sheetNameClickTimer);
-          sheetNameClickTimer = null;
+        if (name._sheetNameClickTimer) {
+          clearTimeout(name._sheetNameClickTimer);
+          name._sheetNameClickTimer = null;
         }
         startSheetNameEdit(sheet.id, name);
       });
@@ -3741,6 +3890,7 @@ function renderSheetSwitcher() {
         void deleteDocumentSheet(sheet.id);
       });
       item.appendChild(deleteBtn);
+      bindSheetItemDrag(item, sheet, name);
     }
     sheetSwitcherList.appendChild(item);
   });

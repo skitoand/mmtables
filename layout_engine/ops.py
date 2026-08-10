@@ -1220,8 +1220,8 @@ def create_sheet(doc: dict, payload: dict | None = None) -> tuple[dict, dict]:
     if activate is None:
         activate = True
     sheet = {"id": next_id, "name": name, "layout": blank_sheet_layout()}
+    # Append at end — sheets[] array order is the user-facing order (UI drag-and-drop).
     document["sheets"].append(sheet)
-    document["sheets"].sort(key=lambda s: int(s["id"]))
     if activate:
         document["activeSheetId"] = next_id
     return document, {
