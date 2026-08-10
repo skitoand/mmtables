@@ -14774,6 +14774,7 @@ function toggleBpTaskExpanded(node) {
   syncBpTaskDataToDataset(node);
   renderBpTaskCardValues(node);
   refreshBpTaskCardHeight(node);
+  if (data.expanded) bringShapeAboveConnectors(node);
   if (!isWorkspaceReadOnly()) saveLayout();
 }
 
@@ -14993,6 +14994,7 @@ function buildBpTaskCardUI(node) {
   ensureBpTaskResultFields(node, resultsList);
   renderBpTaskCardValues(node);
   applyBpTaskTypography(node);
+  if (data.expanded) raiseShapeAboveConnectorsZ(node);
 }
 
 function upgradeLegacyBpTaskNode(node) {
