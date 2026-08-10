@@ -389,20 +389,20 @@ body.dark .edit-lock-badge{background:#3b2f1a;color:#fdba74;border-color:rgba(25
 body.dark .presence-banner{background:#3b2f1a;color:#fdba74;border-color:rgba(251,146,60,.28)}
 .sheet-switcher{position:fixed;right:24px;bottom:24px;z-index:20040;display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none}
 .sheet-switcher.hidden{display:none}
-.sheet-switcher-toggle,.sheet-switcher-panel,.sheet-switcher-list,.sheet-switcher-add,.sheet-switcher-item,.sheet-switcher-name,.sheet-switcher-name-input,.sheet-switcher-delete{pointer-events:auto}
+.sheet-switcher-toggle,.sheet-switcher-panel,.sheet-switcher-list,.sheet-switcher-add,.sheet-switcher-item,.sheet-switcher-name,.sheet-switcher-name-input,.sheet-switcher-delete,.sheet-switcher-grip{pointer-events:auto}
 .sheet-switcher-toggle{min-width:132px;max-width:min(280px, calc(100vw - 48px));padding:10px 16px;border:0;border-radius:14px;background:#fff;color:#111827;font-size:14px;font-weight:600;text-align:left;box-shadow:0 10px 28px rgba(15,23,42,.14),0 0 0 1px rgba(15,23,42,.05);cursor:pointer}
 .sheet-switcher-toggle:hover{background:#f8fafc}
 .sheet-switcher-panel{min-width:220px;max-width:min(320px, calc(100vw - 48px));background:#fff;border-radius:16px;box-shadow:0 16px 36px rgba(15,23,42,.16),0 0 0 1px rgba(15,23,42,.05);padding:8px;display:flex;flex-direction:column;gap:6px}
 .sheet-switcher-panel.hidden{display:none}
 .sheet-switcher-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:min(320px, 40vh);overflow:auto;position:relative}
 .sheet-switcher-list.is-reordering{cursor:grabbing;user-select:none}
-.sheet-switcher-item{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:10px;position:relative;touch-action:none}
+.sheet-switcher-item{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:10px;position:relative}
 .sheet-switcher-item:hover{background:#f8fafc}
 .sheet-switcher-item.is-active{background:#eff6ff}
-.sheet-switcher-item.is-draggable{cursor:grab}
 .sheet-switcher-item.is-dragging{opacity:.45;background:#e2e8f0}
-.sheet-switcher-grip{flex:0 0 auto;width:14px;color:#94a3b8;font-size:11px;line-height:1;letter-spacing:-1px;user-select:none;pointer-events:none}
-.sheet-switcher-item:hover .sheet-switcher-grip{color:#64748b}
+.sheet-switcher-grip{flex:0 0 auto;width:22px;height:32px;padding:0;border:0;border-radius:8px;background:transparent;color:#94a3b8;font-size:11px;line-height:1;letter-spacing:-1px;display:flex;align-items:center;justify-content:center;cursor:grab;touch-action:none;user-select:none}
+.sheet-switcher-grip:hover{background:#e2e8f0;color:#64748b}
+.sheet-switcher-list.is-reordering .sheet-switcher-grip{cursor:grabbing}
 .sheet-switcher-drop-indicator{position:absolute;left:6px;right:6px;height:2px;background:#38bdf8;border-radius:999px;pointer-events:none;z-index:2}
 .sheet-switcher-drop-indicator.hidden{display:none}
 .sheet-switcher-drop-indicator::before{content:"";position:absolute;left:-3px;top:50%;width:8px;height:8px;border-radius:50%;background:#38bdf8;transform:translateY(-50%)}
@@ -423,8 +423,6 @@ body.dark .presence-banner{background:#3b2f1a;color:#fdba74;border-color:rgba(25
   overflow:hidden;
   text-overflow:ellipsis;
 }
-.sheet-switcher-item.is-draggable .sheet-switcher-name{cursor:grab}
-.sheet-switcher-list.is-reordering .sheet-switcher-name{cursor:grabbing}
 .sheet-switcher-name-input{flex:1 1 auto;min-width:0;padding:5px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;font-weight:600;color:#111827;background:#fff;outline:none}
 .sheet-switcher-delete{flex:0 0 auto;width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:#64748b;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .sheet-switcher-delete:hover{background:#fee2e2;color:#b91c1c}
@@ -436,6 +434,7 @@ body.dark .sheet-switcher-toggle:hover,body.dark .sheet-switcher-item:hover{back
 body.dark .sheet-switcher-item.is-active{background:#172554}
 body.dark .sheet-switcher-item.is-dragging{background:#334155}
 body.dark .sheet-switcher-grip{color:#64748b}
+body.dark .sheet-switcher-grip:hover{background:#334155;color:#94a3b8}
 body.dark .sheet-switcher-name{color:#e5e7eb}
 body.dark .sheet-switcher-name-input{background:#0f172a;border-color:#475569;color:#e5e7eb}
 body.dark .sheet-switcher-add{color:#5eead4}

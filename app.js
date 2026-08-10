@@ -529,7 +529,6 @@ let documentSheetsState = [];
 let currentSheetId = 1;
 let sheetSwitcherOpen = false;
 let sheetListDrag = null;
-let sheetListDragSuppressClick = false;
 let commentsCache = [];
 let desktopStyleState = { ...DEFAULT_DESKTOP_STYLE };
 let formatPanelExpandedPosition = null;
@@ -3748,14 +3747,13 @@ function autoScrollSheetSwitcherList(clientY) {
   else if (clientY > rect.bottom - edge) sheetSwitcherList.scrollTop += step;
 }
 
-function bindSheetItemDrag(item, sheet, nameBtn) {
-  if (!item || !canEditCurrentDocument()) return;
-  item.classList.add("is-draggable");
-  item.title = "Перетащите, чтобы изменить порядок";
-  item.addEventListener("pointerdown", (event) => {
+function bindSheetItemDrag(grip, item, sheet) {
+  if (!grip || !item || !canEditCurrentDocument()) return;
+  grip.title = "Перетащите, чтобы изменить порядок";
+  grip.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
-    if (event.target.closest(".sheet-switcher-delete")) return;
-    if (event.target.closest(".sheet-switcher-name-input")) return;
+    event.preventDefault();
+    event.stopPropagation();
     const fromIndex = documentSheetsState.findIndex((entry) => sameSheetId(entry.id, sheet.id));
     if (fromIndex < 0) return;
     sheetListDrag = {
@@ -3764,11 +3762,10 @@ function bindSheetItemDrag(item, sheet, nameBtn) {
       fromIndex,
       startY: event.clientY,
       moved: false,
-      dropIndex: fromIndex,
-      nameClickTimerRef: nameBtn
+      dropIndex: fromIndex
     };
     try {
-      item.setPointerCapture(event.pointerId);
+      grip.setPointerCapture(event.pointerId);
     } catch (_) {
       /* ignore */
     }
@@ -3779,10 +3776,6 @@ function bindSheetItemDrag(item, sheet, nameBtn) {
         sheetListDrag.moved = true;
         item.classList.add("is-dragging");
         sheetSwitcherList?.classList.add("is-reordering");
-        if (nameBtn?._sheetNameClickTimer) {
-          clearTimeout(nameBtn._sheetNameClickTimer);
-          nameBtn._sheetNameClickTimer = null;
-        }
       }
       if (!sheetListDrag.moved) return;
       moveEvent.preventDefault();
@@ -3797,7 +3790,7 @@ function bindSheetItemDrag(item, sheet, nameBtn) {
       document.removeEventListener("pointerup", onUp, true);
       document.removeEventListener("pointercancel", onUp, true);
       try {
-        item.releasePointerCapture(upEvent.pointerId);
+        grip.releasePointerCapture(upEvent.pointerId);
       } catch (_) {
         /* ignore */
       }
@@ -3807,10 +3800,6 @@ function bindSheetItemDrag(item, sheet, nameBtn) {
       sheetSwitcherList?.classList.remove("is-reordering");
       setSheetDropIndicator(null);
       if (!dragState.moved) return;
-      sheetListDragSuppressClick = true;
-      setTimeout(() => {
-        sheetListDragSuppressClick = false;
-      }, 0);
       upEvent.preventDefault();
       upEvent.stopPropagation();
       void moveDocumentSheet(dragState.sheetId, dragState.dropIndex);
@@ -3838,10 +3827,13 @@ function renderSheetSwitcher() {
     const isActive = sameSheetId(sheet.id, currentSheetId);
     item.className = `sheet-switcher-item${isActive ? " is-active" : ""}`;
     item.dataset.sheetId = String(sheet.id);
+    let grip = null;
     if (editable) {
-      const grip = document.createElement("span");
+      grip = document.createElement("button");
+      grip.type = "button";
       grip.className = "sheet-switcher-grip";
-      grip.setAttribute("aria-hidden", "true");
+      grip.setAttribute("aria-label", `Переместить ${sheet.name}`);
+      grip.tabIndex = -1;
       grip.textContent = "⋮⋮";
       item.appendChild(grip);
     }
@@ -3850,18 +3842,17 @@ function renderSheetSwitcher() {
     name.className = "sheet-switcher-name";
     name.textContent = sheet.name;
     name.title = sheet.name;
-    name._sheetNameClickTimer = null;
+    let sheetNameClickTimer = null;
     name.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (sheetListDragSuppressClick || sheetListDrag?.moved) return;
-      if (name._sheetNameClickTimer) {
-        clearTimeout(name._sheetNameClickTimer);
-        name._sheetNameClickTimer = null;
+      if (sheetNameClickTimer) {
+        clearTimeout(sheetNameClickTimer);
+        sheetNameClickTimer = null;
       }
       if (e.detail > 1) return;
-      name._sheetNameClickTimer = setTimeout(() => {
-        name._sheetNameClickTimer = null;
+      sheetNameClickTimer = setTimeout(() => {
+        sheetNameClickTimer = null;
         if (!sameSheetId(sheet.id, currentSheetId)) void switchToSheet(sheet.id);
         else syncSheetSwitcherPanel(false);
       }, 280);
@@ -3870,9 +3861,9 @@ function renderSheetSwitcher() {
       name.addEventListener("dblclick", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (name._sheetNameClickTimer) {
-          clearTimeout(name._sheetNameClickTimer);
-          name._sheetNameClickTimer = null;
+        if (sheetNameClickTimer) {
+          clearTimeout(sheetNameClickTimer);
+          sheetNameClickTimer = null;
         }
         startSheetNameEdit(sheet.id, name);
       });
@@ -3890,7 +3881,7 @@ function renderSheetSwitcher() {
         void deleteDocumentSheet(sheet.id);
       });
       item.appendChild(deleteBtn);
-      bindSheetItemDrag(item, sheet, name);
+      bindSheetItemDrag(grip, item, sheet);
     }
     sheetSwitcherList.appendChild(item);
   });
