@@ -10,6 +10,34 @@
 
 ---
 
+## 2026-08-10 — drag-and-drop порядок листов
+
+**Commit:** `e289a8d` — feat: drag-and-drop reorder sheets in the sheet switcher.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260810-080554-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #31368569259](https://github.com/skitoand/mmtables/actions/runs/31368569259)  
+**Статус:** OK
+
+### Что сделано
+- В списке листов можно зажать и перетащить лист на нужное место
+- Порядок сохраняется в `sheets[]` документа (больше не форсируется сортировка по `id`)
+- Новые листы добавляются в конец списка
+- Cache-buster: `app.js?v=20260810-sheet-reorder`, `styles.css?v=20260810-sheet-reorder`
+
+### Откат
+```bash
+ssh -i ~/.ssh/lumalms_deploy root@95.163.226.145
+cd /opt/apps/mmtable
+tar -xzf /opt/apps/backups/mmtable-PROD-BACKUP-20260810-080554-before-deploy.tar.gz
+systemctl restart mmtable.service || true
+```
+
+### Проверка
+- [x] Deploy Production #31368569259 success
+- [x] Публичный URL `https://mmtable.crystalsystems.ru/` вернул 200
+- [x] На проде cache-buster `20260810-sheet-reorder` и `moveDocumentSheet` / `bindSheetItemDrag`
+
+---
+
 ## 2026-08-03 — exclusive edit lock + режимы Открыть/Редактировать
 
 **Commit:** `9f9764f` — feat: exclusive edit lock with open/view mode toggle  
