@@ -10,6 +10,24 @@
 
 ---
 
+## 2026-08-10 — sheet reorder: drag только за grip
+
+**Commit:** `3779bb8` — fix: limit sheet reorder drag to the grip handle.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260810-091224-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #31373498086](https://github.com/skitoand/mmtables/actions/runs/31373498086)  
+**Статус:** OK
+
+### Что сделано
+- Перетаскивание листа только за ручку `⋮⋮` слева
+- Клик по названию снова переключает лист
+- Cache-buster: `app.js?v=20260810-sheet-grip-click-v1`, `styles.css?v=20260810-sheet-grip-click-v1`
+
+### Проверка
+- [x] Deploy Production #31373498086 success
+- [x] На проде cache-buster `20260810-sheet-grip-click-v1` и `bindSheetItemDrag(grip`
+
+---
+
 ## 2026-08-10 — развёрнутая задача БП поверх элементов стола
 
 **Commit:** `ee6dcaf` — fix: raise expanded BP task cards above other desktop shapes.  
