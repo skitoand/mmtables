@@ -588,6 +588,13 @@ def register_mcp(app, deps: dict[str, Callable]):
             if name == "delete_sheet":
                 return _text_result(_mutate(doc_id, lambda d: eng.delete_sheet(d, sheet_id)))
             if name == "create_shape":
+                create_sheet_name = str(args.get("createSheetName") or "").strip()
+                if create_sheet_name:
+                    def create_sheet_with_first_shape(document):
+                        document, created_sheet = eng.create_sheet(document, {"name": create_sheet_name})
+                        return eng.create_shape(document, created_sheet["id"], args)
+
+                    return _text_result(_mutate(doc_id, create_sheet_with_first_shape))
                 return _text_result(_mutate(doc_id, lambda d: eng.create_shape(d, sheet_id, args)))
             if name == "update_shape":
                 return _text_result(
