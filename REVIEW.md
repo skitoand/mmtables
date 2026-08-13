@@ -10,6 +10,24 @@
 
 ---
 
+## 2026-08-13 — полные тексты фигур в MCP
+
+**Commit:** `c1406e7` — Return full shape text from MCP.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260813-113500-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #31696129639](https://github.com/skitoand/mmtables/actions/runs/31696129639)  
+**Статус:** OK
+
+### Что сделано
+- `describe_sheet` больше не обрезает `text` и `frameName` фигур до 120 символов.
+- Добавлен регрессионный тест на возврат длинного текста без потерь.
+
+### Проверка
+- [x] 8 unit-тестов `tests.test_layout_engine` прошли.
+- [x] Deploy Production #31696129639 success.
+- [x] MCP вернул полные тексты блоков документа `f4bddf3c1cba`.
+
+---
+
 ## 2026-08-13 — отображение стиля линии соединителя
 
 **Commit:** `34e0312` — fix: render dotted connector lines.
