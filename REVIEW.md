@@ -10,6 +10,27 @@
 
 ---
 
+## 2026-08-13 — сохранение выбранной точки выхода соединителя
+
+**Commit:** `e2f587d` — fix: preserve connector source anchor.
+**Бэкап:** `mmtable-PROD-BACKUP-20260813-105637-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #31693317905](https://github.com/skitoand/mmtables/actions/runs/31693317905)
+**Статус:** OK
+
+### Что сделано
+- Соединитель сохраняет сторону фигуры, с маркера которой пользователь начал протягивание
+- Нижний маркер создаёт привязку `s`, верхний — `n`, левый — `w`, правый — `e`
+- После отпускания маршрутизатор больше не переносит начало соединителя с выбранной стороны на другую
+- Cache-buster: `app.js?v=20260813-connector-source-anchor-v1`
+
+### Проверка
+- [x] Deploy Production #31693317905 success
+- [x] `mmtable.service` active, публичный URL вернул 200
+- [x] Контрольные суммы продовых `app.js` и `index.html` совпадают с commit `e2f587d`
+- [x] На проде cache-buster `20260813-connector-source-anchor-v1` и исправленный код стартового якоря
+
+---
+
 ## 2026-08-13 — редактируемые поля текста на стрелке
 
 **Commit:** `8fb7bed` — feat: configure connector label padding.
