@@ -1092,7 +1092,7 @@ body.ctrl-connector-mode .shape.multi-selected .conn-arrow{z-index:10066}
 .conn-label{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:3px;pointer-events:none;user-select:none;-webkit-user-select:none}
 .conn-label.selected{pointer-events:auto;cursor:grab}
 .conn-label.selected:active{cursor:grabbing}
-.conn-label-text{line-height:1.15;color:inherit;white-space:pre;background:transparent;padding:0 2px}
+.conn-label-text{box-sizing:content-box;line-height:1.15;color:inherit;white-space:pre;background:transparent;padding:4px}
 .conn-label-drag{width:8px;height:8px;background:#f59e0b;border:1px solid #fff;border-radius:1px;transform:rotate(45deg);box-shadow:0 1px 3px rgba(15,23,42,.18);display:none;flex:0 0 auto}
 .conn-label.selected .conn-label-drag{display:block}
 .conn-label.editing .conn-label-drag{display:none}

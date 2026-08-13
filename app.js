@@ -12962,7 +12962,7 @@ function connectorPathToSvg(points) {
 }
 
 const CONNECTOR_LABEL_FONT_SIZE = 14;
-const CONNECTOR_LABEL_GAP_PAD = 8;
+const CONNECTOR_LABEL_DEFAULT_PADDING = 4;
 const CONNECTOR_LABEL_DEFAULT_STYLE = {
   fontFamily: "Arial",
   fontSize: CONNECTOR_LABEL_FONT_SIZE,
@@ -12972,7 +12972,11 @@ const CONNECTOR_LABEL_DEFAULT_STYLE = {
   strike: false,
   underline: false,
   hAlign: "center",
-  vAlign: "middle"
+  vAlign: "middle",
+  paddingTop: CONNECTOR_LABEL_DEFAULT_PADDING,
+  paddingRight: CONNECTOR_LABEL_DEFAULT_PADDING,
+  paddingBottom: CONNECTOR_LABEL_DEFAULT_PADDING,
+  paddingLeft: CONNECTOR_LABEL_DEFAULT_PADDING
 };
 let connectorLabelMeasureCtx = null;
 
@@ -12987,7 +12991,11 @@ function normalizeConnectorLabelStyle(source) {
     strike: !!raw.strike,
     underline: !!raw.underline,
     hAlign: raw.hAlign === "left" || raw.hAlign === "right" ? raw.hAlign : "center",
-    vAlign: raw.vAlign === "top" || raw.vAlign === "bottom" ? raw.vAlign : "middle"
+    vAlign: raw.vAlign === "top" || raw.vAlign === "bottom" ? raw.vAlign : "middle",
+    paddingTop: parseShapeTextPaddingPx(raw.paddingTop, CONNECTOR_LABEL_DEFAULT_PADDING),
+    paddingRight: parseShapeTextPaddingPx(raw.paddingRight, CONNECTOR_LABEL_DEFAULT_PADDING),
+    paddingBottom: parseShapeTextPaddingPx(raw.paddingBottom, CONNECTOR_LABEL_DEFAULT_PADDING),
+    paddingLeft: parseShapeTextPaddingPx(raw.paddingLeft, CONNECTOR_LABEL_DEFAULT_PADDING)
   };
 }
 
@@ -13027,8 +13035,9 @@ function getFormatPanelVAlign() {
   return vAlignBtn === fpVMiddle ? "middle" : vAlignBtn === fpVBottom ? "bottom" : "top";
 }
 
-function readConnectorLabelStyleFromPanel(conn) {
+function readConnectorLabelStyleFromPanel(conn, formatSource = null) {
   const prev = getConnectorLabelStyle(conn);
+  const padding = readTextPaddingFromFormatPanel(formatSource);
   return normalizeConnectorLabelStyle({
     fontFamily: fpFontFamily ? fpFontFamily.value : prev.fontFamily,
     fontSize: fpFontSize ? Number(fpFontSize.value) : prev.fontSize,
@@ -13038,13 +13047,17 @@ function readConnectorLabelStyleFromPanel(conn) {
     strike: fpStrike ? fpStrike.checked : prev.strike,
     underline: fpUnderline ? fpUnderline.checked : prev.underline,
     hAlign: getFormatPanelAlign(),
-    vAlign: getFormatPanelVAlign()
+    vAlign: getFormatPanelVAlign(),
+    paddingTop: padding.top,
+    paddingRight: padding.right,
+    paddingBottom: padding.bottom,
+    paddingLeft: padding.left
   });
 }
 
-function applyConnectorLabelStyleFromPanel(conn) {
+function applyConnectorLabelStyleFromPanel(conn, formatSource = null) {
   if (!conn) return;
-  conn.labelStyle = readConnectorLabelStyleFromPanel(conn);
+  conn.labelStyle = readConnectorLabelStyleFromPanel(conn, formatSource);
 }
 
 function measureConnectorLabelText(text, styleOrSize = CONNECTOR_LABEL_FONT_SIZE) {
@@ -13121,18 +13134,36 @@ function collectConnectorPolylineRange(points, distFrom, distTo) {
   return out.length >= 2 ? out : [];
 }
 
-function splitConnectorPathForLabel(points, centerDistance, gapWidth) {
+function splitConnectorPathForLabel(points, centerDistance, gapBefore, gapAfter = gapBefore) {
   const metrics = getConnectorPathMetrics(points);
-  if (!metrics.total || gapWidth <= 0) return { segments: [{ points: points.map(cloneConnectorPoint) }], centerPoint: pointAtConnectorDistance(points, centerDistance) };
-  const gapHalf = Math.max(4, gapWidth / 2);
-  const center = clamp(Number(centerDistance) || 0, gapHalf, Math.max(gapHalf, metrics.total - gapHalf));
-  const before = collectConnectorPolylineRange(points, 0, center - gapHalf);
-  const after = collectConnectorPolylineRange(points, center + gapHalf, metrics.total);
+  if (!metrics.total || (gapBefore <= 0 && gapAfter <= 0)) return { segments: [{ points: points.map(cloneConnectorPoint) }], centerPoint: pointAtConnectorDistance(points, centerDistance) };
+  const beforeGap = Math.max(0, Number(gapBefore) || 0);
+  const afterGap = Math.max(0, Number(gapAfter) || 0);
+  const center = clamp(Number(centerDistance) || 0, beforeGap, Math.max(beforeGap, metrics.total - afterGap));
+  const before = collectConnectorPolylineRange(points, 0, center - beforeGap);
+  const after = collectConnectorPolylineRange(points, center + afterGap, metrics.total);
   const segments = [];
   if (before.length >= 2) segments.push({ points: before });
   if (after.length >= 2) segments.push({ points: after });
   if (!segments.length) segments.push({ points: points.map(cloneConnectorPoint) });
   return { segments, centerPoint: pointAtConnectorDistance(points, center) };
+}
+
+function getConnectorDirectionAtDistance(points, distance) {
+  const metrics = getConnectorPathMetrics(points);
+  const dist = clamp(Number(distance) || 0, 0, metrics.total);
+  const seg = metrics.segments.find((item) => dist <= item.end + 0.001) || metrics.segments[metrics.segments.length - 1];
+  if (!seg?.len) return { x: 1, y: 0 };
+  return { x: (seg.b.x - seg.a.x) / seg.len, y: (seg.b.y - seg.a.y) / seg.len };
+}
+
+function connectorLabelRayExtent(direction, horizontalExtent, verticalExtent) {
+  const tx = Math.abs(Number(direction?.x) || 0);
+  const ty = Math.abs(Number(direction?.y) || 0);
+  const xDistance = tx > 0.0001 ? horizontalExtent / tx : Infinity;
+  const yDistance = ty > 0.0001 ? verticalExtent / ty : Infinity;
+  const distance = Math.min(xDistance, yDistance);
+  return Number.isFinite(distance) ? distance : Math.max(horizontalExtent, verticalExtent);
 }
 
 function normalizeConnectorLabelOffset(offset, metrics, gapHalf) {
@@ -13146,19 +13177,34 @@ function buildConnectorLabelLayout(points, conn) {
   if (!text) return null;
   const labelStyle = getConnectorLabelStyle(conn);
   const metrics = getConnectorPathMetrics(points);
-  const textWidth = measureConnectorLabelText(text, labelStyle);
-  const gapWidth = metrics.total
-    ? Math.min(textWidth + CONNECTOR_LABEL_GAP_PAD, Math.max(12, metrics.total * 0.92))
-    : (textWidth + CONNECTOR_LABEL_GAP_PAD);
-  const gapHalf = gapWidth / 2;
+  const lines = text.split("\n");
+  const textWidth = Math.max(...lines.map((line) => measureConnectorLabelText(line, labelStyle)), 0);
+  const textHeight = Math.max(1, lines.length) * labelStyle.fontSize * 1.15;
+  const provisionalOffset = clamp(Number(conn.labelOffset) || 0.5, 0, 1);
+  const provisionalCenter = provisionalOffset * metrics.total;
+  const direction = getConnectorDirectionAtDistance(points, provisionalCenter);
+  const beforeX = direction.x >= 0 ? labelStyle.paddingLeft : labelStyle.paddingRight;
+  const afterX = direction.x >= 0 ? labelStyle.paddingRight : labelStyle.paddingLeft;
+  const beforeY = direction.y >= 0 ? labelStyle.paddingTop : labelStyle.paddingBottom;
+  const afterY = direction.y >= 0 ? labelStyle.paddingBottom : labelStyle.paddingTop;
+  let gapBefore = connectorLabelRayExtent(direction, (textWidth / 2) + beforeX, (textHeight / 2) + beforeY);
+  let gapAfter = connectorLabelRayExtent(direction, (textWidth / 2) + afterX, (textHeight / 2) + afterY);
+  if (metrics.total) {
+    const maxGap = Math.max(6, metrics.total * 0.46);
+    gapBefore = Math.min(gapBefore, maxGap);
+    gapAfter = Math.min(gapAfter, maxGap);
+  }
+  const gapHalf = Math.max(gapBefore, gapAfter);
   const offset = normalizeConnectorLabelOffset(conn.labelOffset, metrics, gapHalf);
   if (conn.labelOffset !== offset) conn.labelOffset = offset;
   const centerDistance = offset * metrics.total;
-  const split = splitConnectorPathForLabel(points, centerDistance, gapWidth);
+  const split = splitConnectorPathForLabel(points, centerDistance, gapBefore, gapAfter);
   return {
     text,
     textWidth,
-    gapWidth,
+    textHeight,
+    gapBefore,
+    gapAfter,
     offset,
     labelStyle,
     centerPoint: split.centerPoint,
@@ -13204,6 +13250,7 @@ function appendConnectorLabelOverlay(conn, layout, isSelected) {
   textEl.className = "conn-label-text";
   textEl.textContent = layout.text;
   applyConnectorLabelStyle(textEl, conn, labelStyle);
+  textEl.style.padding = `${labelStyle.paddingTop}px ${labelStyle.paddingRight}px ${labelStyle.paddingBottom}px ${labelStyle.paddingLeft}px`;
   if (isEditing) {
     textEl.contentEditable = "true";
     textEl.dataset.editingBackup = String(conn.labelText || "");
@@ -20921,6 +20968,16 @@ function syncFormatPanel() {
     if (fpStrike) fpStrike.checked = labelStyle.strike;
     if (fpUnderline) fpUnderline.checked = labelStyle.underline;
     setAlignButtons(labelStyle.hAlign, labelStyle.vAlign);
+    if (fpX) fpX.value = String(labelStyle.paddingTop);
+    if (fpW) fpW.value = String(labelStyle.paddingLeft);
+    if (fpH) fpH.value = String(labelStyle.paddingBottom);
+    if (fpR) fpR.value = String(labelStyle.paddingRight);
+    if (fpY) {
+      const uniform = labelStyle.paddingTop === labelStyle.paddingRight
+        && labelStyle.paddingRight === labelStyle.paddingBottom
+        && labelStyle.paddingBottom === labelStyle.paddingLeft;
+      fpY.value = uniform ? String(labelStyle.paddingTop) : "";
+    }
     updateFormatPanelVisuals();
     return;
   }
@@ -21219,7 +21276,7 @@ function applyFormat(opts = {}) {
     c.gapEnd = Math.max(0, Number(fpConnGapEnd ? fpConnGapEnd.value : 30) || 0);
     c.startArrowShape = getArrowShapeButtonsValue(fpArrowStartShape);
     c.endArrowShape = getArrowShapeButtonsValue(fpArrowEndShape);
-    applyConnectorLabelStyleFromPanel(c);
+    if (!formatSource || isAnyTextFormatControl(formatSource)) applyConnectorLabelStyleFromPanel(c, formatSource);
     renderConnectors();
     if (!opts.preview) {
       syncFormatPanel();
