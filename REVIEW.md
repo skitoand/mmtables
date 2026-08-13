@@ -10,6 +10,24 @@
 
 ---
 
+## 2026-08-13 — создание листа через доступный MCP-коннектор
+
+**Commit:** `b609623` — Allow creating a sheet with the first MCP shape.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260813-120013-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #31698008779](https://github.com/skitoand/mmtables/actions/runs/31698008779)  
+**Статус:** OK
+
+### Что сделано
+- `create_shape` получил атомарный параметр `createSheetName`: создаёт новый лист и первую фигуру одной MCP-операцией.
+- Это даёт возможность создавать листы даже через коннектор, который пока не публикует отдельную команду `create_sheet`.
+
+### Проверка
+- [x] 20 unit-тестов прошли.
+- [x] Deploy Production #31698008779 success.
+- [x] В документе `f4bddf3c1cba` через MCP создан лис `Планерка`.
+
+---
+
 ## 2026-08-13 — полные тексты фигур в MCP
 
 **Commit:** `c1406e7` — Return full shape text from MCP.  
