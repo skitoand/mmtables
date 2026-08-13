@@ -13907,7 +13907,10 @@ function startConnectorFromPoint(shape, anchor, event, opts = {}) {
     shape.__tableApi?.resetConnectorGuideLatch?.();
   }
   const fromArrow = event.currentTarget && event.currentTarget.classList && event.currentTarget.classList.contains("conn-arrow");
-  const fromAnchor = fromCell ? anchor : (fromArrow ? "c" : anchor);
+  // Keep the side chosen by the user. Using the center for arrow handles made
+  // the final connector recalculate its exit side after drop, so a connector
+  // pulled from the bottom arrow could unexpectedly start on the right edge.
+  const fromAnchor = anchor;
   const groupId = getShapeGroupId(shape);
   const useMemberEndpoint = fromArrow || fromCell || selectedShape === shape
     || isBpProcessStage(shape) || isBpProcessTask(shape) || isBpProcessAutomation(shape) || shape?.dataset?.bpRole === "base";
