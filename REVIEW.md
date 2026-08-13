@@ -10,6 +10,27 @@
 
 ---
 
+## 2026-08-13 — редактируемые поля текста на стрелке
+
+**Commit:** `8fb7bed` — feat: configure connector label padding.
+**Бэкап:** `mmtable-PROD-BACKUP-20260813-101747-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #31690445225](https://github.com/skitoand/mmtables/actions/runs/31690445225)
+**Статус:** OK
+
+### Что сделано
+- Поля «Сверху», «Слева», «Внизу», «Справа» и «Общие» регулируют расстояние линии стрелки до её подписи
+- Отступы сохраняются отдельно для каждой стрелки в `labelStyle`
+- Разрыв линии учитывает направление горизонтального, вертикального или наклонного участка соединителя
+- Cache-buster: `app.js?v=20260813-connector-label-padding-v1`, `styles.css?v=20260813-connector-label-padding-v1`
+
+### Проверка
+- [x] Deploy Production #31690445225 success
+- [x] `mmtable.service` active, внутренний и публичный URL вернули 200
+- [x] Контрольные суммы продовых `index.html`, `app.js`, `styles.css` совпадают с commit `8fb7bed`
+- [x] На проде cache-buster `20260813-connector-label-padding-v1`
+
+---
+
 ## 2026-08-10 — sheet reorder: drag только за grip
 
 **Commit:** `3779bb8` — fix: limit sheet reorder drag to the grip handle.  
