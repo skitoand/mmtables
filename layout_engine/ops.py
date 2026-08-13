@@ -1276,10 +1276,10 @@ def describe_sheet(doc: dict, sheet_id: int | None = None) -> dict:
             "y": parse_px(shape.get("top")),
             "width": parse_px(shape.get("width")),
             "height": parse_px(shape.get("height")),
-            "text": str(shape.get("text") or "")[:120],
+            "text": str(shape.get("text") or ""),
         }
         if shape.get("type") == "shape-frame":
-            item["frameName"] = str(shape.get("frameName") or shape.get("text") or "")[:120]
+            item["frameName"] = str(shape.get("frameName") or shape.get("text") or "")
         if shape.get("bpProcessId"):
             item["bpProcessId"] = shape.get("bpProcessId")
             item["bpRole"] = shape.get("bpRole")

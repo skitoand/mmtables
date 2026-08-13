@@ -84,6 +84,17 @@ class LayoutEngineTests(unittest.TestCase):
         desc = eng.describe_sheet(doc, 1)
         self.assertGreaterEqual(desc["counts"]["shapes"], 3)
 
+    def test_describe_sheet_preserves_full_shape_text(self):
+        doc = eng.blank_document()
+        long_text = "Длинное сообщение: " + ("символ " * 40)
+        doc, shape = eng.create_shape(doc, 1, {"type": "shape-rect", "text": long_text})
+
+        desc = eng.describe_sheet(doc, 1)
+        described_shape = next(item for item in desc["shapes"] if item["id"] == shape["id"])
+
+        self.assertGreater(len(long_text), 120)
+        self.assertEqual(described_shape["text"], long_text)
+
     def test_create_rename_delete_sheet(self):
         doc = eng.blank_document()
         doc, created = eng.create_sheet(doc, {"name": "Воронка B"})
