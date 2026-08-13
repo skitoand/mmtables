@@ -14079,7 +14079,7 @@ function renderConnectors() {
       line.setAttribute("d", segPathD);
       line.setAttribute("stroke", color);
       line.setAttribute("stroke-width", String(width));
-      line.setAttribute("stroke-dasharray", c.lineStyle === "dashed" ? "8 6" : "0");
+      line.setAttribute("stroke-dasharray", getShapeStrokeDasharray(normalizeBorderLineStyle(c.lineStyle), width));
       line.setAttribute("opacity", String(normalizeOpacityValue(c.opacity ?? 1)));
       line.setAttribute("stroke-linecap", c.lineStyle === "dotted" ? "round" : "butt");
       line.setAttribute("stroke-linejoin", "round");
