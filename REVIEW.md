@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-08-13 — отображение стиля линии соединителя
+
+**Commit:** `34e0312` — fix: render dotted connector lines.
+**Бэкап:** `mmtable-PROD-BACKUP-20260813-112632-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #31695504722](https://github.com/skitoand/mmtables/actions/runs/31695504722)
+**Статус:** OK
+
+### Что сделано
+- Выбранный в панели формата частый точечный пунктир теперь передаёт в SVG шаблон `stroke-dasharray`, а не нулевое значение сплошной линии
+- Сплошная, пунктирная и точечная линии используют единую функцию расчёта штрихов с учётом толщины
+- Cache-buster: `app.js?v=20260813-connector-line-style-v1`
+
+### Проверка
+- [x] `node --check app.js`
+- [x] 19 unit-тестов прошли
+- [x] Шаблоны линий: `solid = 0`, `dashed = 8 6`, `dotted = 1 5`
+- [x] Deploy Production #31695504722 success
+- [x] `mmtable.service` active, публичный URL вернул 200
+- [x] Контрольные суммы продовых `app.js` и `index.html` совпадают с commit `34e0312`
+
 ## 2026-08-13 — сохранение выбранной точки выхода соединителя
 
 **Commit:** `e2f587d` — fix: preserve connector source anchor.
