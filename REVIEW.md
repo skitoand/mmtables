@@ -10,6 +10,30 @@
 
 ---
 
+## 2026-08-31 — инструменты автоматизаций и полный MCP бизнес-процессов
+
+**Commit:** `3fdd7ca` — Add configurable automation tools and complete BP MCP access.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260831-162032-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #33413541358](https://github.com/skitoand/mmtables/actions/runs/33413541358)  
+**Статус:** OK
+
+### Что сделано
+- В автоматизацию добавлено поле «Инструмент»: ИИ-агент, робот, Битрикс24 и пользовательские варианты.
+- Добавлен выбор цвета; цвет инструмента применяется к карточке автоматизации.
+- MCP возвращает полные поля задач и автоматизаций, цвета стадий, порядок и видимость секций.
+- Добавлен `update_business_process`; перестановка стадий сохраняет привязку задач и автоматизаций.
+- MCP поднят до версии `1.3.0`; обновлён REST API и контрактные тесты.
+
+### Проверка
+- [x] 22 unit-теста прошли.
+- [x] `node --check app.js` прошёл.
+- [x] Deploy Production #33413541358 success.
+- [x] Gunicorn и `https://mmtable.crystalsystems.ru/` вернули `200 OK`.
+- [x] На проде присутствуют `BP_AUTOMATION_DEFAULT_TOOLS` и новый cache-buster.
+- [x] `/mcp` корректно требует Bearer/OAuth со scope `docs:read docs:write`.
+
+---
+
 ## 2026-08-13 — создание листа через доступный MCP-коннектор
 
 **Commit:** `b609623` — Allow creating a sheet with the first MCP shape.  
