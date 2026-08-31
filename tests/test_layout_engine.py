@@ -180,6 +180,98 @@ class LayoutEngineTests(unittest.TestCase):
         self.assertEqual(deleted["deletedProcessId"], bp["processId"])
         self.assertEqual(eng.list_business_processes(doc, 1), [])
 
+    def test_business_process_full_round_trip_and_reorder(self):
+        doc = eng.blank_document()
+        doc, created = eng.create_business_process(
+            doc,
+            1,
+            {
+                "name": "Полный процесс",
+                "tasksHidden": True,
+                "automationsHidden": True,
+                "stages": [{"name": "Вход", "fill": "#123456"}, {"name": "Работа", "fill": "#abcdef"}],
+                "tasks": [
+                    {
+                        "stageIndex": 0,
+                        "order": 3,
+                        "title": "Задача",
+                        "subtitle": "Подзаголовок",
+                        "description": "Описание",
+                        "assigner": "Постановщик",
+                        "executor": "Исполнитель",
+                        "deadline": "2026-09-01",
+                        "timeTracking": "2ч",
+                        "project": "Проект",
+                        "crmElements": "CRM-1",
+                        "conditions": "Условие",
+                        "tags": "тег",
+                        "results": ["ЦКП"],
+                        "additional": "Дополнительно",
+                        "expanded": True,
+                    }
+                ],
+                "automations": [
+                    {
+                        "stageIndex": 1,
+                        "order": 4,
+                        "title": "Робот",
+                        "tool": "Битрикс24",
+                        "toolOptions": [{"name": "Make", "color": "#8B5CF6"}],
+                        "when": "При входе",
+                        "conditions": ["Если X"],
+                        "description": "Описание робота",
+                        "results": ["Y"],
+                        "expanded": True,
+                    }
+                ],
+            },
+        )
+
+        listed = eng.list_business_processes(doc, 1)[0]
+        self.assertTrue(listed["tasksHidden"])
+        self.assertTrue(listed["automationsHidden"])
+        self.assertEqual(listed["stages"][0]["fill"], "#123456")
+        for key in (
+            "subtitle", "description", "assigner", "executor", "deadline", "timeTracking",
+            "project", "crmElements", "conditions", "tags", "results", "additional", "expanded",
+        ):
+            self.assertIn(key, listed["tasks"][0])
+        self.assertEqual(listed["tasks"][0]["subtitle"], "Подзаголовок")
+        self.assertEqual(listed["tasks"][0]["assigner"], "Постановщик")
+        self.assertEqual(listed["tasks"][0]["additional"], "Дополнительно")
+        self.assertTrue(listed["automations"][0]["expanded"])
+        self.assertEqual(listed["automations"][0]["tool"], "Битрикс24")
+        self.assertEqual(listed["automations"][0]["toolColor"], "#2FC6F6")
+        self.assertIn("Make", [item["name"] for item in listed["automations"][0]["toolOptions"]])
+
+        task_id = listed["tasks"][0]["id"]
+        auto_id = listed["automations"][0]["id"]
+        second_stage_id = listed["stages"][1]["id"]
+        doc, _ = eng.update_bp_stage(doc, 1, second_stage_id, {"index": 0})
+        reordered = eng.list_business_processes(doc, 1)[0]
+        self.assertEqual([s["name"] for s in reordered["stages"]], ["Работа", "Вход"])
+        self.assertEqual(next(t for t in reordered["tasks"] if t["id"] == task_id)["stageIndex"], 1)
+        self.assertEqual(next(a for a in reordered["automations"] if a["id"] == auto_id)["stageIndex"], 0)
+
+        doc, updated = eng.update_business_process(
+            doc, 1, created["processId"], {"name": "Новое имя", "tasksHidden": False}
+        )
+        self.assertEqual(updated["name"], "Новое имя")
+        final = eng.list_business_processes(doc, 1)[0]
+        self.assertEqual(final["name"], "Новое имя")
+        self.assertFalse(final["tasksHidden"])
+
+        with self.assertRaisesRegex(ValueError, "stage_not_found"):
+            eng.add_bp_task(doc, 1, created["processId"], {"stageIndex": 99, "title": "orphan"})
+        with self.assertRaisesRegex(ValueError, "stage_not_found"):
+            eng.update_bp_automation(doc, 1, auto_id, {"stageIndex": 99})
+
+        doc, custom = eng.update_bp_automation(
+            doc, 1, auto_id, {"tool": "Make", "toolColor": "#8b5cf6", "toolOptions": [{"name": "Make", "color": "#8B5CF6"}]}
+        )
+        self.assertEqual(custom["data"]["tool"], "Make")
+        self.assertEqual(custom["data"]["toolColor"], "#8B5CF6")
+
 
 if __name__ == "__main__":
     unittest.main()

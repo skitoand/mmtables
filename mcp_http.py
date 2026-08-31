@@ -12,7 +12,7 @@ from flask import Response, g, jsonify, make_response, request
 import layout_engine as eng
 
 PROTOCOL_VERSION = "2025-06-18"
-SERVER_INFO = {"name": "mmtable-mcp", "version": "1.2.0"}
+SERVER_INFO = {"name": "mmtable-mcp", "version": "1.3.0"}
 
 
 def _tool(name: str, description: str, properties: dict, required: list[str] | None = None) -> dict:
@@ -197,7 +197,21 @@ TOOLS = [
             "name": {"type": "string"},
             "x": {"type": "number"},
             "y": {"type": "number"},
-            "stages": {"type": "array", "items": {"type": "string"}},
+            "tasksHidden": {"type": "boolean"},
+            "automationsHidden": {"type": "boolean"},
+            "stages": {
+                "type": "array",
+                "items": {
+                    "oneOf": [
+                        {"type": "string"},
+                        {
+                            "type": "object",
+                            "properties": {"name": {"type": "string"}, "fill": {"type": "string"}},
+                            "required": ["name"],
+                        },
+                    ]
+                },
+            },
             "tasks": {
                 "type": "array",
                 "items": {
@@ -205,10 +219,20 @@ TOOLS = [
                     "properties": {
                         "stageIndex": {"type": "integer"},
                         "title": {"type": "string"},
+                        "subtitle": {"type": "string"},
                         "description": {"type": "string"},
+                        "assigner": {"type": "string"},
                         "executor": {"type": "string"},
                         "deadline": {"type": "string"},
+                        "timeTracking": {"type": "string"},
+                        "project": {"type": "string"},
+                        "crmElements": {"type": "string"},
+                        "conditions": {"type": "string"},
+                        "tags": {"type": "string"},
                         "results": {"type": "array", "items": {"type": "string"}},
+                        "additional": {"type": "string"},
+                        "expanded": {"type": "boolean"},
+                        "order": {"type": "integer"},
                     },
                 },
             },
@@ -219,15 +243,33 @@ TOOLS = [
                     "properties": {
                         "stageIndex": {"type": "integer"},
                         "title": {"type": "string"},
+                        "tool": {"type": "string", "description": "Инструмент: ИИ-агент, робот, Битрикс24 или свой"},
+                        "toolColor": {"type": "string", "description": "Цвет карточки #RRGGBB"},
+                        "toolOptions": {"type": "array", "items": {"type": "object"}},
                         "when": {"type": "string"},
                         "conditions": {"type": "array", "items": {"type": "string"}},
                         "description": {"type": "string"},
                         "results": {"type": "array", "items": {"type": "string"}},
+                        "expanded": {"type": "boolean"},
+                        "order": {"type": "integer"},
                     },
                 },
             },
         },
         ["documentId"],
+    ),
+    _tool(
+        "update_business_process",
+        "Rename a business process or change task/automation section visibility.",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+            "processId": {"type": "string"},
+            "name": {"type": "string"},
+            "tasksHidden": {"type": "boolean"},
+            "automationsHidden": {"type": "boolean"},
+        },
+        ["documentId", "processId"],
     ),
     _tool(
         "add_bp_stage",
@@ -288,6 +330,7 @@ TOOLS = [
             "tags": {"type": "string"},
             "results": {"type": "array", "items": {"type": "string"}, "description": "ЦКП / DoD list"},
             "additional": {"type": "string"},
+            "expanded": {"type": "boolean"},
             "order": {"type": "integer"},
         },
         ["documentId", "processId", "title"],
@@ -337,6 +380,9 @@ TOOLS = [
             "processId": {"type": "string"},
             "stageIndex": {"type": "integer"},
             "title": {"type": "string"},
+            "tool": {"type": "string"},
+            "toolColor": {"type": "string", "description": "Цвет карточки #RRGGBB"},
+            "toolOptions": {"type": "array", "items": {"type": "object"}},
             "when": {"type": "string"},
             "conditions": {"type": "array", "items": {"type": "string"}},
             "description": {"type": "string"},
@@ -353,6 +399,9 @@ TOOLS = [
             "sheetId": {"type": "integer"},
             "automationId": {"type": "string"},
             "title": {"type": "string"},
+            "tool": {"type": "string"},
+            "toolColor": {"type": "string", "description": "Цвет карточки #RRGGBB"},
+            "toolOptions": {"type": "array", "items": {"type": "object"}},
             "when": {"type": "string"},
             "conditions": {"type": "array", "items": {"type": "string"}},
             "description": {"type": "string"},
@@ -538,6 +587,7 @@ def register_mcp(app, deps: dict[str, Callable]):
             "create_table",
             "set_table_cells",
             "create_business_process",
+            "update_business_process",
             "add_bp_stage",
             "update_bp_stage",
             "delete_bp_stage",
@@ -616,6 +666,15 @@ def register_mcp(app, deps: dict[str, Callable]):
                 )
             if name == "create_business_process":
                 return _text_result(_mutate(doc_id, lambda d: eng.create_business_process(d, sheet_id, args)))
+            if name == "update_business_process":
+                return _text_result(
+                    _mutate(
+                        doc_id,
+                        lambda d: eng.update_business_process(
+                            d, sheet_id, str(args.get("processId") or ""), args
+                        ),
+                    )
+                )
             if name == "add_bp_stage":
                 return _text_result(
                     _mutate(doc_id, lambda d: eng.add_bp_stage(d, sheet_id, str(args.get("processId") or ""), args))

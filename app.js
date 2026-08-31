@@ -432,6 +432,11 @@ const BP_TASK_DEFAULT_HEIGHT = 40;
 const BP_AUTOMATION_FILL = "#fddd68";
 const BP_AUTOMATION_DEFAULT_HEIGHT = 40;
 const BP_AUTOMATION_TOGGLE_ICON_SRC = "assets/bp-automation-gear-icon.svg";
+const BP_AUTOMATION_DEFAULT_TOOLS = Object.freeze([
+  { name: "ИИ-агент", color: "#D97757" },
+  { name: "робот", color: "#FDDD68" },
+  { name: "Битрикс24", color: "#2FC6F6" }
+]);
 /** Fixed tip depth in px (independent of width). Smaller than h/2 → blunter (obtuse) tip angle. */
 const BP_AUTOMATION_TIP_PX = 12;
 /** Gap between stacked automations (half of task stack gap). */
@@ -11112,7 +11117,7 @@ function attachDrag(node, handle, opts = {}) {
     if (event.target.closest(".conn-arrow, .conn-point")) return;
     if (event.target.closest(".bp-process-section-toggle")) return;
     if (event.target.closest(".bp-task-title, .bp-task-toggle, .bp-task-field")) return;
-    if (event.target.closest(".bp-automation-title, .bp-automation-toggle, .bp-automation-field")) return;
+    if (event.target.closest(".bp-automation-title, .bp-automation-toggle, .bp-automation-field, .bp-automation-tool-row")) return;
     if (event.target.closest(".bitrix-kpi-value, .bitrix-kpi-label, .bitrix-kpi-actions, .bitrix-kpi-status")) return;
     if (event.target.closest(".bitrix-date-filter-inputs, .bitrix-date-filter-slider, .bitrix-date-filter-actions, .bitrix-date-filter-input")) return;
     if (event.target.closest(".bitrix-chart-icon-btn, .bitrix-chart-actions")) return;
@@ -15562,6 +15567,7 @@ function syncBpAutomationHeaderShape(node) {
       "points",
       `${tip},0 ${width - tip},0 ${width},${height / 2} ${width - tip},${height} ${tip},${height} 0,${height / 2}`
     );
+    poly.style.fill = getBpAutomationData(node).toolColor;
   }
   header.style.clipPath = "none";
   header.style.background = "transparent";
@@ -15580,13 +15586,32 @@ function normalizeBpAutomationList(values) {
   return normalizeGrowingTextList(values);
 }
 
+function normalizeBpAutomationColor(value, fallback = "#FDDD68") {
+  const color = String(value || "").trim();
+  return (/^#[0-9a-f]{6}$/i.test(color) ? color : fallback).toUpperCase();
+}
+
 function normalizeBpAutomationData(raw, fallbackTitle = "") {
   const base = raw && typeof raw === "object" ? raw : {};
   let title = String(base.title || "").trim();
   if (!title) title = String(fallbackTitle || "Автоматизация").trim() || "Автоматизация";
+  const toolOptions = BP_AUTOMATION_DEFAULT_TOOLS.map((item) => ({ ...item }));
+  (Array.isArray(base.toolOptions) ? base.toolOptions : []).forEach((item) => {
+    const name = String(typeof item === "string" ? item : item?.name || "").trim();
+    if (!name || toolOptions.some((option) => option.name.toLowerCase() === name.toLowerCase())) return;
+    toolOptions.push({ name, color: normalizeBpAutomationColor(item?.color) });
+  });
+  const tool = String(base.tool || "робот").trim() || "робот";
+  if (!toolOptions.some((option) => option.name === tool)) {
+    toolOptions.push({ name: tool, color: normalizeBpAutomationColor(base.toolColor) });
+  }
+  const selectedTool = toolOptions.find((option) => option.name === tool);
   return {
     title,
     expanded: !!base.expanded,
+    tool,
+    toolColor: normalizeBpAutomationColor(base.toolColor, selectedTool?.color),
+    toolOptions,
     when: String(base.when || ""),
     conditions: normalizeBpAutomationList(base.conditions),
     description: String(base.description || ""),
@@ -15721,6 +15746,18 @@ function renderBpAutomationCardValues(node) {
   const data = getBpAutomationData(node);
   const title = node.querySelector(".bp-automation-title");
   if (title && title.contentEditable !== "true") title.textContent = data.title;
+  const toolSelect = node.querySelector(".bp-automation-tool-select");
+  if (toolSelect) {
+    toolSelect.replaceChildren(...data.toolOptions.map((option) => {
+      const item = document.createElement("option");
+      item.value = option.name;
+      item.textContent = option.name;
+      return item;
+    }));
+    toolSelect.value = data.tool;
+  }
+  const toolColor = node.querySelector(".bp-automation-tool-color");
+  if (toolColor) toolColor.value = data.toolColor.toLowerCase();
   node.querySelectorAll("[data-bp-auto-field]").forEach((field) => {
     const key = field.dataset.bpAutoField;
     if (!key || key === "title") return;
@@ -15758,9 +15795,13 @@ function renderBpAutomationCardValues(node) {
   node.querySelectorAll(".bp-automation-field").forEach((field) => {
     field.disabled = readOnly;
   });
+  node.querySelectorAll(".bp-automation-tool-select, .bp-automation-tool-color, .bp-automation-tool-add").forEach((field) => {
+    field.disabled = readOnly;
+  });
   if (title && title.contentEditable !== "true") title.contentEditable = "false";
   applyBpAutomationTypography(node);
   syncBpAutomationDataToDataset(node);
+  syncBpAutomationHeaderShape(node);
 }
 
 function toggleBpAutomationExpanded(node) {
@@ -15817,7 +15858,7 @@ function bindBpAutomationSelection(node) {
   node.dataset.bpAutomationSelectionBound = "1";
   node.addEventListener("dblclick", (e) => {
     if (!canEditCurrentDocument()) return;
-    if (e.target.closest(".bp-automation-toggle, .bp-automation-field, .bp-automation-title")) return;
+    if (e.target.closest(".bp-automation-toggle, .bp-automation-field, .bp-automation-title, .bp-automation-tool-row")) return;
     e.preventDefault();
     e.stopPropagation();
     selectShape(node);
@@ -15906,6 +15947,73 @@ function buildBpAutomationCardUI(node) {
   form.className = `bp-automation-form${data.expanded ? "" : " hidden"}`;
   const formBody = document.createElement("div");
   formBody.className = "bp-automation-form-body";
+
+  const toolSection = document.createElement("div");
+  toolSection.className = "bp-automation-form-section";
+  const toolLabel = document.createElement("div");
+  toolLabel.className = "bp-automation-form-label bp-automation-form-label-block";
+  toolLabel.textContent = "Инструмент";
+  const toolRow = document.createElement("div");
+  toolRow.className = "bp-automation-tool-row";
+  const toolSelect = document.createElement("select");
+  toolSelect.className = "bp-automation-tool-select";
+  toolSelect.addEventListener("change", () => {
+    if (isWorkspaceReadOnly()) return;
+    const next = getBpAutomationData(node);
+    next.tool = toolSelect.value;
+    next.toolColor = next.toolOptions.find((option) => option.name === next.tool)?.color || next.toolColor;
+    syncBpAutomationDataToDataset(node);
+    renderBpAutomationCardValues(node);
+    saveLayout();
+  });
+  toolSelect.addEventListener("pointerdown", (e) => e.stopPropagation());
+  const toolColor = document.createElement("input");
+  toolColor.type = "color";
+  toolColor.className = "bp-automation-tool-color";
+  toolColor.title = "Цвет карточки";
+  toolColor.setAttribute("aria-label", "Цвет карточки автоматизации");
+  toolColor.addEventListener("input", () => {
+    if (isWorkspaceReadOnly()) return;
+    const next = getBpAutomationData(node);
+    next.toolColor = normalizeBpAutomationColor(toolColor.value);
+    const option = next.toolOptions.find((item) => item.name === next.tool);
+    if (option) option.color = next.toolColor;
+    syncBpAutomationDataToDataset(node);
+    syncBpAutomationHeaderShape(node);
+    saveLayout({ recordHistory: false });
+  });
+  toolColor.addEventListener("change", () => saveLayout());
+  toolColor.addEventListener("pointerdown", (e) => e.stopPropagation());
+  const toolAdd = document.createElement("button");
+  toolAdd.type = "button";
+  toolAdd.className = "bp-automation-tool-add";
+  toolAdd.textContent = "+";
+  toolAdd.title = "Добавить инструмент";
+  toolAdd.addEventListener("pointerdown", (e) => e.stopPropagation());
+  toolAdd.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isWorkspaceReadOnly()) return;
+    const name = String(window.prompt("Название нового инструмента", "") || "").trim();
+    if (!name) return;
+    const next = getBpAutomationData(node);
+    let option = next.toolOptions.find((item) => item.name.toLowerCase() === name.toLowerCase());
+    if (!option) {
+      option = { name, color: "#FDDD68" };
+      next.toolOptions.push(option);
+    }
+    next.tool = option.name;
+    next.toolColor = option.color;
+    syncBpAutomationDataToDataset(node);
+    renderBpAutomationCardValues(node);
+    saveLayout();
+  });
+  toolRow.appendChild(toolSelect);
+  toolRow.appendChild(toolColor);
+  toolRow.appendChild(toolAdd);
+  toolSection.appendChild(toolLabel);
+  toolSection.appendChild(toolRow);
+  formBody.appendChild(toolSection);
 
   const whenSection = document.createElement("div");
   whenSection.className = "bp-automation-form-section";

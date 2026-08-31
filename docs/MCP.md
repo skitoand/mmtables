@@ -77,10 +77,10 @@ Discovery endpoints:
 | `create_sheet` / `rename_sheet` / `delete_sheet` | листы документа |
 | `create_shape` / `update_shape` / `delete_shapes` / `move_shapes` | фигуры |
 | `create_table` / `get_table` / `set_table_cells` | таблицы |
-| `create_business_process` / `list_business_processes` / `delete_business_process` | BP целиком |
+| `create_business_process` / `update_business_process` / `list_business_processes` / `delete_business_process` | BP целиком |
 | `add_bp_stage` / `update_bp_stage` / `delete_bp_stage` | стадии |
 | `add_bp_task` / `update_bp_task` / `delete_bp_task` | задачи (поля формы + results) |
-| `add_bp_automation` / `update_bp_automation` / `delete_bp_automation` | автоматизации (when/conditions/results) |
+| `add_bp_automation` / `update_bp_automation` / `delete_bp_automation` | автоматизации (tool/toolColor/toolOptions/when/conditions/results) |
 | `connect_shapes` | связи |
 
 ## REST API

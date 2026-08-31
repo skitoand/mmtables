@@ -394,6 +394,22 @@ def register_api_v1(app, deps):
             }
         )
 
+    @app.patch("/api/v1/docs/<doc_id>/business-processes/<process_id>")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_update_bp(doc_id, process_id):
+        payload = _json()
+        try:
+            return jsonify(
+                _mutate(
+                    doc_id,
+                    lambda document, p: eng.update_business_process(document, p.get("sheetId"), process_id, p),
+                    payload,
+                )
+            )
+        except Exception as exc:
+            return _err(exc)
+
     @app.post("/api/v1/docs/<doc_id>/business-processes/<process_id>/stages")
     @require_auth
     @require_scope("docs:write")

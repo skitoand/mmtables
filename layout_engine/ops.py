@@ -152,9 +152,17 @@ def _bp_task_data(title: str, extra: dict | None = None) -> dict:
 
 
 def _bp_automation_data(title: str, extra: dict | None = None) -> dict:
+    color_was_supplied = isinstance(extra, dict) and "toolColor" in extra
     base = {
         "title": title or "Автоматизация",
         "expanded": False,
+        "tool": "робот",
+        "toolColor": "#FDDD68",
+        "toolOptions": [
+            {"name": "ИИ-агент", "color": "#D97757"},
+            {"name": "робот", "color": "#FDDD68"},
+            {"name": "Битрикс24", "color": "#2FC6F6"},
+        ],
         "when": "",
         "conditions": [""],
         "description": "",
@@ -173,6 +181,29 @@ def _bp_automation_data(title: str, extra: dict | None = None) -> dict:
         base["results"] = _normalize_text_list(base["results"])
     title_text = str(base.get("title") or "").strip() or "Автоматизация"
     base["title"] = title_text
+    base["tool"] = str(base.get("tool") or "робот").strip() or "робот"
+    default_options = [
+        {"name": "ИИ-агент", "color": "#D97757"},
+        {"name": "робот", "color": "#FDDD68"},
+        {"name": "Битрикс24", "color": "#2FC6F6"},
+    ]
+    custom_options = base.get("toolOptions") if isinstance(base.get("toolOptions"), list) else []
+    options = list(default_options)
+    known = {item["name"].casefold() for item in options}
+    for item in custom_options:
+        name = str(item.get("name") if isinstance(item, dict) else item or "").strip()
+        if not name or name.casefold() in known:
+            continue
+        raw_color = str(item.get("color") if isinstance(item, dict) else "#FDDD68")
+        option_color = raw_color.upper() if len(raw_color) == 7 and raw_color.startswith("#") else "#FDDD68"
+        options.append({"name": name, "color": option_color})
+        known.add(name.casefold())
+    base["toolOptions"] = options
+    if not color_was_supplied:
+        selected = next((item for item in options if item["name"] == base["tool"]), None)
+        base["toolColor"] = selected["color"] if selected else "#FDDD68"
+    color = str(base.get("toolColor") or "#FDDD68").strip()
+    base["toolColor"] = color.upper() if len(color) == 7 and color.startswith("#") else "#FDDD68"
     return base
 
 
@@ -186,6 +217,17 @@ def _bp_shapes(layout: dict, process_id: str, role: str | None = None) -> list[d
             continue
         out.append(shape)
     return out
+
+
+def _require_bp_stage_index(layout: dict, process_id: str, value: Any) -> int:
+    try:
+        index = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("stageIndex_invalid")
+    valid = {int(s.get("bpStageIndex") or 0) for s in _bp_shapes(layout, process_id, "stage")}
+    if index not in valid:
+        raise ValueError("stage_not_found")
+    return index
 
 
 def _stage_body_width(stage: dict) -> float:
@@ -605,6 +647,8 @@ def create_business_process(doc: dict, sheet_id: int | None, payload: dict) -> t
             "bpProcessId": process_id,
             "bpRole": "base",
             "bpProcessName": name,
+            "bpTasksHidden": bool(payload.get("tasksHidden", False)),
+            "bpAutomationsHidden": bool(payload.get("automationsHidden", False)),
             **_default_fields(),
         }
     )
@@ -681,6 +725,7 @@ def create_business_process(doc: dict, sheet_id: int | None, payload: dict) -> t
                         "crmElements",
                         "additional",
                         "expanded",
+                        "order",
                     )
                     if k in task
                 },
@@ -699,7 +744,14 @@ def create_business_process(doc: dict, sheet_id: int | None, payload: dict) -> t
             {
                 "stageIndex": int(auto.get("stageIndex", 0)),
                 "title": str(auto.get("title") or "Автоматизация"),
-                **{k: auto[k] for k in ("when", "conditions", "description", "results", "expanded") if k in auto},
+                **{
+                    k: auto[k]
+                    for k in (
+                        "tool", "toolColor", "toolOptions", "when", "conditions",
+                        "description", "results", "expanded", "order"
+                    )
+                    if k in auto
+                },
             },
         )
         auto_ids.append(summary)
@@ -719,7 +771,7 @@ def create_business_process(doc: dict, sheet_id: int | None, payload: dict) -> t
 
 
 def add_bp_task_to_layout(layout: dict, process_id: str, group_id: str, payload: dict) -> dict:
-    stage_index = int(payload.get("stageIndex", 0))
+    stage_index = _require_bp_stage_index(layout, process_id, payload.get("stageIndex", 0))
     existing = [
         s
         for s in layout.get("shapes") or []
@@ -872,7 +924,9 @@ def update_bp_task(doc: dict, sheet_id: int | None, task_id: str, patch: dict) -
         merged["title"] = shape["text"]
     data = _bp_task_data(str(merged.get("title") or shape.get("text") or ""), merged)
     if "stageIndex" in patch:
-        shape["bpTaskStageIndex"] = int(patch["stageIndex"])
+        shape["bpTaskStageIndex"] = _require_bp_stage_index(
+            layout, str(shape.get("bpProcessId") or ""), patch["stageIndex"]
+        )
     if "order" in patch:
         shape["bpTaskOrder"] = int(patch["order"])
     shape["bpTaskData"] = data
@@ -903,7 +957,7 @@ def delete_bp_task(doc: dict, sheet_id: int | None, task_id: str) -> tuple[dict,
 
 
 def add_bp_automation_to_layout(layout: dict, process_id: str, group_id: str, payload: dict) -> dict:
-    stage_index = int(payload.get("stageIndex", 0))
+    stage_index = _require_bp_stage_index(layout, process_id, payload.get("stageIndex", 0))
     existing = [
         s
         for s in _bp_shapes(layout, process_id, "automation")
@@ -926,8 +980,8 @@ def add_bp_automation_to_layout(layout: dict, process_id: str, group_id: str, pa
             "zIndex": bump_z(layout),
             "text": auto_data["title"],
             "fillEnabled": True,
-            "fill": BP_AUTOMATION_FILL,
-            "fill2": BP_AUTOMATION_FILL,
+            "fill": auto_data["toolColor"],
+            "fill2": auto_data["toolColor"],
             "borderEnabled": False,
             "borderWidth": 0,
             "border": "transparent",
@@ -985,10 +1039,14 @@ def update_bp_automation(doc: dict, sheet_id: int | None, automation_id: str, pa
         shape["text"] = str(patch["title"] or "")
         data["title"] = shape["text"] or "Автоматизация"
     if "stageIndex" in patch:
-        shape["bpAutomationStageIndex"] = int(patch["stageIndex"])
+        shape["bpAutomationStageIndex"] = _require_bp_stage_index(
+            layout, str(shape.get("bpProcessId") or ""), patch["stageIndex"]
+        )
     if "order" in patch:
         shape["bpAutomationOrder"] = int(patch["order"])
     shape["bpAutomationData"] = data
+    shape["fill"] = data["toolColor"]
+    shape["fill2"] = data["toolColor"]
     relayout_bp(layout, str(shape.get("bpProcessId")))
     document = set_sheet_layout(document, sheet["id"], layout)
     return document, {
@@ -1029,7 +1087,20 @@ def update_bp_stage(doc: dict, sheet_id: int | None, stage_id: str, patch: dict)
         shape["fill2"] = fill
         shape["fillEnabled"] = True
     if "index" in patch:
-        shape["bpStageIndex"] = int(patch["index"])
+        pid = str(shape.get("bpProcessId") or "")
+        stages = sorted(_bp_shapes(layout, pid, "stage"), key=lambda s: int(s.get("bpStageIndex") or 0))
+        old_indices = {str(stage.get("id")): int(stage.get("bpStageIndex") or 0) for stage in stages}
+        stages.remove(shape)
+        target = max(0, min(int(patch["index"]), len(stages)))
+        stages.insert(target, shape)
+        new_indices = {}
+        for new_index, stage in enumerate(stages):
+            new_indices[old_indices[str(stage.get("id"))]] = new_index
+            stage["bpStageIndex"] = new_index
+        for task in _bp_shapes(layout, pid, "task"):
+            task["bpTaskStageIndex"] = new_indices[int(task.get("bpTaskStageIndex") or 0)]
+        for auto in _bp_shapes(layout, pid, "automation"):
+            auto["bpAutomationStageIndex"] = new_indices[int(auto.get("bpAutomationStageIndex") or 0)]
     relayout_bp(layout, str(shape.get("bpProcessId")))
     document = set_sheet_layout(document, sheet["id"], layout)
     return document, {
@@ -1104,6 +1175,30 @@ def delete_business_process(doc: dict, sheet_id: int | None, process_id: str) ->
     return document, {"deletedProcessId": pid, "deletedShapeIds": ids, "sheetId": sheet["id"]}
 
 
+def update_business_process(doc: dict, sheet_id: int | None, process_id: str, patch: dict) -> tuple[dict, dict]:
+    document, sheet = get_sheet(doc, sheet_id)
+    layout = sheet["layout"]
+    pid = str(process_id)
+    base = next(iter(_bp_shapes(layout, pid, "base")), None)
+    if not base:
+        raise ValueError("bp_not_found")
+    if "name" in patch:
+        base["bpProcessName"] = str(patch.get("name") or "").strip() or "Бизнес-процесс"
+    if "tasksHidden" in patch:
+        base["bpTasksHidden"] = bool(patch["tasksHidden"])
+    if "automationsHidden" in patch:
+        base["bpAutomationsHidden"] = bool(patch["automationsHidden"])
+    document = set_sheet_layout(document, sheet["id"], layout)
+    return document, {
+        "processId": pid,
+        "baseId": base.get("id"),
+        "name": str(base.get("bpProcessName") or pid),
+        "tasksHidden": bool(base.get("bpTasksHidden")),
+        "automationsHidden": bool(base.get("bpAutomationsHidden")),
+        "sheetId": sheet["id"],
+    }
+
+
 def list_business_processes(doc: dict, sheet_id: int | None = None) -> list[dict]:
     _document, sheet = get_sheet(doc, sheet_id)
     layout = sheet["layout"]
@@ -1118,6 +1213,9 @@ def list_business_processes(doc: dict, sheet_id: int | None = None) -> list[dict
                 "processId": pid,
                 "name": "",
                 "baseId": None,
+                "groupId": None,
+                "tasksHidden": False,
+                "automationsHidden": False,
                 "stages": [],
                 "tasks": [],
                 "automations": [],
@@ -1127,13 +1225,17 @@ def list_business_processes(doc: dict, sheet_id: int | None = None) -> list[dict
         role = shape.get("bpRole")
         if role == "base":
             entry["baseId"] = shape.get("id")
+            entry["groupId"] = shape.get("groupId")
             entry["name"] = str(shape.get("bpProcessName") or entry["name"] or pid)
+            entry["tasksHidden"] = bool(shape.get("bpTasksHidden"))
+            entry["automationsHidden"] = bool(shape.get("bpAutomationsHidden"))
         elif role == "stage":
             entry["stages"].append(
                 {
                     "id": shape.get("id"),
                     "index": int(shape.get("bpStageIndex") or 0),
                     "name": str(shape.get("text") or ""),
+                    "fill": str(shape.get("fill") or ""),
                 }
             )
         elif role == "task":
@@ -1143,11 +1245,7 @@ def list_business_processes(doc: dict, sheet_id: int | None = None) -> list[dict
                     "id": shape.get("id"),
                     "stageIndex": int(shape.get("bpTaskStageIndex") or 0),
                     "order": int(shape.get("bpTaskOrder") or 0),
-                    "title": str(data.get("title") or shape.get("text") or ""),
-                    "executor": str(data.get("executor") or ""),
-                    "deadline": str(data.get("deadline") or ""),
-                    "description": str(data.get("description") or ""),
-                    "results": data.get("results") if isinstance(data.get("results"), list) else [""],
+                    **_bp_task_data(str(data.get("title") or shape.get("text") or ""), data),
                 }
             )
         elif role == "automation":
@@ -1157,11 +1255,7 @@ def list_business_processes(doc: dict, sheet_id: int | None = None) -> list[dict
                     "id": shape.get("id"),
                     "stageIndex": int(shape.get("bpAutomationStageIndex") or 0),
                     "order": int(shape.get("bpAutomationOrder") or 0),
-                    "title": str(data.get("title") or shape.get("text") or ""),
-                    "when": str(data.get("when") or ""),
-                    "conditions": data.get("conditions") if isinstance(data.get("conditions"), list) else [""],
-                    "description": str(data.get("description") or ""),
-                    "results": data.get("results") if isinstance(data.get("results"), list) else [""],
+                    **_bp_automation_data(str(data.get("title") or shape.get("text") or ""), data),
                 }
             )
     result = []

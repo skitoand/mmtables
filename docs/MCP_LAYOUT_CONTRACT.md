@@ -78,13 +78,17 @@ Composite of shapes sharing `bpProcessId` + `groupId`:
 
 `bpTaskData`: title, subtitle, description, assigner, executor, deadline, timeTracking, project, crmElements, conditions, tags, results[], additional, expanded.
 
-`bpAutomationData`: title, when, conditions[], description, results[], expanded.
+`bpAutomationData`: title, tool, toolColor, toolOptions[], when, conditions[], description, results[], expanded.
 
 MCP CRUD:
 - stages: `add_bp_stage` / `update_bp_stage` / `delete_bp_stage`
 - tasks: `add_bp_task` / `update_bp_task` / `delete_bp_task`
 - automations: `add_bp_automation` / `update_bp_automation` / `delete_bp_automation`
-- process: `create_business_process` / `delete_business_process` / `list_business_processes`
+- process: `create_business_process` / `update_business_process` / `delete_business_process` / `list_business_processes`
+
+`list_business_processes` returns the complete semantic model: process visibility flags,
+stage color, every `bpTaskData` field and every `bpAutomationData` field. Tasks and
+automations are associated with stages by `stageIndex` and ordered by `order`.
 
 After structural edits the engine runs `relayout_bp` (tasks below stages, automations stacked above).
 
