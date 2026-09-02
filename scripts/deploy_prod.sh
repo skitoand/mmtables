@@ -91,7 +91,16 @@ echo "Deploying to ${USER_NAME}@${HOST}:${REMOTE_APP_DIR}"
 
 echo "1/4 Creating server backup"
 retry 6 remote_ssh \
-  "mkdir -p '${REMOTE_BACKUP_DIR}' && tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js index.html styles.css server.py assets/favicon.png assets/apple-touch-icon.png workspace.db bitrix-chart.js draw-tools.js vendor/perfect-freehand.js vendor/laser-pointer.js 2>/dev/null || tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js index.html styles.css server.py workspace.db 2>/dev/null || tar -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' app.js index.html styles.css server.py workspace.db && ls -lh '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}'"
+  "set -e; SNAPSHOT='${REMOTE_APP_DIR}/.deploy-workspace-${TS}.db'; \
+   trap 'rm -f \"\${SNAPSHOT}\"' EXIT; \
+   mkdir -p '${REMOTE_BACKUP_DIR}'; \
+   python3 -c \"import sqlite3; src=sqlite3.connect('${REMOTE_APP_DIR}/workspace.db'); dst=sqlite3.connect('\${SNAPSHOT}'); src.backup(dst); dst.close(); src.close()\"; \
+   tar --transform='s|^.deploy-workspace-${TS}.db\$|workspace.db|' \
+     -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' \
+     app.js index.html styles.css server.py assets/favicon.png assets/apple-touch-icon.png \
+     .deploy-workspace-${TS}.db bitrix-chart.js draw-tools.js \
+     vendor/perfect-freehand.js vendor/laser-pointer.js; \
+   ls -lh '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}'"
 
 echo "2/4 Uploading files to /tmp"
 retry 6 remote_scp "$ROOT_DIR/app.js" "${USER_NAME}@${HOST}:/tmp/mmtable_app.js"
