@@ -2198,13 +2198,20 @@
 
   function formatChartAxisLabel(label, granularity) {
     const text = String(label || "").trim();
+    const monthNames = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
     if (granularity === "month") {
       const monthMatch = text.match(/^(\d{4})-(\d{2})$/);
-      if (monthMatch) return `${monthMatch[2]}.${monthMatch[1]}`;
+      if (monthMatch) {
+        const monthIndex = Number(monthMatch[2]) - 1;
+        if (monthNames[monthIndex]) return `${monthNames[monthIndex]} ${monthMatch[1]}`;
+      }
     }
     const isoDate = bucketLabelToIsoDate(label, granularity);
     const match = String(isoDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (match) return `${match[3]}.${match[2]}`;
+    if (match) {
+      const monthIndex = Number(match[2]) - 1;
+      if (monthNames[monthIndex]) return `${Number(match[3])} ${monthNames[monthIndex]}`;
+    }
     return text;
   }
 
