@@ -518,6 +518,7 @@ let presenceSessionId = null;
 let presenceTimer = null;
 let documentOpenMode = "view"; // "view" | "edit" — requested/effective open mode
 let editLockOwned = false;
+let documentEditSyncPending = false;
 let editLockHolder = null; // { email, name, sessionId } | null
 let editLockWarnedDocId = null;
 let currentDocumentId = null;
@@ -4227,6 +4228,7 @@ function canManagePublicLinkCurrentDocument() {
 
 function canEditCurrentDocument() {
   if (guestPublicView) return false;
+  if (documentEditSyncPending) return false;
   if (!(currentUser && ["owner", "admin", "editor"].includes(getCurrentDocumentRole()))) return false;
   return documentOpenMode === "edit" && editLockOwned;
 }
@@ -4682,7 +4684,29 @@ async function requestDocumentEditMode() {
   refreshObjectsToolbarForMode();
   // Badge text is set inside setDocumentOpenMode:
   // success → режим редактирования; lock busy → «Документ редактирует …»
-  if (editLockOwned) return true;
+  if (editLockOwned) {
+    // View mode deliberately permits local-only visual interactions. Always
+    // replace that potentially stale canvas with the latest server version
+    // after acquiring the edit lock, before any edit can be persisted.
+    documentEditSyncPending = true;
+    syncWorkspaceAccessMode();
+    refreshObjectsToolbarForMode();
+    try {
+      await reloadCurrentDocumentFromServer({ quiet: true });
+    } catch (err) {
+      console.warn("Не удалось обновить документ перед редактированием:", err);
+      documentOpenMode = "view";
+      await beatDocumentPresence();
+      refreshObjectsToolbarForMode();
+      showHint("Не удалось загрузить свежую версию. Редактирование не включено.", "error", 4200);
+      return false;
+    } finally {
+      documentEditSyncPending = false;
+      syncWorkspaceAccessMode();
+      refreshObjectsToolbarForMode();
+    }
+    return true;
+  }
   if (editLockHolder) {
     const who = editLockHolder.name || editLockHolder.email || "другой пользователь";
     flashDocumentModeBadge({
@@ -8161,6 +8185,7 @@ function selectLineAtPointInShapeText(textEl, clientX, clientY) {
 
 function handleShapeTextDoubleClick(node, textEl, event) {
   if (event.target.closest(".h, .resize-handle, .shape-param-handle, .shape-line-handle, .bp-stage-control, .conn-point")) return;
+  if (!canEditCurrentDocument()) return;
   event.preventDefault();
   event.stopPropagation();
 
@@ -10503,7 +10528,9 @@ function populateObjectsToolbar() {
   hideObjectsToolbarTooltip();
   objectsToolbar.innerHTML = "";
   const editable = canEditCurrentDocument();
-  const items = getDesktopInsertMenuItems(() => lastDesktopPointer || getViewportCenterDesktopPoint());
+  const items = editable
+    ? getDesktopInsertMenuItems(() => lastDesktopPointer || getViewportCenterDesktopPoint())
+    : [];
   items.forEach((item) => {
     const itemDisabled = !!item.disabled || !editable;
     if (Array.isArray(item.children) && item.children.length) {
@@ -10542,10 +10569,12 @@ function populateObjectsToolbar() {
     objectsToolbar.appendChild(btn);
   });
 
-  const modeSep = document.createElement("span");
-  modeSep.className = "objects-toolbar-sep";
-  modeSep.setAttribute("aria-hidden", "true");
-  objectsToolbar.appendChild(modeSep);
+  if (editable) {
+    const modeSep = document.createElement("span");
+    modeSep.className = "objects-toolbar-sep";
+    modeSep.setAttribute("aria-hidden", "true");
+    objectsToolbar.appendChild(modeSep);
+  }
 
   const modeToggle = document.createElement("div");
   modeToggle.className = "doc-mode-toggle";
@@ -18025,6 +18054,7 @@ function createShapeTable(opts = {}, doSave = true) {
     applyTableScrollState(tableWrap, true);
   };
   const beginTitleEdit = () => {
+    if (!canEditCurrentDocument()) return;
     titleText.contentEditable = "true";
     titleText.textContent = state.title;
     titleText.focus();
