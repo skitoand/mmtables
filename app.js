@@ -367,7 +367,7 @@ const DEFAULT_PARALLELOGRAM_SKEW = 18;
 const MIN_PARALLELOGRAM_SKEW = 6;
 const MAX_PARALLELOGRAM_SKEW = 40;
 const DEFAULT_TRAPEZOID_SKEW = 18;
-const MIN_TRAPEZOID_SKEW = 6;
+const MIN_TRAPEZOID_SKEW = 0;
 const MAX_TRAPEZOID_SKEW = 40;
 const DEFAULT_HEXAGON_CHAMFER = 18;
 const MIN_HEXAGON_CHAMFER = 6;
@@ -1709,15 +1709,16 @@ function getShapeVariantDepth(node, variant = null) {
   const currentVariant = variant || normalizeShapeVariant(node?.dataset?.shapeVariant);
   const cfg = getVariantDepthConfig(currentVariant);
   if (!cfg) return 0;
-  return Math.max(
-    cfg.min,
-    Math.min(cfg.max, Number(node?.dataset?.[cfg.key] || cfg.fallback) || cfg.fallback)
-  );
+  const stored = node?.dataset?.[cfg.key];
+  const numeric = stored == null || stored === "" ? cfg.fallback : Number(stored);
+  const value = Number.isFinite(numeric) ? numeric : cfg.fallback;
+  return Math.max(cfg.min, Math.min(cfg.max, value));
 }
 function setShapeVariantDepth(node, variant, value) {
   const cfg = getVariantDepthConfig(variant);
   if (!node || !cfg) return 0;
-  const next = Math.max(cfg.min, Math.min(cfg.max, Number(value) || cfg.fallback));
+  const numeric = Number(value);
+  const next = Math.max(cfg.min, Math.min(cfg.max, Number.isFinite(numeric) ? numeric : cfg.fallback));
   node.dataset[cfg.key] = String(next);
   return next;
 }
