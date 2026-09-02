@@ -2744,11 +2744,32 @@ def _bucket_stage_history(items, granularity, date_from, date_to, value_by_owner
     if end < start:
         start, end = end, start
     buckets = defaultdict(float)
+    # Build the complete time axis first. Otherwise Bitrix charts collapse a
+    # multi-month range to only the few weeks that contain records.
+    if granularity == "month":
+        cursor = start.replace(day=1)
+        last = end.replace(day=1)
+        while cursor <= last:
+            buckets[cursor.strftime("%Y-%m")] = 0.0
+            cursor = (cursor.replace(day=28) + timedelta(days=4)).replace(day=1)
+    elif granularity == "week":
+        cursor = (start - timedelta(days=start.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        last = (end - timedelta(days=end.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        while cursor <= last:
+            iso = cursor.isocalendar()
+            buckets[f"{iso.year}-W{iso.week:02d}"] = 0.0
+            cursor += timedelta(days=7)
+    else:
+        cursor = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        last = end.replace(hour=0, minute=0, second=0, microsecond=0)
+        while cursor <= last:
+            buckets[cursor.strftime("%Y-%m-%d")] = 0.0
+            cursor += timedelta(days=1)
     for item in items:
         created = _parse_bitrix_datetime(item.get("CREATED_TIME"))
         if not created:
             continue
-        if created < start or created > end + timedelta(days=1):
+        if created < start or created >= end + timedelta(days=1):
             continue
         if granularity == "month":
             key = created.strftime("%Y-%m")

@@ -2989,7 +2989,18 @@
     return (points || []).filter((point) => {
       const bucketDate = bucketLabelToIsoDate(point.label, granularity);
       if (!bucketDate) return true;
-      if (from && bucketDate < from) return false;
+      let bucketEnd = bucketDate;
+      if (granularity === "week") {
+        const endDate = new Date(`${bucketDate}T00:00:00Z`);
+        endDate.setUTCDate(endDate.getUTCDate() + 6);
+        bucketEnd = endDate.toISOString().slice(0, 10);
+      } else if (granularity === "month") {
+        const endDate = new Date(`${bucketDate}T00:00:00Z`);
+        endDate.setUTCMonth(endDate.getUTCMonth() + 1, 0);
+        bucketEnd = endDate.toISOString().slice(0, 10);
+      }
+      // Keep a partial first week/month when it overlaps the selected range.
+      if (from && bucketEnd < from) return false;
       if (to && bucketDate > to) return false;
       return true;
     });
