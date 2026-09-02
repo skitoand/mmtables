@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-09-02 — полная временная шкала графиков Bitrix24
+
+**Commit:** `151b770` — Fix Bitrix chart date ranges.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260902-055435-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #33596499984](https://github.com/skitoand/mmtables/actions/runs/33596499984)  
+**Статус:** OK (успешный retry после конфликта чтения активного `workspace.db` при первом запуске)
+
+### Что сделано
+- Графики Bitrix24 теперь строят все дни, недели или месяцы выбранного периода, включая пустые интервалы с нулевыми значениями.
+- Внешний фильтр дат корректно сохраняет неполную первую неделю/месяц, если они пересекают диапазон.
+- Обновлён cache-buster `bitrix-chart.js`.
+
+### Проверка
+- [x] `node --check bitrix-chart.js` прошёл.
+- [x] 25 unit-тестов прошли, включая 3 новых теста временной шкалы.
+- [x] Deploy Production #33596499984 success.
+- [x] `https://mmtable.crystalsystems.ru/` вернул `200 OK`.
+- [x] На проде отдаётся `bitrix-chart.js?v=20260902-complete-date-axis-v1`.
+- [x] Для графика `shape_1` документа `36d1daf8f3a9`, лист `2`, прод сформировал 14 недель от `2026-W23` до `2026-W36` с суммарным значением 9.
+
 ## 2026-09-02 — строгий режим просмотра
 
 **Commit:** `9875b15` — Fix strict read-only document mode.  
