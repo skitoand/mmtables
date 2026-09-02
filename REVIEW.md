@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-09-02 — строгий режим просмотра
+
+**Commit:** `9875b15` — Fix strict read-only document mode.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260902-054208-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #33595733020](https://github.com/skitoand/mmtables/actions/runs/33595733020)  
+**Статус:** OK
+
+### Что сделано
+- В режиме просмотра заблокировано редактирование текста фигур и заголовков таблиц.
+- Панель объектов в просмотре скрывает все инструменты и оставляет только переключатели «карандаш / глаз».
+- Перед возвратом в редактирование после получения edit-lock загружается свежая версия с сервера; до завершения синхронизации редактирование запрещено.
+- Обновлён cache-buster `app.js`.
+
+### Проверка
+- [x] `node --check app.js` прошёл.
+- [x] 22 unit-теста прошли.
+- [x] Deploy Production #33595733020 success.
+- [x] `https://mmtable.crystalsystems.ru/` вернул `200 OK`.
+- [x] На проде отдаётся `app.js?v=20260902-strict-view-mode-v1`.
+
 ## 2026-08-31 — инструменты автоматизаций и полный MCP бизнес-процессов
 
 **Commit:** `3fdd7ca` — Add configurable automation tools and complete BP MCP access.  
