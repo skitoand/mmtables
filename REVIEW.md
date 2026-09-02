@@ -10,6 +10,26 @@
 
 ---
 
+## 2026-09-02 — трапеция до прямоугольника
+
+**Commit:** `a179db3` — Allow trapezoid depth to reach zero.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260902-062054-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #33598431230](https://github.com/skitoand/mmtables/actions/runs/33598431230)  
+**Статус:** OK
+
+### Что сделано
+- Минимальная глубина наклона трапеции снижена с 6% до 0%.
+- Значение `0` корректно сохраняется и восстанавливается, не заменяясь стандартным наклоном.
+- В крайнем левом положении жёлтого маркера трапеция становится прямоугольником.
+- Обновлён cache-buster `app.js`.
+
+### Проверка
+- [x] `node --check app.js` прошёл.
+- [x] 25 unit-тестов прошли.
+- [x] Deploy Production #33598431230 success.
+- [x] `https://mmtable.crystalsystems.ru/` вернул `200 OK`.
+- [x] На проде отдаётся `app.js?v=20260902-trapezoid-depth-zero-v2`.
+
 ## 2026-09-02 — явные названия месяцев на графиках Bitrix24
 
 **Commits:** `a74a511` — Clarify Bitrix chart month labels; `33feb7c` — Make production SQLite backups consistent.  
