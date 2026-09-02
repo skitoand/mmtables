@@ -10,6 +10,25 @@
 
 ---
 
+## 2026-09-02 — явные названия месяцев на графиках Bitrix24
+
+**Commits:** `a74a511` — Clarify Bitrix chart month labels; `33feb7c` — Make production SQLite backups consistent.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260902-060928-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #33597632515](https://github.com/skitoand/mmtables/actions/runs/33597632515)  
+**Статус:** OK
+
+### Что сделано
+- Подписи оси дат изменены с цифровых (`17.08`) на явные русские (`17 авг`).
+- По сырым данным Bitrix подтверждено: сделка `577204` имеет переход в `C82:NEW` от 21.08.2026 и входит в точку `2` за неделю 17–23 августа.
+- Деплой теперь создаёт согласованную копию активной SQLite базы через SQLite backup API, а не читает изменяющийся `workspace.db` напрямую через `tar`.
+
+### Проверка
+- [x] `node --check bitrix-chart.js` прошёл.
+- [x] 25 unit-тестов прошли.
+- [x] Deploy Production #33597632515 success.
+- [x] `https://mmtable.crystalsystems.ru/` вернул `200 OK`.
+- [x] На проде отдаётся `bitrix-chart.js?v=20260902-readable-date-axis-v2`.
+
 ## 2026-09-02 — полная временная шкала графиков Bitrix24
 
 **Commit:** `151b770` — Fix Bitrix chart date ranges.  
