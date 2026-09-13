@@ -28,6 +28,14 @@
     return ctx && ctx.canEdit?.() && !ctx.isReadOnly?.();
   }
 
+  function getDrawStyle() {
+    const style = ctx?.getDrawingStyle?.() || {};
+    return {
+      strokeSize: Math.max(1, Number(style.strokeSize) || DEFAULT_STROKE_SIZE),
+      strokeColor: String(style.strokeColor || DEFAULT_STROKE_COLOR)
+    };
+  }
+
   function getPoint(event) {
     return ctx.getDesktopPoint(event.clientX, event.clientY);
   }
@@ -508,11 +516,12 @@
     if (!drawToolActive || !canUse()) return false;
     if (!canStartDrawFromTarget(event.target)) return false;
     const pt = getPoint(event);
+    const style = getDrawStyle();
     drawDraft = {
       pointerId: event.pointerId,
       points: [{ x: pt.x, y: pt.y }],
-      strokeSize: DEFAULT_STROKE_SIZE,
-      strokeColor: DEFAULT_STROKE_COLOR
+      strokeSize: style.strokeSize,
+      strokeColor: style.strokeColor
     };
     renderDrawPreview();
     desktop()?.setPointerCapture?.(event.pointerId);

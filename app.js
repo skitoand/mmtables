@@ -20906,6 +20906,11 @@ function readShapeFormatPanelSnapshot(node) {
   result = Object.assign({}, result, {
     opacity: opacity > 1 ? opacity / 100 : opacity
   });
+  if (node.dataset.shapeType === "shape-freedraw") {
+    result.border = node.dataset.freedrawStrokeColor || result.border || "#1e1e1e";
+    result.borderEnabled = true;
+    result.borderWidth = Number(node.dataset.freedrawStrokeSize) || 4;
+  }
   if (window.BitrixChart && window.BitrixChart.readShapeFormatPanelSnapshot) {
     return window.BitrixChart.readShapeFormatPanelSnapshot(node, result);
   }
@@ -20917,6 +20922,15 @@ function applyFormatPanelToShape(node, opts = {}) {
   const formatSource = opts.source || null;
   const shapeType = node.dataset.shapeType;
   const groupMode = !!opts.groupMode;
+
+  if (shapeType === "shape-freedraw") {
+    if (fpBorder && !isControlMixed(fpBorder)) node.dataset.freedrawStrokeColor = fpBorder.value;
+    if (fpBorderWidth && !isControlMixed(fpBorderWidth)) {
+      node.dataset.freedrawStrokeSize = String(Math.max(1, Number(fpBorderWidth.value) || 1));
+    }
+    window.DrawTools?.renderFreedrawPath?.(node);
+    return true;
+  }
 
   if (shapeType === "shape-bitrix-card") {
     const applyFn = node.__cardApi?.applyFromFormatPanel
@@ -23439,6 +23453,10 @@ function initDrawToolsModule() {
     formatPositionPx,
     canEdit: () => canEditCurrentDocument(),
     isReadOnly: () => isWorkspaceReadOnly(),
+    getDrawingStyle: () => ({
+      strokeColor: fpBorder?.value || desktopStyleState.border || "#1e1e1e",
+      strokeSize: fpBorderWidth?.value || desktopStyleState.gridSize || 4
+    }),
     showHint,
     selectShape,
     clearSelection,
