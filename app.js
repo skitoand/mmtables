@@ -21249,6 +21249,18 @@ function syncFormatPanel() {
   }
   const cs = getComputedStyle(panelShape);
   const text = panelShape.querySelector(".shape-text");
+  if (panelShape.dataset.shapeType === "shape-freedraw") {
+    if (fpFillEnabled) fpFillEnabled.checked = false;
+    if (fpGradientEnabled) fpGradientEnabled.checked = false;
+    if (fpBorderEnabled) fpBorderEnabled.checked = true;
+    if (fpBorder) fpBorder.value = rgbToHex(panelShape.dataset.freedrawStrokeColor || "#1e1e1e");
+    if (fpBorderWidth) fpBorderWidth.value = String(Math.max(1, Number(panelShape.dataset.freedrawStrokeSize) || 4));
+    if (fpBorderWidthNum) fpBorderWidthNum.value = fpBorderWidth.value;
+    if (fpLineStyle) fpLineStyle.value = "solid";
+    setControlVisibilityByMode("shape");
+    updateFormatPanelVisuals();
+    return;
+  }
   const fillState = getFillStyleFromNode(panelShape, "#ffffff");
   if (fpFillEnabled) fpFillEnabled.checked = fillState.fillEnabled;
   if (fpGradientEnabled) fpGradientEnabled.checked = fillState.gradientEnabled;

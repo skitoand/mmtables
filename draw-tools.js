@@ -464,7 +464,18 @@
   }
 
   function restoreShapeFreedraw(shapeData, doSave) {
-    return createShapeFreedraw(shapeData, doSave);
+    const points = Array.isArray(shapeData?.freedrawPoints) ? shapeData.freedrawPoints : [];
+    if (points.length < 2) return null;
+    const minX = Math.min(...points.map((p) => Number(p[0]) || 0));
+    const minY = Math.min(...points.map((p) => Number(p[1]) || 0));
+    const left = parseFloat(shapeData.left) || 0;
+    const top = parseFloat(shapeData.top) || 0;
+    return createShapeFreedraw({
+      ...shapeData,
+      absolutePoints: points.map(([x, y]) => ({ x: left + minX + (Number(x) || 0) - minX, y: top + minY + (Number(y) || 0) - minY })),
+      freedrawStrokeSize: shapeData.freedrawStrokeSize,
+      freedrawStrokeColor: shapeData.freedrawStrokeColor
+    }, doSave);
   }
 
   function readShapeExtras(node, base) {
