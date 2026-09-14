@@ -69,6 +69,7 @@ require_local_file "$ROOT_DIR/index.html"
 require_local_file "$ROOT_DIR/styles.css"
 require_local_file "$ROOT_DIR/server.py"
 require_local_file "$ROOT_DIR/sfera_bridge.py"
+require_local_file "$ROOT_DIR/sfera_sso.py"
 require_local_file "$ROOT_DIR/api_v1.py"
 require_local_file "$ROOT_DIR/mcp_http.py"
 require_local_file "$ROOT_DIR/mcp_oauth.py"
@@ -113,6 +114,7 @@ retry 6 remote_scp "$ROOT_DIR/index.html" "${USER_NAME}@${HOST}:/tmp/mmtable_ind
 retry 6 remote_scp "$ROOT_DIR/styles.css" "${USER_NAME}@${HOST}:/tmp/mmtable_styles.css"
 retry 6 remote_scp "$ROOT_DIR/server.py" "${USER_NAME}@${HOST}:/tmp/mmtable_server.py"
 retry 6 remote_scp "$ROOT_DIR/sfera_bridge.py" "${USER_NAME}@${HOST}:/tmp/mmtable_sfera_bridge.py"
+retry 6 remote_scp "$ROOT_DIR/sfera_sso.py" "${USER_NAME}@${HOST}:/tmp/mmtable_sfera_sso.py"
 retry 6 remote_scp "$ROOT_DIR/api_v1.py" "${USER_NAME}@${HOST}:/tmp/mmtable_api_v1.py"
 retry 6 remote_scp "$ROOT_DIR/mcp_http.py" "${USER_NAME}@${HOST}:/tmp/mmtable_mcp_http.py"
 retry 6 remote_scp "$ROOT_DIR/mcp_oauth.py" "${USER_NAME}@${HOST}:/tmp/mmtable_mcp_oauth.py"
@@ -155,6 +157,7 @@ retry 6 remote_ssh "
   install -m 644 /tmp/mmtable_styles.css '${REMOTE_APP_DIR}/styles.css' &&
   install -m 644 /tmp/mmtable_server.py '${REMOTE_APP_DIR}/server.py' &&
   install -m 644 /tmp/mmtable_sfera_bridge.py '${REMOTE_APP_DIR}/sfera_bridge.py' &&
+  install -m 644 /tmp/mmtable_sfera_sso.py '${REMOTE_APP_DIR}/sfera_sso.py' &&
   install -m 644 /tmp/mmtable_api_v1.py '${REMOTE_APP_DIR}/api_v1.py' &&
   install -m 644 /tmp/mmtable_mcp_http.py '${REMOTE_APP_DIR}/mcp_http.py' &&
   install -m 644 /tmp/mmtable_mcp_oauth.py '${REMOTE_APP_DIR}/mcp_oauth.py' &&
