@@ -25,7 +25,12 @@ from api_v1 import register_api_v1
 from mcp_http import register_mcp
 from mcp_oauth import init_oauth_tables, register_mcp_oauth
 from sfera_bridge import init_sfera_bridge_tables, register_sfera_bridge
-from sfera_sso import authorization_url as sfera_authorization_url, exchange_code as exchange_sfera_code, validate_session as validate_sfera_session
+from sfera_sso import (
+    authorization_url as sfera_authorization_url,
+    consume_open_token as consume_sfera_open_token,
+    exchange_code as exchange_sfera_code,
+    validate_session as validate_sfera_session,
+)
 from sfera_sync import (
     dispatch_mmtable_outbox,
     enqueue_mmtable_event,
@@ -1564,6 +1569,67 @@ def login_sfera_callback():
     session["sfera_organizations"] = organizations
     session["sfera_claims_expires_at"] = time.time() + min(max(int(claims.get("expiresIn") or 90), 30), 90)
     return redirect("/")
+
+
+@app.route("/auth/sfera/open")
+def login_sfera_open():
+    """Consume a one-time Sfera ticket and open exactly its bound document."""
+    token = str(request.args.get("token") or "").strip()
+    document_id = str(request.args.get("documentId") or "").strip()
+    if not token or not _is_valid_doc_id(document_id):
+        return redirect("/login?sso_error=invalid_open_token")
+    try:
+        claims = consume_sfera_open_token(token, document_id)
+    except (PermissionError, RuntimeError):
+        return redirect("/login?sso_error=open_token_failed")
+
+    email = _normalize_email(claims.get("email"))
+    name = str(claims.get("name") or email).strip() or email
+    role = str(claims.get("accessRole") or "").strip()
+    if not email or role not in {ROLE_OWNER, ROLE_EDITOR, ROLE_READER}:
+        return redirect("/login?sso_error=invalid_open_claims")
+
+    conn = _db()
+    try:
+        link = conn.execute(
+            """
+            SELECT 1 FROM sfera_document_links
+            WHERE mmtable_document_id = ?
+              AND sfera_document_id = ?
+              AND sfera_organization_id = ?
+            """,
+            (
+                document_id,
+                str(claims.get("sferaDocumentId") or "").strip(),
+                str(claims.get("organizationId") or "").strip(),
+            ),
+        ).fetchone()
+        if not link:
+            return redirect("/login?sso_error=open_document_mismatch")
+        _upsert_user(conn, email, name=name, auth_provider="sfera")
+        conn.execute(
+            """
+            INSERT INTO document_access(document_id, user_email, role)
+            VALUES (?, ?, ?)
+            ON CONFLICT(document_id, user_email) DO UPDATE SET
+              role = excluded.role,
+              updated_at = CURRENT_TIMESTAMP
+            """,
+            (document_id, email, role),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    session.clear()
+    _set_session_user(email, name)
+    session["auth_provider"] = "sfera"
+    session["sfera_user_id"] = str(claims.get("sferaUserId") or "")
+    session["sfera_organizations"] = [{"id": str(claims.get("organizationId") or "")}]
+    session["sfera_claims_expires_at"] = time.time() + min(max(int(claims.get("expiresIn") or 90), 30), 90)
+    response = redirect(f"/d/{document_id}")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/auth/logout", methods=["POST"])

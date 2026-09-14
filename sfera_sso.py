@@ -72,3 +72,18 @@ def validate_session(sfera_user_id, email):
         "/api/sso/mmtable/session",
         {"sferaUserId": str(sfera_user_id or "").strip(), "email": str(email or "").strip()},
     )
+
+
+def consume_open_token(token, document_id):
+    """Exchange one short-lived Sfera ticket for a document-specific claim."""
+    data = _signed_request(
+        "/api/sso/mmtable/open-token",
+        {"token": str(token or "").strip(), "documentId": str(document_id or "").strip()},
+    )
+    if data.get("audience") != "mmtable-open":
+        raise PermissionError("invalid_mmtable_open_claims")
+    if str(data.get("mmtableDocumentId") or "").strip() != str(document_id or "").strip():
+        raise PermissionError("invalid_mmtable_open_claims")
+    if str(data.get("accessRole") or "").strip() not in {"owner", "editor", "reader"}:
+        raise PermissionError("invalid_mmtable_open_claims")
+    return data
