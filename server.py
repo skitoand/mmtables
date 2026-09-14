@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import sqlite3
+import threading
 import time
 import uuid
 from collections import defaultdict
@@ -25,6 +26,12 @@ from mcp_http import register_mcp
 from mcp_oauth import init_oauth_tables, register_mcp_oauth
 from sfera_bridge import init_sfera_bridge_tables, register_sfera_bridge
 from sfera_sso import authorization_url as sfera_authorization_url, exchange_code as exchange_sfera_code, validate_session as validate_sfera_session
+from sfera_sync import (
+    dispatch_mmtable_outbox,
+    enqueue_mmtable_event,
+    init_sfera_sync_tables,
+    register_sfera_sync,
+)
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -130,6 +137,47 @@ def _db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _queue_sfera_document_sync(conn, document_id):
+    """Queue reverse metadata sync only for a document already linked by Sfera."""
+    row = conn.execute(
+        """
+        SELECT d.id, d.name, d.folder_id, d.updated_at, l.sfera_document_id, l.sfera_organization_id
+        FROM user_documents d
+        JOIN sfera_document_links l ON l.mmtable_document_id = d.id
+        WHERE d.id = ?
+        """, (document_id,)
+    ).fetchone()
+    if not row:
+        return ""
+    updated_at = datetime.utcnow().isoformat() + "Z"
+    return enqueue_mmtable_event(
+        conn, "document.updated", row["sfera_organization_id"], row["id"],
+        {
+            "id": row["id"], "sferaDocumentId": row["sfera_document_id"], "folderId": row["folder_id"] or "",
+            "documentType": "mmtable", "externalDocumentId": row["id"], "name": row["name"],
+            "title": row["name"], "updatedAt": updated_at,
+        },
+    )
+
+
+def _queue_sfera_folder_sync(conn, folder_id, *, deleted=False):
+    row = conn.execute(
+        """
+        SELECT f.id, f.name, l.sfera_folder_id, l.sfera_organization_id
+        FROM sfera_folder_links l
+        LEFT JOIN user_folders f ON f.id = l.mmtable_folder_id
+        WHERE l.mmtable_folder_id = ?
+        """, (folder_id,)
+    ).fetchone()
+    if not row:
+        return ""
+    return enqueue_mmtable_event(
+        conn, "folder.deleted" if deleted else "folder.updated", row["sfera_organization_id"], folder_id,
+        {"id": folder_id, "sferaFolderId": row["sfera_folder_id"], "title": row["name"] or "Папка",
+         "updatedAt": datetime.utcnow().isoformat() + "Z"},
+    )
 
 
 def _normalize_email(value):
@@ -439,6 +487,7 @@ def _init_db():
         """
     )
     init_sfera_bridge_tables(conn)
+    init_sfera_sync_tables(conn)
     init_oauth_tables(conn)
     _migrate_legacy_doc_ids(conn)
     conn.commit()
@@ -1823,6 +1872,7 @@ def update_folder(folder_id):
             "UPDATE user_folders SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (name.strip(), folder_id),
         )
+    _queue_sfera_folder_sync(conn, folder_id)
     conn.commit()
     folders = _list_folders(conn, email)
     conn.close()
@@ -1838,6 +1888,7 @@ def delete_folder(folder_id):
     if not row:
         conn.close()
         return jsonify({"error": "not_found"}), 404
+    _queue_sfera_folder_sync(conn, folder_id, deleted=True)
     conn.execute("UPDATE user_documents SET folder_id = NULL WHERE folder_id = ?", (folder_id,))
     conn.execute("DELETE FROM user_folders WHERE id = ?", (folder_id,))
     conn.commit()
@@ -1987,6 +2038,7 @@ def update_doc(doc_id):
             "UPDATE user_documents SET folder_id = ? WHERE id = ?",
             (folder_id, doc_key),
         )
+    _queue_sfera_document_sync(conn, doc_key)
     conn.commit()
     updated = _get_doc_for_user(conn, email, doc_key)
     conn.close()
@@ -2067,6 +2119,15 @@ def delete_doc(doc_id):
         conn.close()
         return jsonify({"error": "forbidden"}), 403
     doc_key = row["id"]
+    link = conn.execute(
+        "SELECT sfera_document_id, sfera_organization_id FROM sfera_document_links WHERE mmtable_document_id = ?",
+        (doc_key,),
+    ).fetchone()
+    if link:
+        enqueue_mmtable_event(
+            conn, "document.deleted", link["sfera_organization_id"], doc_key,
+            {"id": doc_key, "sferaDocumentId": link["sfera_document_id"], "updatedAt": datetime.utcnow().isoformat() + "Z"},
+        )
     conn.execute("DELETE FROM document_access WHERE document_id = ?", (doc_key,))
     conn.execute("DELETE FROM user_documents WHERE id = ?", (doc_key,))
     conn.commit()
@@ -3890,6 +3951,16 @@ register_sfera_bridge(
     },
 )
 
+register_sfera_sync(
+    app,
+    {
+        "db": _db,
+        "normalize_email": _normalize_email,
+        "upsert_user": _upsert_user,
+        "new_folder_id": _new_folder_id,
+    },
+)
+
 _mcp_oauth = register_mcp_oauth(
     app,
     {
@@ -3923,6 +3994,28 @@ register_mcp(
         "atomic_update_layout": _atomic_update_layout,
     },
 )
+
+
+def _start_sfera_sync_delivery_worker():
+    interval = max(5, int(os.getenv("MMTABLE_SYNC_DISPATCH_INTERVAL_SECONDS", "20") or 20))
+
+    def run():
+        while True:
+            try:
+                connection = _db()
+                try:
+                    dispatch_mmtable_outbox(connection)
+                    connection.commit()
+                finally:
+                    connection.close()
+            except Exception:
+                app.logger.exception("Sfera sync outbox delivery failed")
+            threading.Event().wait(interval)
+
+    threading.Thread(target=run, name="mmtable-sfera-sync", daemon=True).start()
+
+
+_start_sfera_sync_delivery_worker()
 
 
 if __name__ == "__main__":
