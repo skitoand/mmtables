@@ -8,6 +8,24 @@
 
 После каждого деплоя на прод сюда добавляется новая запись (вручную или агентом Cursor).
 
+## 2026-09-14 — вход через Сферу
+
+**Commit:** `68cacf3c0cc8834042584e88ec144f7526253034` — Deploy MMTable SSO module.
+**Деплой:** GitHub Actions [Deploy Production #34827034372](https://github.com/skitoand/mmtables/actions/runs/34827034372)
+**Статус:** OK
+
+### Что сделано
+
+- MMTable запускает авторизацию в Сфере и принимает только проверенный server-side callback.
+- Сессия пользователя обновляет имя и роли из Сферы на каждом запросе.
+- При отзыве всех организаций Сферой сессия MMTable завершается на следующем запросе.
+
+### Проверка
+
+- [x] 28 локальных тестов прошли.
+- [x] Изолированный SSO-flow и отзыв доступа прошли.
+- [x] Deploy Production #34827034372 success; signed production session вернул текущую роль.
+
 ## 2026-09-14 — документы Сферы и защищённый bridge
 
 **Commit:** `ebd1f1990b70874622ccb51da99910b1a83effa6` — Connect MMTable to Sfera organization documents.
