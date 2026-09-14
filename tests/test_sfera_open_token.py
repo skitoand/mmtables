@@ -62,6 +62,36 @@ class SferaOpenTokenTests(unittest.TestCase):
         connection.close()
         self.assertEqual(access["role"], "editor")
 
+    def test_embed_ticket_opens_the_same_document_in_preview_mode(self):
+        server.consume_sfera_open_token = lambda _token, document_id: {
+            "sferaUserId": "sfera_alice",
+            "email": "alice@example.test",
+            "name": "Alice",
+            "organizationId": "org_test",
+            "sferaDocumentId": "kbd_test",
+            "mmtableDocumentId": document_id,
+            "accessRole": "reader",
+            "expiresIn": 90,
+        }
+        response = self.client.get(
+            f"/auth/sfera/open?token=secret-ticket&documentId={self.document_id}&embed=1",
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], f"/d/{self.document_id}?embed=1")
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+    def test_embed_document_allows_only_the_sfera_frame_ancestors(self):
+        response = self.client.get(f"/d/{self.document_id}?embed=1")
+        self.assertNotIn("X-Frame-Options", response.headers)
+        self.assertEqual(
+            response.headers["Content-Security-Policy"],
+            "frame-ancestors https://sfera.crystalsystems.ru http://127.0.0.1:4177",
+        )
+
+        normal = self.client.get(f"/d/{self.document_id}")
+        self.assertEqual(normal.headers["X-Frame-Options"], "SAMEORIGIN")
+
     def test_ticket_cannot_open_an_unlinked_document(self):
         server.consume_sfera_open_token = lambda _token, document_id: {
             "sferaUserId": "sfera_alice",

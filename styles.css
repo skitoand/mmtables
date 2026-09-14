@@ -441,6 +441,18 @@ body.dark .sheet-switcher-add{color:#5eead4}
 body.dark .sheet-switcher-add:hover{background:#134e4a}
 .viewport{position:relative;z-index:1;flex:1;overflow:auto;padding:0}
 .viewport.panning{cursor:grabbing}
+.sfera-embedded-preview .toolbar,
+.sfera-embedded-preview .hint,
+.sfera-embedded-preview .edit-lock-badge,
+.sfera-embedded-preview .format-panel,
+.sfera-embedded-preview .sheet-switcher-toggle,
+.sfera-embedded-preview .sheet-switcher-panel,
+.sfera-embedded-preview .modal,
+.sfera-embedded-preview .auth-modal,
+.sfera-embedded-preview .profile-modal{display:none!important}
+.sfera-embedded-preview .viewport{height:100vh;flex:1 1 100vh}
+.sfera-embedded-preview .desktop,
+.sfera-embedded-preview .desktop-surface{min-height:100%;}
 .desktop{position:relative;box-sizing:content-box;min-width:0;min-height:0;overflow:visible}
 .desktop-surface{position:relative;box-sizing:content-box;min-width:0;min-height:0;overflow:visible;transform-origin:top left;background:transparent}
 .desktop-origin{position:absolute;top:0;left:0;min-width:0;min-height:0}

@@ -261,6 +261,7 @@ let shapeSpawnStep = 0;
 let zoom = 1;
 let guestPublicView = false;
 let guestPublicToken = "";
+const sferaEmbeddedPreview = new URLSearchParams(window.location.search).get("embed") === "1";
 var currentUser = null;
 let hintTimer = null;
 let currentDocumentRole = null;
@@ -4178,10 +4179,10 @@ function buildPublicPath(token) {
 function navigateToDocument(docId, opts = {}) {
   if (!docId || guestPublicView) return;
   const sheetId = Math.max(1, Number(opts.sheetId ?? currentSheetId) || 1);
-  const path = buildDocumentPath(docId, sheetId);
+  const path = `${buildDocumentPath(docId, sheetId)}${sferaEmbeddedPreview ? "?embed=1" : ""}`;
   const state = { docId, sheetId };
   if (opts.replace) history.replaceState(state, "", path);
-  else if (window.location.pathname !== path) history.pushState(state, "", path);
+  else if (`${window.location.pathname}${window.location.search}` !== path) history.pushState(state, "", path);
 }
 
 function persistPendingRoute(route) {
@@ -4248,6 +4249,7 @@ function canManagePublicLinkCurrentDocument() {
 }
 
 function canEditCurrentDocument() {
+  if (sferaEmbeddedPreview) return false;
   if (guestPublicView) return false;
   if (documentEditSyncPending) return false;
   if (!(currentUser && ["owner", "admin", "editor"].includes(getCurrentDocumentRole()))) return false;
@@ -4255,6 +4257,7 @@ function canEditCurrentDocument() {
 }
 
 function canRequestDocumentEdit() {
+  if (sferaEmbeddedPreview) return false;
   if (guestPublicView) return false;
   return !!(currentUser && ["owner", "admin", "editor"].includes(getCurrentDocumentRole()));
 }
@@ -4325,6 +4328,7 @@ function syncWorkspaceAccessMode() {
   const readonly = isWorkspaceReadOnly();
   document.body.classList.toggle("workspace-readonly", readonly);
   document.body.classList.toggle("workspace-guest-public", guestPublicView);
+  document.body.classList.toggle("sfera-embedded-preview", sferaEmbeddedPreview);
   if (readonly) clearSelection();
   updateWorkspaceAccessBanner();
   syncGuestPublicUi();
