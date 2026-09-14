@@ -538,6 +538,25 @@ body.dark .bitrix-field-filter-value-item:hover{background:#111827}
 body.dark .bitrix-date-slider-track::before{background:#334155}
 .modal{position:fixed;inset:0;background:rgba(2,6,23,.38);display:flex;align-items:center;justify-content:center;z-index:30000;pointer-events:auto}.modal.hidden{display:none}.modal-card{width:min(560px,calc(100vw - 32px));background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:10px}.modal-actions{display:flex;justify-content:flex-end;gap:8px}
 .auth-modal-card{width:min(480px,calc(100vw - 32px))}
+.sfera-browser-card{width:min(820px,calc(100vw - 32px));max-height:min(82vh,760px);overflow:hidden}
+.sfera-browser-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:1px solid #e2e8f0}
+.sfera-browser-header h3{margin:0;color:#0f172a;font-size:20px}
+.sfera-browser-header p{margin:5px 0 0;color:#64748b;font-size:13px}
+.sfera-browser-close{border:0;background:#f1f5f9;color:#475569;width:34px;height:34px;border-radius:9px;font-size:24px;line-height:1;cursor:pointer}
+.sfera-browser-close:hover{background:#e2e8f0}
+.sfera-browser-controls{display:grid;grid-template-columns:140px minmax(0,1fr);align-items:center;gap:9px 12px}
+.sfera-browser-controls label{font-size:13px;font-weight:600;color:#475569}
+.sfera-browser-controls select,.sfera-browser-controls input{box-sizing:border-box;width:100%;min-height:38px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;color:#0f172a;font:inherit}
+.sfera-browser-status{min-height:20px;color:#64748b;font-size:13px}
+.sfera-browser-status.is-error{color:#b91c1c}
+.sfera-browser-body{display:grid;grid-template-columns:minmax(210px,.8fr) minmax(0,1.2fr);gap:12px;min-height:260px;max-height:min(48vh,430px)}
+.sfera-browser-pane{display:flex;min-width:0;flex-direction:column;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden}
+.sfera-browser-pane h4{margin:0;padding:10px 12px;border-bottom:1px solid #e2e8f0;color:#334155;font-size:13px}
+.sfera-browser-list{overflow:auto;padding:6px}
+.sfera-browser-row{display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:7px;background:transparent;padding:9px 10px;color:#1e293b;text-align:left;font:inherit;font-size:13px;cursor:pointer}
+.sfera-browser-row:hover{background:#f1f5f9}.sfera-browser-row.is-selected{background:#dbeafe;color:#1d4ed8}.sfera-browser-row.is-root{font-weight:600}.sfera-browser-row-icon{width:18px;color:#64748b;flex:0 0 auto}.sfera-browser-row-meta{display:block;margin-left:auto;color:#94a3b8;font-size:11px}.sfera-browser-empty{padding:16px 10px;color:#94a3b8;font-size:13px}
+body.dark .sfera-browser-card,.dark .sfera-browser-card{background:#111827;border-color:#334155}body.dark .sfera-browser-header{border-color:#334155}body.dark .sfera-browser-header h3{color:#f8fafc}body.dark .sfera-browser-header p,body.dark .sfera-browser-status{color:#94a3b8}body.dark .sfera-browser-close{background:#1f2937;color:#cbd5e1}body.dark .sfera-browser-controls label,body.dark .sfera-browser-pane h4{color:#cbd5e1}body.dark .sfera-browser-controls select,body.dark .sfera-browser-controls input{background:#0f172a;border-color:#334155;color:#e2e8f0}body.dark .sfera-browser-pane{border-color:#334155}body.dark .sfera-browser-pane h4{border-color:#334155}body.dark .sfera-browser-row{color:#e2e8f0}body.dark .sfera-browser-row:hover{background:#1f2937}body.dark .sfera-browser-row.is-selected{background:#1e3a8a;color:#dbeafe}body.dark .sfera-browser-row-meta,body.dark .sfera-browser-empty{color:#94a3b8}
+@media (max-width:680px){.sfera-browser-controls{grid-template-columns:1fr}.sfera-browser-controls label{margin-top:2px}.sfera-browser-body{grid-template-columns:1fr;max-height:none}.sfera-browser-pane{min-height:140px;max-height:220px}}
 .profile-modal-card{width:min(560px,calc(100vw - 32px));max-height:min(88vh,820px)}
 .profile-modal-card .profile-tab-panel{overflow:auto;max-height:min(62vh,560px);padding-right:2px}
 .auth-tabs{display:flex;gap:8px}

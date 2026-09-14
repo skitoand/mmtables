@@ -23,6 +23,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from api_v1 import register_api_v1
 from mcp_http import register_mcp
 from mcp_oauth import init_oauth_tables, register_mcp_oauth
+from sfera_bridge import init_sfera_bridge_tables, register_sfera_bridge
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +40,9 @@ app.config.update(
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+SFERA_CATALOG_URL = os.getenv(
+    "SFERA_CATALOG_URL", "https://sfera.crystalsystems.ru/api/mmtable/bridge/catalog"
+).strip()
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_AUTH_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
@@ -411,6 +415,28 @@ def _init_db():
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_document_edit_locks_seen ON document_edit_locks(last_seen)"
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sfera_user_identity_links (
+          sfera_user_id TEXT PRIMARY KEY,
+          mmtable_email TEXT NOT NULL UNIQUE,
+          unified_user_id TEXT NOT NULL UNIQUE,
+          match_method TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS mmtable_document_unified_owners (
+          document_id TEXT PRIMARY KEY,
+          unified_user_id TEXT NOT NULL,
+          owner_email TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    init_sfera_bridge_tables(conn)
     init_oauth_tables(conn)
     _migrate_legacy_doc_ids(conn)
     conn.commit()
@@ -1054,6 +1080,62 @@ def _app_base_url():
     return request.host_url.rstrip("/")
 
 
+def _sfera_catalog_error_message(code):
+    messages = {
+        "bridge_not_configured": "Интеграция со Сферой ещё не настроена.",
+        "sfera_user_not_found": "Для этого аккаунта нет пользователя в Сфере.",
+        "organization_access_denied": "Нет доступа к выбранной организации Сферы.",
+        "invalid_bridge_signature": "Сфера отклонила защищённый запрос.",
+        "expired_bridge_signature": "Истёк срок защищённого запроса к Сфере.",
+    }
+    return messages.get(code, "Не удалось получить документы из Сферы.")
+
+
+def _fetch_sfera_catalog(email, organization_id="", query=""):
+    secret = str(os.getenv("SFERA_BRIDGE_SECRET") or "").strip()
+    if not secret or not SFERA_CATALOG_URL:
+        raise RuntimeError("bridge_not_configured")
+    payload = {
+        "ownerEmail": _normalize_email(email),
+        "organizationId": str(organization_id or "").strip(),
+        "query": str(query or "").strip(),
+    }
+    raw_body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    timestamp = str(int(time.time()))
+    signature = hmac.new(
+        secret.encode("utf-8"), timestamp.encode("utf-8") + b"." + raw_body, hashlib.sha256
+    ).hexdigest()
+    request_to_sfera = Request(
+        SFERA_CATALOG_URL,
+        data=raw_body,
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "Accept": "application/json",
+            "X-Sfera-Bridge-Timestamp": timestamp,
+            "X-Sfera-Bridge-Signature": signature,
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request_to_sfera, timeout=12) as response:
+            raw_response = response.read().decode("utf-8", "replace")
+    except HTTPError as error:
+        try:
+            body = json.loads(error.read().decode("utf-8", "replace"))
+        except Exception:
+            body = {}
+        raise RuntimeError(str(body.get("error") or "sfera_unavailable")) from error
+    except (URLError, TimeoutError, OSError) as error:
+        raise RuntimeError("sfera_unavailable") from error
+    try:
+        data = json.loads(raw_response)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("sfera_invalid_response") from error
+    if not isinstance(data, dict):
+        raise RuntimeError("sfera_invalid_response")
+    return data
+
+
 def _public_link_info(row):
     if not row:
         return {"enabled": False, "path": None, "url": None}
@@ -1412,6 +1494,34 @@ def me():
             "documents": docs,
         }
     )
+
+
+@app.route("/api/sfera/documents", methods=["GET"])
+@require_login
+def list_sfera_documents():
+    """Proxy a signed, permission-filtered MMTable catalog from Sfera."""
+    email = _current_email()
+    try:
+        catalog = _fetch_sfera_catalog(
+            email,
+            request.args.get("organizationId") or "",
+            request.args.get("q") or "",
+        )
+    except RuntimeError as error:
+        code = str(error)
+        status = 503 if code in {"bridge_not_configured", "sfera_unavailable", "sfera_invalid_response"} else 403
+        return jsonify({"error": code, "message": _sfera_catalog_error_message(code)}), status
+    connection = _db()
+    try:
+        accessible_document_ids = {row["id"] for row in _get_accessible_docs(connection, email)}
+    finally:
+        connection.close()
+    catalog["documents"] = [
+        item
+        for item in catalog.get("documents", [])
+        if str(item.get("externalDocumentId") or "") in accessible_document_ids
+    ]
+    return jsonify(catalog)
 
 
 @app.route("/api/me/share-contacts", methods=["GET"])
@@ -3710,6 +3820,19 @@ register_api_v1(
         "normalize_email": _normalize_email,
         "atomic_update_layout": _atomic_update_layout,
         "normalize_doc_ts": _normalize_doc_ts,
+    },
+)
+
+register_sfera_bridge(
+    app,
+    {
+        "db": _db,
+        "normalize_email": _normalize_email,
+        "upsert_user": _upsert_user,
+        "new_doc_id": _new_doc_id,
+        "blank_layout": _blank_layout,
+        "role_owner": ROLE_OWNER,
+        "app_base_url": _app_base_url,
     },
 )
 

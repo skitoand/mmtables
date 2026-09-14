@@ -7,7 +7,7 @@
     <title>MMTable</title>
     <link rel="icon" type="image/png" sizes="128x128" href="assets/favicon.png?v=20260701-crop" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=20260701-crop" />
-    <link rel="stylesheet" href="styles.css?v=20260831-bp-automation-tool-v1" />
+    <link rel="stylesheet" href="styles.css?v=20260914-sfera-bridge-v1" />
   </head>
   <body>
     <div class="app">
@@ -30,6 +30,7 @@
                     <div id="fileActionsDropdown" class="file-dropdown app-submenu hidden" role="menu" aria-label="Файл">
                       <button id="fileCreateBtn" type="button" role="menuitem">Создать</button>
                       <button id="fileOpenBtn" type="button" role="menuitem">Открыть</button>
+                      <button id="fileOpenSferaBtn" type="button" role="menuitem">Открыть из Сферы</button>
                       <button id="fileShareBtn" type="button" role="menuitem">Доступ</button>
                       <button id="fileCommentsBtn" type="button" role="menuitem">Комментарии</button>
                       <button id="fileDeleteBtn" type="button" role="menuitem">Удалить</button>
@@ -592,6 +593,41 @@
       </div>
     </div>
 
+    <div id="sferaBrowserModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="sferaBrowserTitle">
+      <div class="modal-card sfera-browser-card">
+        <header class="sfera-browser-header">
+          <div>
+            <h3 id="sferaBrowserTitle">Открыть из Сферы</h3>
+            <p>Доступные таблицы выбранной организации</p>
+          </div>
+          <button id="sferaBrowserCloseIconBtn" type="button" class="sfera-browser-close" aria-label="Закрыть">×</button>
+        </header>
+        <div class="sfera-browser-controls">
+          <label for="sferaOrganizationSelect">Организация</label>
+          <select id="sferaOrganizationSelect" disabled>
+            <option>Загрузка…</option>
+          </select>
+          <label for="sferaSearchInput">Поиск таблицы</label>
+          <input id="sferaSearchInput" type="search" placeholder="Название документа MMTable" autocomplete="off" disabled />
+        </div>
+        <div id="sferaBrowserStatus" class="sfera-browser-status" role="status" aria-live="polite">Загрузка организаций…</div>
+        <div class="sfera-browser-body">
+          <section class="sfera-browser-pane" aria-label="Папки Сферы">
+            <h4>Папки</h4>
+            <div id="sferaFoldersList" class="sfera-browser-list"></div>
+          </section>
+          <section class="sfera-browser-pane" aria-label="Документы MMTable из Сферы">
+            <h4>Документы MMTable</h4>
+            <div id="sferaDocumentsList" class="sfera-browser-list"></div>
+          </section>
+        </div>
+        <div class="modal-actions">
+          <button id="sferaBrowserOpenBtn" type="button" disabled>Открыть</button>
+          <button id="sferaBrowserCloseBtn" type="button">Закрыть</button>
+        </div>
+      </div>
+    </div>
+
     <div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
       <div class="modal-card auth-modal-card">
         <h3 id="authModalTitle">Вход в аккаунт</h3>
@@ -881,7 +917,7 @@
     <script src="vendor/laser-pointer.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="vendor/perfect-freehand.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="draw-tools.js?v=20260913-format-style-v1"></script>
-    <script src="app.js?v=20260902-trapezoid-depth-zero-v2"></script>
+    <script src="app.js?v=20260914-sfera-bridge-v1"></script>
     <script src="bitrix-chart.js?v=20260902-readable-date-axis-v2"></script>
   </body>
 </html>

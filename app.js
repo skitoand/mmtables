@@ -14,6 +14,7 @@ const fileActionsBtn = $("fileActionsBtn");
 const fileActionsDropdown = $("fileActionsDropdown");
 const fileCreateBtn = $("fileCreateBtn");
 const fileOpenBtn = $("fileOpenBtn");
+const fileOpenSferaBtn = $("fileOpenSferaBtn");
 const fileShareBtn = $("fileShareBtn");
 const fileCommentsBtn = $("fileCommentsBtn");
 const fileSubmenuSection = $("fileSubmenuSection");
@@ -30,6 +31,15 @@ const fileBrowserNewFolderBtn = $("fileBrowserNewFolderBtn");
 const fileModalOpenBtn = $("fileModalOpenBtn");
 const fileModalEditBtn = $("fileModalEditBtn");
 const fileModalCloseBtn = $("fileModalCloseBtn");
+const sferaBrowserModal = $("sferaBrowserModal");
+const sferaBrowserCloseIconBtn = $("sferaBrowserCloseIconBtn");
+const sferaBrowserCloseBtn = $("sferaBrowserCloseBtn");
+const sferaOrganizationSelect = $("sferaOrganizationSelect");
+const sferaSearchInput = $("sferaSearchInput");
+const sferaBrowserStatus = $("sferaBrowserStatus");
+const sferaFoldersList = $("sferaFoldersList");
+const sferaDocumentsList = $("sferaDocumentsList");
+const sferaBrowserOpenBtn = $("sferaBrowserOpenBtn");
 const authModal = $("authModal");
 const authModalCloseBtn = $("authModalCloseBtn");
 const authLoginTab = $("authLoginTab");
@@ -527,6 +537,16 @@ let currentDocumentStore = null;
 let currentDocumentUpdatedAt = null;
 let documentsCache = [];
 let foldersCache = [];
+let sferaBrowserState = {
+  organizations: [],
+  organizationId: "",
+  folders: [],
+  documents: [],
+  folderId: "",
+  documentId: "",
+  loading: false,
+  error: ""
+};
 let fileBrowserCollapsedFolders = new Set();
 let fileBrowserSelectedDocId = null;
 let fileBrowserPreviewCache = new Map();
@@ -6229,6 +6249,199 @@ function openFileModal(title = "Открыть документ") {
 function closeFileModal() {
   if (fileModal) fileModal.classList.add("hidden");
   hideContextMenu();
+}
+
+function selectedSferaDocument() {
+  return sferaBrowserState.documents.find((item) => item.id === sferaBrowserState.documentId) || null;
+}
+
+function renderSferaBrowser() {
+  if (!sferaBrowserModal) return;
+  const state = sferaBrowserState;
+  if (sferaOrganizationSelect) {
+    sferaOrganizationSelect.replaceChildren();
+    if (!state.organizations.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = state.loading ? "Загрузка…" : "Нет доступных организаций";
+      sferaOrganizationSelect.appendChild(option);
+    } else {
+      state.organizations.forEach((organization) => {
+        const option = document.createElement("option");
+        option.value = organization.id;
+        option.textContent = organization.name || "Организация";
+        option.selected = organization.id === state.organizationId;
+        sferaOrganizationSelect.appendChild(option);
+      });
+    }
+    sferaOrganizationSelect.disabled = state.loading || !state.organizations.length;
+  }
+  if (sferaSearchInput) sferaSearchInput.disabled = state.loading || !state.organizationId;
+  if (sferaBrowserStatus) {
+    const message = state.error
+      ? state.error
+      : state.loading
+        ? "Загрузка данных из Сферы…"
+        : state.organizationId
+          ? "Выберите папку или таблицу."
+          : "Нет организаций, доступных для этого пользователя.";
+    sferaBrowserStatus.textContent = message;
+    sferaBrowserStatus.classList.toggle("is-error", Boolean(state.error));
+  }
+  if (sferaFoldersList) {
+    sferaFoldersList.replaceChildren();
+    if (!state.organizationId || state.loading) {
+      const empty = document.createElement("div");
+      empty.className = "sfera-browser-empty";
+      empty.textContent = state.loading ? "Загрузка папок…" : "Выберите организацию.";
+      sferaFoldersList.appendChild(empty);
+    } else {
+      const appendFolder = (folder, depth) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `sfera-browser-row${state.folderId === folder.id ? " is-selected" : ""}`;
+        button.style.paddingLeft = `${10 + depth * 16}px`;
+        button.innerHTML = `<span class="sfera-browser-row-icon" aria-hidden="true">▸</span>`;
+        const title = document.createElement("span");
+        title.textContent = folder.title || "Папка";
+        button.appendChild(title);
+        button.addEventListener("click", () => {
+          sferaBrowserState.folderId = folder.id;
+          sferaBrowserState.documentId = "";
+          renderSferaBrowser();
+        });
+        sferaFoldersList.appendChild(button);
+        (childrenByParent.get(folder.id) || []).forEach((child) => appendFolder(child, depth + 1));
+      };
+      const rootButton = document.createElement("button");
+      rootButton.type = "button";
+      rootButton.className = `sfera-browser-row is-root${!state.folderId ? " is-selected" : ""}`;
+      rootButton.innerHTML = '<span class="sfera-browser-row-icon" aria-hidden="true">⌂</span><span>Корень организации</span>';
+      rootButton.addEventListener("click", () => {
+        sferaBrowserState.folderId = "";
+        sferaBrowserState.documentId = "";
+        renderSferaBrowser();
+      });
+      sferaFoldersList.appendChild(rootButton);
+      const childrenByParent = new Map();
+      const folderIds = new Set(state.folders.map((folder) => folder.id));
+      state.folders.forEach((folder) => {
+        const parentId = folderIds.has(folder.parentFolderId) ? folder.parentFolderId : "";
+        const group = childrenByParent.get(parentId) || [];
+        group.push(folder);
+        childrenByParent.set(parentId, group);
+      });
+      (childrenByParent.get("") || []).forEach((folder) => appendFolder(folder, 0));
+      if (!state.folders.length) {
+        const empty = document.createElement("div");
+        empty.className = "sfera-browser-empty";
+        empty.textContent = "Папок нет.";
+        sferaFoldersList.appendChild(empty);
+      }
+    }
+  }
+  if (sferaDocumentsList) {
+    sferaDocumentsList.replaceChildren();
+    const documents = state.documents.filter((item) => String(item.folderId || "") === state.folderId);
+    if (!state.organizationId || state.loading) {
+      const empty = document.createElement("div");
+      empty.className = "sfera-browser-empty";
+      empty.textContent = state.loading ? "Загрузка документов…" : "Выберите организацию.";
+      sferaDocumentsList.appendChild(empty);
+    } else if (!documents.length) {
+      const empty = document.createElement("div");
+      empty.className = "sfera-browser-empty";
+      empty.textContent = "В этой папке нет связанных таблиц MMTable.";
+      sferaDocumentsList.appendChild(empty);
+    } else {
+      documents.forEach((item) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `sfera-browser-row${state.documentId === item.id ? " is-selected" : ""}`;
+        button.innerHTML = '<span class="sfera-browser-row-icon" aria-hidden="true">▦</span>';
+        const title = document.createElement("span");
+        title.textContent = item.title || "Таблица MMTable";
+        const meta = document.createElement("span");
+        meta.className = "sfera-browser-row-meta";
+        meta.textContent = "MMTable";
+        button.append(title, meta);
+        button.addEventListener("click", () => {
+          sferaBrowserState.documentId = item.id;
+          renderSferaBrowser();
+        });
+        button.addEventListener("dblclick", () => { void openSelectedSferaDocument(); });
+        sferaDocumentsList.appendChild(button);
+      });
+    }
+  }
+  if (sferaBrowserOpenBtn) sferaBrowserOpenBtn.disabled = !selectedSferaDocument() || state.loading;
+}
+
+async function loadSferaCatalog() {
+  const state = sferaBrowserState;
+  state.loading = true;
+  state.error = "";
+  renderSferaBrowser();
+  try {
+    const params = new URLSearchParams();
+    if (state.organizationId) params.set("organizationId", state.organizationId);
+    const query = String(sferaSearchInput?.value || "").trim();
+    if (query) params.set("q", query);
+    const data = await fetchJson(`/api/sfera/documents${params.size ? `?${params.toString()}` : ""}`, { silent: true });
+    state.organizations = Array.isArray(data.organizations) ? data.organizations : [];
+    const nextOrganizationId = String(data.organizationId || state.organizationId || state.organizations[0]?.id || "");
+    if (!state.organizationId && nextOrganizationId) {
+      state.organizationId = nextOrganizationId;
+      state.loading = false;
+      return loadSferaCatalog();
+    }
+    state.organizationId = nextOrganizationId;
+    state.folders = Array.isArray(data.folders) ? data.folders : [];
+    state.documents = Array.isArray(data.documents) ? data.documents : [];
+    if (state.folderId && !state.folders.some((folder) => folder.id === state.folderId)) state.folderId = "";
+    if (!state.documents.some((item) => item.id === state.documentId)) state.documentId = "";
+  } catch (error) {
+    state.folders = [];
+    state.documents = [];
+    state.documentId = "";
+    state.error = String(error?.payload?.message || error?.message || "Не удалось получить документы из Сферы.");
+  } finally {
+    state.loading = false;
+    renderSferaBrowser();
+  }
+}
+
+async function openSferaBrowser() {
+  if (!currentUser) {
+    openAuthModal("login");
+    return;
+  }
+  sferaBrowserState = {
+    organizations: [], organizationId: "", folders: [], documents: [],
+    folderId: "", documentId: "", loading: false, error: ""
+  };
+  if (sferaSearchInput) sferaSearchInput.value = "";
+  if (sferaBrowserModal) sferaBrowserModal.classList.remove("hidden");
+  await loadSferaCatalog();
+}
+
+function closeSferaBrowser() {
+  if (sferaBrowserModal) sferaBrowserModal.classList.add("hidden");
+}
+
+async function openSelectedSferaDocument() {
+  const selected = selectedSferaDocument();
+  const externalDocumentId = String(selected?.externalDocumentId || "").trim();
+  if (!externalDocumentId) return;
+  try {
+    await openDocumentById(externalDocumentId, { mode: "view" });
+    closeSferaBrowser();
+    hideHint();
+  } catch (error) {
+    console.error(error);
+    sferaBrowserState.error = "Не удалось открыть выбранную таблицу MMTable.";
+    renderSferaBrowser();
+  }
 }
 
 function updateProfileMenuState() {
@@ -21707,6 +21920,28 @@ safeOn(fileOpenBtn, "click", async (e) => {
   e.stopPropagation();
   closeAllMenus();
   await handleFileOpen();
+});
+safeOn(fileOpenSferaBtn, "click", async (e) => {
+  e.stopPropagation();
+  closeAllMenus();
+  await openSferaBrowser();
+});
+safeOn(sferaOrganizationSelect, "change", async () => {
+  sferaBrowserState.organizationId = String(sferaOrganizationSelect.value || "");
+  sferaBrowserState.folderId = "";
+  sferaBrowserState.documentId = "";
+  await loadSferaCatalog();
+});
+safeOn(sferaSearchInput, "change", async () => {
+  sferaBrowserState.folderId = "";
+  sferaBrowserState.documentId = "";
+  await loadSferaCatalog();
+});
+safeOn(sferaBrowserOpenBtn, "click", () => { void openSelectedSferaDocument(); });
+safeOn(sferaBrowserCloseBtn, "click", closeSferaBrowser);
+safeOn(sferaBrowserCloseIconBtn, "click", closeSferaBrowser);
+safeOn(sferaBrowserModal, "click", (event) => {
+  if (event.target === sferaBrowserModal) closeSferaBrowser();
 });
 safeOn(fileShareBtn, "click", async (e) => {
   e.stopPropagation();
