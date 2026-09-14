@@ -1427,7 +1427,13 @@ def _get_comment_row(conn, doc_id, comment_id):
 def _security_headers(response):
     # Only the one-time Sfera-opened preview is embeddable.  All normal MMTable
     # routes remain protected from framing.
-    embedded_preview = request.path.startswith("/d/") and request.args.get("embed") == "1"
+    # Chromium checks framing policy on the ticket-consumption redirect as well
+    # as the final document.  Both responses therefore need the same narrowly
+    # scoped policy; every unrelated route keeps SAMEORIGIN.
+    embedded_preview = (
+        request.args.get("embed") == "1"
+        and (request.path.startswith("/d/") or request.path == "/auth/sfera/open")
+    )
     if embedded_preview:
         response.headers.pop("X-Frame-Options", None)
         response.headers["Content-Security-Policy"] = (

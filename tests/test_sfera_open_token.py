@@ -80,6 +80,11 @@ class SferaOpenTokenTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Location"], f"/d/{self.document_id}?embed=1")
         self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertNotIn("X-Frame-Options", response.headers)
+        self.assertEqual(
+            response.headers["Content-Security-Policy"],
+            "frame-ancestors https://sfera.crystalsystems.ru http://127.0.0.1:4177",
+        )
 
     def test_embed_document_allows_only_the_sfera_frame_ancestors(self):
         response = self.client.get(f"/d/{self.document_id}?embed=1")
