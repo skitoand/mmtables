@@ -8,6 +8,26 @@
 
 После каждого деплоя на прод сюда добавляется новая запись (вручную или агентом Cursor).
 
+## 2026-09-14 — документы Сферы и защищённый bridge
+
+**Commit:** `ebd1f1990b70874622ccb51da99910b1a83effa6` — Connect MMTable to Sfera organization documents.  
+**Бэкап:** `mmtable-PROD-BACKUP-20260914-073652-before-deploy.tar.gz`  
+**Деплой:** GitHub Actions [Deploy Production #34818667327](https://github.com/skitoand/mmtables/actions/runs/34818667327)  
+**Статус:** OK
+
+### Что сделано
+
+- В меню «Файл» добавлено «Открыть из Сферы» с выбором организации, папки и связанного документа MMTable.
+- Добавлен HMAC-protected bridge создания документов из Сферы и проверка прав перед открытием.
+- Обновлены cache-buster для `app.js` и `styles.css`.
+
+### Проверка
+
+- [x] 27 локальных тестов прошли.
+- [x] Deploy Production #34818667327 success.
+- [x] `mmtable.service` active и `https://mmtable.crystalsystems.ru/` вернул `200 OK`.
+- [x] Endpoint bridge без подписи ответил `401`; signed catalog Сферы ответил успешно.
+
 ## 2026-09-13 — исправление сохранения и форматирования рисования
 
 **Commit:** `6a49700` — Исправить сохранение и форматирование рисования.  
