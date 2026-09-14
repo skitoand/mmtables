@@ -10,9 +10,9 @@
 
 ## 2026-09-14 — документы Сферы и защищённый bridge
 
-**Commit:** `ebd1f1990b70874622ccb51da99910b1a83effa6` — Connect MMTable to Sfera organization documents.  
-**Бэкап:** `mmtable-PROD-BACKUP-20260914-073652-before-deploy.tar.gz`  
-**Деплой:** GitHub Actions [Deploy Production #34818667327](https://github.com/skitoand/mmtables/actions/runs/34818667327)  
+**Commit:** `ebd1f1990b70874622ccb51da99910b1a83effa6` — Connect MMTable to Sfera organization documents.
+**Бэкап:** `mmtable-PROD-BACKUP-20260914-073652-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #34818667327](https://github.com/skitoand/mmtables/actions/runs/34818667327)
 **Статус:** OK
 
 ### Что сделано
