@@ -2266,3 +2266,9 @@ tar -xzf /opt/apps/backups/mmtable-PROD-BACKUP-20260701-110846-before-deploy.tar
 - Проверка после выкладки: `mmtable.service` active; `http://127.0.0.1:4173/` и `https://mmtable.crystalsystems.ru/` вернули HTTP 200.
 
 ---
+# Production deployment — 2026-09-14: Sfera open tickets
+
+- Commit: `5260cbd5871bd02eb8ccd0258540cec054a64563`.
+- Workflow: https://github.com/skitoand/mmtables/actions/runs/34846617625.
+- Изменения: MMTable потребляет одноразовый Sfera-билет только для привязанного документа, создаёт ограниченную сессию и удаляет билет из конечного URL.
+- Результат: workflow завершён успешно; `https://mmtable.crystalsystems.ru/` вернул HTTP 200.
