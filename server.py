@@ -24,6 +24,7 @@ from api_v1 import register_api_v1
 from mcp_http import register_mcp
 from mcp_oauth import init_oauth_tables, register_mcp_oauth
 from sfera_bridge import init_sfera_bridge_tables, register_sfera_bridge
+from sfera_sso import authorization_url as sfera_authorization_url, exchange_code as exchange_sfera_code, validate_session as validate_sfera_session
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -43,6 +44,7 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 SFERA_CATALOG_URL = os.getenv(
     "SFERA_CATALOG_URL", "https://sfera.crystalsystems.ru/api/mmtable/bridge/catalog"
 ).strip()
+SFERA_SSO_CALLBACK_PATH = "/auth/sfera/callback"
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_AUTH_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
@@ -551,6 +553,15 @@ def _authenticate_request():
 
     email = _normalize_email(session.get("email"))
     if email:
+        if session.get("auth_provider") == "sfera":
+            try:
+                claims = validate_sfera_session(session.get("sfera_user_id"), email)
+            except (PermissionError, RuntimeError):
+                session.clear()
+                return None, set(), None
+            session["name"] = str(claims.get("name") or email).strip() or email
+            session["sfera_organizations"] = claims.get("organizations") or []
+            session["sfera_claims_expires_at"] = time.time() + min(max(int(claims.get("expiresIn") or 90), 30), 90)
         g.auth_email = email
         g.auth_scopes = {"docs:read", "docs:write"}
         g.auth_via = "session"
@@ -1080,6 +1091,10 @@ def _app_base_url():
     return request.host_url.rstrip("/")
 
 
+def _sfera_sso_callback_url():
+    return f"{_app_base_url()}{SFERA_SSO_CALLBACK_PATH}"
+
+
 def _sfera_catalog_error_message(code):
     messages = {
         "bridge_not_configured": "Интеграция со Сферой ещё не настроена.",
@@ -1460,6 +1475,45 @@ def login_google():
 
 @app.route("/auth/google/callback")
 def auth_google_callback():
+    return redirect("/")
+
+
+@app.route("/auth/sfera")
+def login_sfera():
+    state = secrets.token_urlsafe(24)
+    session["sfera_sso_state"] = state
+    return redirect(sfera_authorization_url(_sfera_sso_callback_url(), state))
+
+
+@app.route("/auth/sfera/callback")
+def login_sfera_callback():
+    state = str(request.args.get("state") or "")
+    code = str(request.args.get("code") or "")
+    expected_state = str(session.pop("sfera_sso_state", "") or "")
+    if not code or not expected_state or not hmac.compare_digest(state, expected_state):
+        return redirect("/login?sso_error=invalid_state")
+    try:
+        claims = exchange_sfera_code(code, _sfera_sso_callback_url())
+    except (PermissionError, RuntimeError):
+        return redirect("/login?sso_error=exchange_failed")
+    email = _normalize_email(claims.get("email"))
+    name = str(claims.get("name") or email).strip() or email
+    organizations = claims.get("organizations") or []
+    if not email or not organizations:
+        return redirect("/login?sso_error=access_revoked")
+    conn = _db()
+    try:
+        _upsert_user(conn, email, name=name, auth_provider="sfera")
+        _ensure_seed_document(conn, email)
+        conn.commit()
+    finally:
+        conn.close()
+    session.clear()
+    _set_session_user(email, name)
+    session["auth_provider"] = "sfera"
+    session["sfera_user_id"] = str(claims.get("sferaUserId") or "")
+    session["sfera_organizations"] = organizations
+    session["sfera_claims_expires_at"] = time.time() + min(max(int(claims.get("expiresIn") or 90), 30), 90)
     return redirect("/")
 
 
@@ -3872,4 +3926,4 @@ register_mcp(
 
 
 if __name__ == "__main__":
-    app.run("127.0.0.1", 4173, debug=True)
+    app.run("127.0.0.1", int(os.getenv("PORT", "4173")), debug=True)
