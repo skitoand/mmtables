@@ -152,3 +152,55 @@ def register_sfera_bridge(app, deps):
             return jsonify({"ok": True, "created": True, "document": document_payload(created)}), 201
         finally:
             conn.close()
+
+    @app.route("/api/sfera/bridge/documents/<document_id>/preview", methods=["POST"])
+    def preview_sfera_bridge_document(document_id):
+        """Return a linked document layout to Sfera over the signed backchannel."""
+        raw_body = request.get_data(cache=True)
+        error = verify_signature(raw_body)
+        if error:
+            return jsonify({"error": error}), 401 if error != "bridge_not_configured" else 503
+
+        payload = request.get_json(force=True, silent=True) or {}
+        sfera_document_id = str(payload.get("sferaDocumentId") or "").strip()
+        organization_id = str(payload.get("organizationId") or "").strip()
+        if (
+            not _RESOURCE_ID_RE.fullmatch(document_id)
+            or not _RESOURCE_ID_RE.fullmatch(sfera_document_id)
+            or not _RESOURCE_ID_RE.fullmatch(organization_id)
+        ):
+            return jsonify({"error": "invalid_sfera_resource"}), 400
+
+        conn = db()
+        try:
+            row = conn.execute(
+                """
+                SELECT d.id, d.name, d.layout_json, d.updated_at
+                FROM sfera_document_links l
+                JOIN user_documents d ON d.id = l.mmtable_document_id
+                WHERE l.sfera_document_id = ?
+                  AND l.sfera_organization_id = ?
+                  AND l.mmtable_document_id = ?
+                LIMIT 1
+                """,
+                (sfera_document_id, organization_id, document_id),
+            ).fetchone()
+            if not row:
+                return jsonify({"error": "sfera_document_not_linked"}), 404
+            try:
+                layout = json.loads(row["layout_json"] or "")
+            except (TypeError, ValueError):
+                layout = blank_layout()
+            return jsonify(
+                {
+                    "ok": True,
+                    "preview": {
+                        "documentId": row["id"],
+                        "name": row["name"],
+                        "updatedAt": row["updated_at"],
+                        "layout": layout,
+                    },
+                }
+            )
+        finally:
+            conn.close()

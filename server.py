@@ -1425,22 +1425,7 @@ def _get_comment_row(conn, doc_id, comment_id):
 
 @app.after_request
 def _security_headers(response):
-    # Only the one-time Sfera-opened preview is embeddable.  All normal MMTable
-    # routes remain protected from framing.
-    # Chromium checks framing policy on the ticket-consumption redirect as well
-    # as the final document.  Both responses therefore need the same narrowly
-    # scoped policy; every unrelated route keeps SAMEORIGIN.
-    embedded_preview = (
-        request.args.get("embed") == "1"
-        and (request.path.startswith("/d/") or request.path == "/auth/sfera/open")
-    )
-    if embedded_preview:
-        response.headers.pop("X-Frame-Options", None)
-        response.headers["Content-Security-Policy"] = (
-            "frame-ancestors https://sfera.crystalsystems.ru http://127.0.0.1:4177"
-        )
-    else:
-        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     return response
@@ -1591,7 +1576,6 @@ def login_sfera_open():
     """Consume a one-time Sfera ticket and open exactly its bound document."""
     token = str(request.args.get("token") or "").strip()
     document_id = str(request.args.get("documentId") or "").strip()
-    embedded_preview = str(request.args.get("embed") or "") == "1"
     if not token or not _is_valid_doc_id(document_id):
         return redirect("/login?sso_error=invalid_open_token")
     try:
@@ -1643,8 +1627,7 @@ def login_sfera_open():
     session["sfera_user_id"] = str(claims.get("sferaUserId") or "")
     session["sfera_organizations"] = [{"id": str(claims.get("organizationId") or "")}]
     session["sfera_claims_expires_at"] = time.time() + min(max(int(claims.get("expiresIn") or 90), 30), 90)
-    suffix = "?embed=1" if embedded_preview else ""
-    response = redirect(f"/d/{document_id}{suffix}")
+    response = redirect(f"/d/{document_id}")
     response.headers["Cache-Control"] = "no-store"
     return response
 

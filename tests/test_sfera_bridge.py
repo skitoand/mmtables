@@ -95,6 +95,26 @@ class SferaBridgeTests(unittest.TestCase):
             },
         )
 
+    def signed_preview_post(self, document_id, payload, signature="valid"):
+        raw_body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        timestamp = str(int(time.time()))
+        digest = (
+            hmac.new(
+                b"bridge-test-secret", timestamp.encode("utf-8") + b"." + raw_body, hashlib.sha256
+            ).hexdigest()
+            if signature == "valid"
+            else "0" * 64
+        )
+        return self.client.post(
+            f"/api/sfera/bridge/documents/{document_id}/preview",
+            data=raw_body,
+            content_type="application/json",
+            headers={
+                "X-Sfera-Bridge-Timestamp": timestamp,
+                "X-Sfera-Bridge-Signature": digest,
+            },
+        )
+
     def test_creates_one_document_and_is_idempotent(self):
         payload = {
             "sferaDocumentId": "kbd_1234",
@@ -133,6 +153,29 @@ class SferaBridgeTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json["error"], "invalid_bridge_signature")
+
+    def test_returns_preview_only_for_the_exact_sfera_link(self):
+        payload = {
+            "sferaDocumentId": "kbd_1234",
+            "organizationId": "org_1234",
+            "ownerEmail": "owner@example.test",
+            "ownerName": "Owner",
+            "name": "Таблица из Сферы",
+        }
+        created = self.signed_post(payload)
+        document_id = created.json["document"]["id"]
+
+        preview = self.signed_preview_post(document_id, {
+            "sferaDocumentId": "kbd_1234", "organizationId": "org_1234"
+        })
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.json["preview"]["documentId"], document_id)
+        self.assertIn("layout", preview.json["preview"])
+
+        forbidden = self.signed_preview_post(document_id, {
+            "sferaDocumentId": "kbd_other", "organizationId": "org_1234"
+        })
+        self.assertEqual(forbidden.status_code, 404)
 
 
 if __name__ == "__main__":
