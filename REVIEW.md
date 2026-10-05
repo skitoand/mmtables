@@ -8,6 +8,26 @@
 
 После каждого деплоя на прод сюда добавляется новая запись (вручную или агентом Cursor).
 
+## 2026-10-05 — множественное выделение браузерных окон
+
+**Commit:** `c06d1c6` — Fix multi-select for browser windows.
+**Бэкап:** `mmtable-PROD-BACKUP-20261005-121321-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #37308019087](https://github.com/skitoand/mmtables/actions/runs/37308019087)
+**Статус:** OK
+
+### Что сделано
+
+- Окна с веб-страницами (`sheet-window`) теперь попадают в рамочное множественное выделение вместе с фигурами.
+- Выбранные браузерные окна получают общую рамку и перемещаются вместе с остальными выбранными объектами.
+- Обновлены cache-buster версии `app.js` и `styles.css`.
+
+### Проверка
+
+- [x] `node --check app.js` и `git diff --check` прошли.
+- [x] GitHub Actions завершился успешно.
+- [x] Публичный URL отдаёт `app.js?v=20261005-multi-select-browser-windows-v1` и `styles.css?v=20261005-multi-select-browser-windows-v1`.
+- [x] Серверный бэкап создан перед выкладкой.
+
 ## 2026-10-05 — соединители для изображений
 
 **Commit:** `f421042` — Fix connectors for image objects.
