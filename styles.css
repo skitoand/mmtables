@@ -1167,8 +1167,8 @@ body.ctrl-connector-mode .shape.multi-selected .conn-arrow{z-index:10066}
 .shape-note-badge:hover{opacity:.85}
 body.dark .shape-note-badge{color:#e5e7eb}
 body.dark .shape-note.attached-annotation-note{background:#854d0e;color:#fefce8}
-.shape-image{width:240px;height:180px;border:none;background:transparent;overflow:hidden;padding:0}
-.shape-image .shape-image-el{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-select:none}
+.shape-image{width:240px;height:180px;border:none;background:transparent;overflow:visible;padding:0}
+.shape-image .shape-image-el{display:block;width:100%;height:100%;object-fit:contain;overflow:hidden;pointer-events:none;user-select:none;-webkit-user-select:none}
 .shape-image .resize-handle{z-index:2}
 .shape-note.bp-task-card{box-sizing:border-box;padding:0;overflow:visible;border-width:0 !important;background:transparent !important;background-image:none !important;box-shadow:none !important;font-family:Arial,Helvetica,sans-serif}
 .shape-note.bp-task-card:not(.bp-task-expanded){background:#f9cade !important;border:none !important;border-radius:5px !important;box-shadow:none !important;overflow:hidden !important}

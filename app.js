@@ -17567,7 +17567,10 @@ function createShapeImage(opts = {}, doSave = true) {
   node.dataset.imageSrc = src;
   node.style.border = "none";
   node.style.background = "transparent";
-  node.style.overflow = "hidden";
+  // Connector arrows are positioned just outside the object bounds.  The
+  // image itself already fits inside the node via object-fit, so clipping the
+  // node would also clip the connector controls while Ctrl is held.
+  node.style.overflow = "visible";
   node.style.padding = "0";
   const img = document.createElement("img");
   img.className = "shape-image-el";
