@@ -8,6 +8,25 @@
 
 После каждого деплоя на прод сюда добавляется новая запись (вручную или агентом Cursor).
 
+## 2026-10-05 — соединители для изображений
+
+**Commit:** `f421042` — Fix connectors for image objects.
+**Бэкап:** `mmtable-PROD-BACKUP-20261005-085548-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #37286703962](https://github.com/skitoand/mmtables/actions/runs/37286703962)
+**Статус:** OK
+
+### Что сделано
+
+- Для картинок исправлено отображение синих стрелок соединителей при удержании Ctrl.
+- Контейнер картинки больше не обрезает элементы соединения за границами объекта.
+- Обновлены cache-buster версии `app.js` и `styles.css`.
+
+### Проверка
+
+- [x] `node --check app.js` и `git diff --check` прошли.
+- [x] Публичный URL отдаёт `app.js?v=20261005-image-connectors-v1` и `styles.css?v=20261005-image-connectors-v1`.
+- [x] Серверный бэкап создан перед выкладкой.
+
 ## 2026-09-14 — вход через Сферу
 
 **Commit:** `68cacf3c0cc8834042584e88ec144f7526253034` — Deploy MMTable SSO module.
