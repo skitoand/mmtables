@@ -27,6 +27,27 @@
 - [x] Публичный URL отдаёт `app.js?v=20261005-image-connectors-v1` и `styles.css?v=20261005-image-connectors-v1`.
 - [x] Серверный бэкап создан перед выкладкой.
 
+## 2026-10-05 — браузерные окна внутри фреймов
+
+**Commit:** `069ba0d` — Include browser windows in frames.
+**Бэкап:** `mmtable-PROD-BACKUP-20261005-095133-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #37292780256](https://github.com/skitoand/mmtables/actions/runs/37292780256)
+**Статус:** OK
+
+### Что сделано
+
+- Браузерные окна (`sheet-window`) теперь участвуют в расчёте содержимого фрейма.
+- При перемещении фрейма окна перемещаются вместе с остальными объектами.
+- При создании и сохранении документа принадлежность окна фрейму сохраняется через `frameId`.
+- Обновлены cache-buster версии `app.js` и `styles.css`.
+
+### Проверка
+
+- [x] `node --check app.js` и `git diff --check` прошли.
+- [x] GitHub Actions завершился успешно.
+- [x] Публичный URL отдаёт `app.js?v=20261005-frame-browser-windows-v1` и `styles.css?v=20261005-frame-browser-windows-v1`.
+- [x] Серверный бэкап создан перед выкладкой.
+
 ## 2026-09-14 — вход через Сферу
 
 **Commit:** `68cacf3c0cc8834042584e88ec144f7526253034` — Deploy MMTable SSO module.
