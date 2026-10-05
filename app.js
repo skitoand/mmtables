@@ -8884,7 +8884,7 @@ function getFrameShapeById(frameId) {
 function getFrameChildren(frameId) {
   const target = String(frameId || "").trim();
   if (!target) return [];
-  return Array.from(desktop.querySelectorAll(".shape")).filter((node) => node && getShapeFrameId(node) === target);
+  return Array.from(desktop.querySelectorAll(".shape, .sheet-window")).filter((node) => node && getShapeFrameId(node) === target);
 }
 
 function getFrameDescendants(frameId) {
@@ -8975,7 +8975,7 @@ function getEligibleFrameChildCandidates(frame) {
   const frameId = frame?.dataset?.shapeId || "";
   if (!frameId) return [];
   const frameBounds = getElementLogicalBox(frame);
-  return Array.from(desktop.querySelectorAll(".shape")).filter((node) => {
+  return Array.from(desktop.querySelectorAll(".shape, .sheet-window")).filter((node) => {
     if (!node || node === frame) return false;
     if (!canAssignShapeToFrame(node, frameId)) return false;
     const existingFrameId = getShapeFrameId(node);
@@ -11807,6 +11807,7 @@ function createSheetWindow(url, opts = {}, doSave = true) {
 
   const index = windowCounter;
   node.dataset.connId = opts.connId || `window-${index}`;
+  if (opts.frameId) node.dataset.frameId = String(opts.frameId);
   node.style.left = opts.left || `${40 + (index % 6) * 30}px`;
   node.style.top = opts.top || `${40 + (index % 6) * 24}px`;
   node.style.width = opts.width || "640px";
@@ -20589,7 +20590,8 @@ function readWindowData(win) {
     left: win.style.left, top: win.style.top, width: win.style.width, height: win.style.height,
     pageScale: getSheetWindowPageScale(win),
     zIndex: Number(win.style.zIndex || 0),
-    aboveConnectors: win.dataset.aboveConnectors === "1"
+    aboveConnectors: win.dataset.aboveConnectors === "1",
+    frameId: win.dataset.frameId || undefined
   };
 }
 
