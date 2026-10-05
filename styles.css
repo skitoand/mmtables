@@ -1062,6 +1062,7 @@ body.dark .share-public-warning{color:#fde68a}
 .sheet-frame-wheel-catcher{position:absolute;inset:0;z-index:4;background:transparent;cursor:default}
 .sheet-window.sheet-interact .sheet-frame-wheel-catcher{pointer-events:none}
 .sheet-window.sheet-interact .sheet-frame-viewport{outline:1px dashed rgba(105,101,219,.45);outline-offset:-1px}
+.sheet-window.multi-selected-window{outline:2px solid var(--shape-selection-color);outline-offset:2px}
 .resize-handle{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:transparent;z-index:3}
 .shape{position:absolute;cursor:move;user-select:none}
 .shape.selected{outline:none;overflow:visible}

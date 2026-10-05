@@ -267,6 +267,7 @@ let currentDocumentRole = null;
 let selectedShape = null;
 let selectedGroupId = null;
 const multiSelectedShapeIds = new Set();
+const multiSelectedWindowIds = new Set();
 const multiSelectedConnectorIds = new Set();
 let selectedConnector = null;
 let selectedWindow = null;
@@ -9684,8 +9685,10 @@ function updateGroupSelectionBox() {
 function clearMultiSelection() {
   const hadConnectorSelection = multiSelectedConnectorIds.size > 0;
   multiSelectedShapeIds.clear();
+  multiSelectedWindowIds.clear();
   multiSelectedConnectorIds.clear();
   desktop.querySelectorAll(".shape.multi-selected").forEach((node) => node.classList.remove("multi-selected"));
+  desktop.querySelectorAll(".sheet-window.multi-selected-window").forEach((node) => node.classList.remove("multi-selected-window"));
   if (hadConnectorSelection) renderConnectors();
 }
 
@@ -9693,11 +9696,20 @@ function syncMultiSelectionClasses() {
   desktop.querySelectorAll(".shape").forEach((node) => {
     node.classList.toggle("multi-selected", multiSelectedShapeIds.has(node.dataset.shapeId));
   });
+  desktop.querySelectorAll(".sheet-window").forEach((node) => {
+    node.classList.toggle("multi-selected-window", multiSelectedWindowIds.has(node.dataset.connId));
+  });
   syncSelectionControlsOverlay();
 }
 
 function getMultiSelectedShapes() {
   return Array.from(multiSelectedShapeIds).map((id) => getShapeById(id)).filter(Boolean);
+}
+
+function getMultiSelectedNodes() {
+  const shapes = getMultiSelectedShapes();
+  const windows = Array.from(desktop.querySelectorAll(".sheet-window")).filter((node) => multiSelectedWindowIds.has(node.dataset.connId));
+  return shapes.concat(windows);
 }
 
 function isBpClipboardMemberNode(node) {
@@ -10524,18 +10536,21 @@ function finishMarqueeSelection() {
   if (width < 4 && height < 4) return;
   clearSelection();
   const shapes = Array.from(desktop.querySelectorAll(".shape"));
+  const windows = Array.from(desktop.querySelectorAll(".sheet-window"));
   const matched = shapes.filter((node) => shapeMatchesMarquee(node, bounds, touchMode));
+  const matchedWindows = windows.filter((node) => shapeMatchesMarquee(node, bounds, touchMode));
   const matchedConnectors = connectors.filter((conn) => connectorMatchesMarquee(conn, bounds, touchMode));
-  if (!matched.length && matchedConnectors.length === 1) {
+  if (!matched.length && !matchedWindows.length && matchedConnectors.length === 1) {
     selectConnector(matchedConnectors[matchedConnectors.length - 1].id);
     return;
   }
-  if (!matched.length && !matchedConnectors.length) return;
-  if (matched.length === 1 && !matchedConnectors.length) {
+  if (!matched.length && !matchedWindows.length && !matchedConnectors.length) return;
+  if (matched.length === 1 && !matchedWindows.length && !matchedConnectors.length) {
     selectShape(matched[0]);
     return;
   }
   matched.forEach((node) => multiSelectedShapeIds.add(node.dataset.shapeId));
+  matchedWindows.forEach((node) => multiSelectedWindowIds.add(node.dataset.connId));
   matchedConnectors.forEach((conn) => multiSelectedConnectorIds.add(conn.id));
   syncMultiSelectionClasses();
   renderConnectors();
@@ -11255,8 +11270,11 @@ function createBulkSelectionDrag(node, event) {
       connectors: buildDraggedConnectorEntries(movedNodeIds, multiSelectedConnectorIds)
     };
   }
-  if (!selectedShape && multiSelectedShapeIds.size > 1 && multiSelectedShapeIds.has(node.dataset.shapeId)) {
-    const members = getMultiSelectedShapes();
+  const nodeIsMultiSelected = node?.classList?.contains("shape")
+    ? multiSelectedShapeIds.has(node.dataset.shapeId)
+    : multiSelectedWindowIds.has(node?.dataset?.connId);
+  if (!selectedShape && (multiSelectedShapeIds.size + multiSelectedWindowIds.size) > 1 && nodeIsMultiSelected) {
+    const members = getMultiSelectedNodes();
     const movedNodeIds = new Set(members.map((member) => member.dataset.connId || member.dataset.shapeId).filter(Boolean));
     return {
       type: "multi",
