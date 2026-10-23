@@ -7,7 +7,7 @@
     <title>MMTable</title>
     <link rel="icon" type="image/png" sizes="128x128" href="assets/favicon.png?v=20260701-crop" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=20260701-crop" />
-    <link rel="stylesheet" href="styles.css?v=20261023-cell-newlines-v1" />
+    <link rel="stylesheet" href="styles.css?v=20261023-html-block-v1" />
   </head>
   <body>
     <div class="app">
@@ -569,6 +569,18 @@
       </div>
     </div>
 
+    <div id="htmlBlockModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="htmlBlockModalTitle">
+      <div class="modal-card modal-form-card html-block-modal-card">
+        <h3 id="htmlBlockModalTitle">HTML-блок</h3>
+        <p class="html-block-modal-hint">Вставьте HTML-код целиком (со стилями и скриптами). Он отобразится как страница в браузере, в изолированной песочнице.</p>
+        <textarea id="htmlBlockCode" class="html-block-code" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="&lt;!doctype html&gt;&#10;&lt;html&gt;...&lt;/html&gt;"></textarea>
+        <div class="modal-actions">
+          <button id="htmlBlockCancelBtn" type="button">Отмена</button>
+          <button id="htmlBlockSaveBtn" type="button">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
     <div id="fileModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="fileModalTitle">
       <div class="modal-card file-browser-card">
         <div class="file-browser-header">
@@ -918,7 +930,7 @@
     <script src="vendor/laser-pointer.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="vendor/perfect-freehand.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="draw-tools.js?v=20260913-format-style-v1"></script>
-    <script src="app.js?v=20261023-cell-rich-text-v1"></script>
+    <script src="app.js?v=20261023-html-block-v1"></script>
     <script src="bitrix-chart.js?v=20260902-readable-date-axis-v2"></script>
   </body>
 </html>

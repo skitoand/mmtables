@@ -10281,6 +10281,7 @@ function getDesktopInsertMenuItems(spawnPoint) {
       action: () => promptImageImportAtPoint(point())
     },
     { label: "Таблица", icon: "table.svg", action: () => createShapeAtContextPoint("table", point()) },
+    { label: "HTML-блок", icon: "html-block.svg", action: () => createHtmlBlockAtPoint(point()) },
     { label: "Фрейм", icon: "frame.svg", tool: "frame", action: () => createShapeAtContextPoint("frame", point()) },
     { label: "Рисование", icon: "draw.svg", tool: "draw", action: () => window.DrawTools?.activateDrawToolFromMenu?.() },
     { label: "Лазерная указка", icon: "laser-pointer.svg", tool: "laser", action: () => window.DrawTools?.activateLaserToolFromMenu?.() },
@@ -11840,13 +11841,27 @@ function createSheetWindow(url, opts = {}, doSave = true) {
     title.textContent = extra ? `${base} — ${extra}` : base;
   }
 
-  const sourceUrl = normalizeSheetUrl(url);
-  const rawUrl = repairPossiblyBrokenSheetUrl(sourceUrl);
+  const isHtmlBlock = opts.kind === HTML_BLOCK_KIND;
+  const sourceUrl = isHtmlBlock ? "" : normalizeSheetUrl(url);
+  const rawUrl = isHtmlBlock ? "" : repairPossiblyBrokenSheetUrl(sourceUrl);
   node.dataset.sourceUrl = sourceUrl;
   node.dataset.embedUrl = rawUrl;
-  frame.src = rawUrl;
+  if (isHtmlBlock) {
+    node.dataset.kind = HTML_BLOCK_KIND;
+    node.setAttribute("aria-label", "HTML-блок");
+    frame.removeAttribute("loading");
+    frame.removeAttribute("referrerpolicy");
+    frame.setAttribute("sandbox", HTML_BLOCK_SANDBOX);
+    setHtmlBlockSource(node, opts.html);
+    const openBtn = node.querySelector(".open");
+    openBtn.textContent = "✎";
+    openBtn.title = "Редактировать HTML-код";
+  } else {
+    frame.src = rawUrl;
+  }
   node.dataset.docTitle = (opts.docTitle || opts.title || "").trim();
   node.dataset.customTitle = (opts.customTitle || "").trim();
+  if (isHtmlBlock && !node.dataset.docTitle) node.dataset.docTitle = "HTML-блок";
   updateWindowTitle();
 
   node.addEventListener("pointerdown", (e) => {
@@ -11860,6 +11875,10 @@ function createSheetWindow(url, opts = {}, doSave = true) {
 
   node.querySelector(".open").addEventListener("click", (e) => {
     e.stopPropagation();
+    if (isHtmlBlock) {
+      if (canEditCurrentDocument()) openHtmlBlockEditor(node);
+      return;
+    }
     window.open(node.dataset.sourceUrl || rawUrl, "_blank", "noopener,noreferrer");
   });
   node.querySelector(".close").addEventListener("click", (e) => {
@@ -11880,6 +11899,10 @@ function createSheetWindow(url, opts = {}, doSave = true) {
   });
   node.querySelector(".refresh").addEventListener("click", (e) => {
     e.stopPropagation();
+    if (isHtmlBlock) {
+      setHtmlBlockSource(node, node.dataset.html || "");
+      return;
+    }
     frame.src = node.dataset.embedUrl || frame.src;
   });
   frame.addEventListener("mouseenter", () => setViewportScrollLock(true));
@@ -11909,7 +11932,9 @@ function createSheetWindow(url, opts = {}, doSave = true) {
       clearAllSheetWindowInteract(node);
       setSheetWindowInteract(node, true);
       selectWindow(node);
-      showHint("Режим работы с таблицей: скролл внутри окна. Esc или уход курсора — выход.", "warning", 3200);
+      showHint(isHtmlBlock
+        ? "Режим работы с блоком: клики и скролл внутри. Esc или уход курсора — выход."
+        : "Режим работы с таблицей: скролл внутри окна. Esc или уход курсора — выход.", "warning", 3200);
     });
   }
 
@@ -11933,15 +11958,104 @@ function createSheetWindow(url, opts = {}, doSave = true) {
   layoutConnectorPoints(node);
   windowCounter += 1;
 
-  resolveDocumentTitle(node.dataset.sourceUrl || rawUrl).then((docTitle) => {
-    if (docTitle) {
-      node.dataset.docTitle = docTitle;
-      updateWindowTitle();
-      saveLayout();
-    }
-  });
+  if (!isHtmlBlock) {
+    resolveDocumentTitle(node.dataset.sourceUrl || rawUrl).then((docTitle) => {
+      if (docTitle) {
+        node.dataset.docTitle = docTitle;
+        updateWindowTitle();
+        saveLayout();
+      }
+    });
+  }
   if (doSave) saveLayout();
+  return node;
 }
+
+const HTML_BLOCK_KIND = "html";
+const HTML_BLOCK_MAX_CHARS = 1000000;
+// Без allow-same-origin: код блока не получает доступа к приложению, cookie и сессии.
+const HTML_BLOCK_SANDBOX = "allow-scripts allow-forms allow-popups allow-modals";
+const HTML_BLOCK_PLACEHOLDER = `<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font:16px/1.5 system-ui,sans-serif;color:#475569;background:#f8fafc;text-align:center}
+  b{color:#0f172a}
+</style>
+</head>
+<body>
+  <div><b>HTML-блок</b><br>Нажмите ✎ в шапке окна<br>и вставьте свой HTML-код.</div>
+</body>
+</html>`;
+
+function setHtmlBlockSource(node, html) {
+  const frame = node.querySelector(".sheet-frame");
+  const source = String(html == null ? "" : html).slice(0, HTML_BLOCK_MAX_CHARS);
+  node.dataset.html = source;
+  if (frame) frame.srcdoc = source.trim() ? source : HTML_BLOCK_PLACEHOLDER;
+}
+
+let htmlBlockEditorTarget = null;
+
+function closeHtmlBlockEditor() {
+  htmlBlockEditorTarget = null;
+  $("htmlBlockModal")?.classList.add("hidden");
+}
+
+function openHtmlBlockEditor(node) {
+  const modalEl = $("htmlBlockModal");
+  const area = $("htmlBlockCode");
+  if (!modalEl || !area || !node) return;
+  htmlBlockEditorTarget = node;
+  area.value = node.dataset.html || "";
+  modalEl.classList.remove("hidden");
+  area.focus();
+}
+
+function saveHtmlBlockEditor() {
+  const node = htmlBlockEditorTarget;
+  const area = $("htmlBlockCode");
+  if (node && area && node.isConnected && canEditCurrentDocument()) {
+    if (area.value.length > HTML_BLOCK_MAX_CHARS) {
+      showHint("HTML-код слишком большой (максимум 1 000 000 символов).", "error");
+      return;
+    }
+    setHtmlBlockSource(node, area.value);
+    saveLayout();
+  }
+  closeHtmlBlockEditor();
+}
+
+function createHtmlBlockAtPoint(point, openEditor = true) {
+  if (!canEditCurrentDocument()) return null;
+  const width = 480;
+  const height = 360 + SHEET_WINDOW_HEADER_HEIGHT;
+  const left = point && Number.isFinite(point.x) ? Math.round(point.x - width / 2) : undefined;
+  const top = point && Number.isFinite(point.y) ? Math.round(point.y - height / 2) : undefined;
+  const node = createSheetWindow("", {
+    kind: HTML_BLOCK_KIND,
+    html: "",
+    title: "HTML-блок",
+    width: `${width}px`,
+    height: `${height}px`,
+    ...(left != null ? { left: `${Math.max(0, left)}px`, top: `${Math.max(0, top)}px` } : {})
+  });
+  if (node && openEditor) openHtmlBlockEditor(node);
+  return node;
+}
+
+$("htmlBlockSaveBtn")?.addEventListener("click", saveHtmlBlockEditor);
+$("htmlBlockCancelBtn")?.addEventListener("click", closeHtmlBlockEditor);
+$("htmlBlockModal")?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.stopPropagation();
+    closeHtmlBlockEditor();
+  } else if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    event.preventDefault();
+    saveHtmlBlockEditor();
+  }
+});
 
 function addShapeHandles(node, isLine = false, opts = {}) {
   if (isLine) return;
@@ -20712,7 +20826,9 @@ function readWindowData(win) {
     docTitle: win.dataset.docTitle || "",
     customTitle: win.dataset.customTitle || "",
     title: win.querySelector(".window-title").textContent,
-    src: win.dataset.sourceUrl || win.querySelector(".sheet-frame").src,
+    src: win.dataset.kind === HTML_BLOCK_KIND ? "" : (win.dataset.sourceUrl || win.querySelector(".sheet-frame").src),
+    kind: win.dataset.kind === HTML_BLOCK_KIND ? HTML_BLOCK_KIND : undefined,
+    html: win.dataset.kind === HTML_BLOCK_KIND ? (win.dataset.html || "") : undefined,
     left: win.style.left, top: win.style.top, width: win.style.width, height: win.style.height,
     pageScale: getSheetWindowPageScale(win),
     zIndex: Number(win.style.zIndex || 0),
@@ -20989,7 +21105,8 @@ function applyLayout(data) {
   connectors.length = 0;
   (layout.windows || []).forEach((w) => {
     try {
-      createSheetWindow(repairPossiblyBrokenSheetUrl(w.src), w, false);
+      if (w.kind === HTML_BLOCK_KIND) createSheetWindow("", w, false);
+      else createSheetWindow(repairPossiblyBrokenSheetUrl(w.src), w, false);
     } catch (err) {
       console.error("Failed to restore window:", w, err);
     }
