@@ -2332,3 +2332,16 @@ tar -xzf /opt/apps/backups/mmtable-PROD-BACKUP-20260701-110846-before-deploy.tar
 - Workflow: https://github.com/skitoand/mmtables/actions/runs/34846617625.
 - Изменения: MMTable потребляет одноразовый Sfera-билет только для привязанного документа, создаёт ограниченную сессию и удаляет билет из конечного URL.
 - Результат: workflow завершён успешно; `https://mmtable.crystalsystems.ru/` вернул HTTP 200.
+
+---
+
+## 2026-10-23 — переносы строк в ячейках таблицы
+
+**Коммит:** `846a6e4289dfa4cd810d926d5f83e2644a200a83`  
+**GitHub Actions:** https://github.com/skitoand/mmtables/actions/runs/39912262091  
+**Бэкап:** создаётся шагом деплоя (см. лог run)  
+**Статус:** OK
+
+- Причина: после выхода из ячейки `renderTable` ставил inline `white-space: normal/nowrap`, который схлопывал `\n` (данные в `cell.raw` сохранялись).
+- Исправление: `app.js` — `pre-wrap` / `pre`; `styles.css` — `td` с `pre-wrap`; cache-buster `20261023-cell-newlines-v1`.
+- Проверка: `node --check app.js`; на проде `index.html` отдаёт новый `?v=`, `app.js` содержит правку. Ручная проверка в UI не выполнена (локально нужен вход).
