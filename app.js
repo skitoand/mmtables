@@ -18574,7 +18574,7 @@ function createShapeTable(opts = {}, doSave = true) {
     td.style.fontWeight = cell.bold ? "700" : "400";
     td.style.fontStyle = cell.italic ? "italic" : "normal";
     td.style.textDecoration = cell.strike ? "line-through" : "none";
-    td.style.whiteSpace = cell.wrap && state.tableWrap ? "normal" : "nowrap";
+    td.style.whiteSpace = cell.wrap && state.tableWrap ? "pre-wrap" : "pre";
     td.style.overflow = "hidden";
     td.style.textOverflow = "clip";
     td.style.borderStyle = "solid";
