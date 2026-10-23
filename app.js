@@ -12012,11 +12012,119 @@ const HTML_BLOCK_PLACEHOLDER = `<!doctype html>
 </body>
 </html>`;
 
+// Read-only bridge into the iframe: injected ahead of the user's own HTML so
+// `window.mmtable` exists before their script runs. Talks to the parent only
+// via postMessage (the sandbox has no allow-same-origin, so this is the only
+// channel) and only ever returns data the parent already serializes for save —
+// it cannot write back into the document.
+const HTML_BLOCK_API_SHIM = `<script>(function(){
+  "use strict";
+  var reqId = 0, pending = {}, listeners = [];
+  window.addEventListener("message", function(e){
+    var d = e.data;
+    if (!d || d.__mmtable !== true) return;
+    if (d.type === "response") {
+      var p = pending[d.requestId];
+      if (!p) return;
+      delete pending[d.requestId];
+      if (d.ok) p.resolve(d.data); else p.reject(new Error(d.error || "mmtable: request failed"));
+    } else if (d.type === "change") {
+      listeners.slice().forEach(function(entry){ try { entry.cb(); } catch (err) { console.error(err); } });
+    }
+  });
+  function call(type, payload){
+    return new Promise(function(resolve, reject){
+      var id = ++reqId;
+      pending[id] = { resolve: resolve, reject: reject };
+      window.parent.postMessage(Object.assign({ __mmtable: true, type: type, requestId: id }, payload), "*");
+    });
+  }
+  window.mmtable = {
+    getTable: function(shapeId){ return call("getTable", { shapeId: shapeId }); },
+    getShape: function(shapeId){ return call("getShape", { shapeId: shapeId }); },
+    onChange: function(shapeId, cb){ listeners.push({ shapeId: shapeId, cb: cb }); }
+  };
+})();</script>`;
+
 function setHtmlBlockSource(node, html) {
   const frame = node.querySelector(".sheet-frame");
   const source = String(html == null ? "" : html).slice(0, HTML_BLOCK_MAX_CHARS);
   node.dataset.html = source;
-  if (frame) frame.srcdoc = source.trim() ? source : HTML_BLOCK_PLACEHOLDER;
+  if (frame) frame.srcdoc = source.trim() ? (HTML_BLOCK_API_SHIM + source) : HTML_BLOCK_PLACEHOLDER;
+}
+
+function findHtmlBlockWindowBySourceWindow(win) {
+  if (!win) return null;
+  const frames = document.querySelectorAll('.sheet-window .sheet-frame');
+  for (const frame of frames) {
+    if (frame.contentWindow === win) {
+      const owner = frame.closest(".sheet-window");
+      return isHtmlBlockNode(owner) ? owner : null;
+    }
+  }
+  return null;
+}
+
+function serializeShapeForHtmlBlockApi(node) {
+  if (!node) return null;
+  const type = node.dataset.shapeType;
+  if (type === "shape-table" && node.__tableApi && node.__tableApi.dumpState) {
+    const snap = node.__tableApi.dumpState();
+    const rows = snap.rows, cols = snap.cols;
+    const grid = Array.from({ length: rows }, () => new Array(cols).fill(""));
+    (snap.cells || []).forEach((cell) => {
+      if (cell.r >= 0 && cell.r < rows && cell.c >= 0 && cell.c < cols) {
+        const v = cell.computedValue != null && cell.computedValue !== "" ? cell.computedValue : cell.raw;
+        grid[cell.r][cell.c] = v == null ? "" : String(v);
+      }
+    });
+    return { id: node.dataset.shapeId, type: "table", title: snap.title || "", rows, cols, grid };
+  }
+  const text = node.querySelector(".shape-text");
+  return {
+    id: node.dataset.shapeId,
+    type,
+    text: text ? (text.dataset.rawText != null ? text.dataset.rawText : (text.innerText || text.textContent || "")) : "",
+    x: node.offsetLeft,
+    y: node.offsetTop,
+    width: node.offsetWidth,
+    height: node.offsetHeight
+  };
+}
+
+function handleHtmlBlockApiMessage(event) {
+  const data = event.data;
+  if (!data || data.__mmtable !== true || data.type === "response" || data.type === "change") return;
+  const sourceWindow = findHtmlBlockWindowBySourceWindow(event.source);
+  if (!sourceWindow) return;
+  let result = null;
+  let error = null;
+  try {
+    if (data.type === "getTable" || data.type === "getShape") {
+      const id = String(data.shapeId || "");
+      const node = id ? desktop.querySelector(`.shape[data-shape-id="${CSS.escape(id)}"]`) : null;
+      result = serializeShapeForHtmlBlockApi(node);
+      if (!result) error = `Фигура не найдена на листе: ${id}`;
+    } else {
+      error = `Неизвестный запрос mmtable API: ${data.type}`;
+    }
+  } catch (err) {
+    error = err && err.message ? err.message : String(err);
+  }
+  try {
+    event.source.postMessage({ __mmtable: true, type: "response", requestId: data.requestId, ok: !error, data: result, error }, "*");
+  } catch (err) {
+    console.error("Failed to answer html-block API request:", err);
+  }
+}
+window.addEventListener("message", handleHtmlBlockApiMessage);
+
+function notifyHtmlBlocksOfChange() {
+  document.querySelectorAll('.sheet-window .sheet-frame').forEach((frame) => {
+    const owner = frame.closest(".sheet-window");
+    if (!isHtmlBlockNode(owner) || !frame.contentWindow) return;
+    try { frame.contentWindow.postMessage({ __mmtable: true, type: "change" }, "*"); } catch (err) {}
+  });
 }
 
 let htmlBlockEditorTarget = null;
@@ -21053,6 +21161,7 @@ function scheduleLayoutSave(opts = {}) {
     scheduleDocumentPersist(immediate ? 0 : 700);
   }
   saveViewportState();
+  notifyHtmlBlocksOfChange();
 }
 
 let pendingHistoryTimer = null;
