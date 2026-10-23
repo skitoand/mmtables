@@ -32,6 +32,35 @@ class LayoutEngineTests(unittest.TestCase):
         self.assertEqual(grid["grid"][0][0], "a")
         self.assertEqual(grid["grid"][1][1], "d")
 
+    def test_html_block_lifecycle(self):
+        doc = eng.blank_document()
+        doc, created = eng.create_html_block(doc, 1, {"html": "<b>hi</b>", "title": "W", "x": 10, "y": 20, "width": 300, "height": 200})
+        block_id = created["id"]
+        self.assertEqual(created["type"], "html-block")
+        win = doc["sheets"][0]["layout"]["windows"][0]
+        self.assertEqual(win["kind"], "html")
+        self.assertEqual(win["height"], "240px")
+        self.assertEqual(win["src"], "")
+        doc, _ = eng.update_html_block(doc, 1, block_id, {"html": "<i>x</i>", "x": 50})
+        got = eng.get_html_block(doc, 1, block_id)
+        self.assertEqual(got["html"], "<i>x</i>")
+        self.assertEqual(got["x"], 50)
+        self.assertEqual(got["height"], 200)
+        overview = eng.describe_sheet(doc, 1)
+        self.assertEqual(overview["counts"]["htmlBlocks"], 1)
+        self.assertEqual(overview["htmlBlocks"][0]["id"], block_id)
+        doc, moved = eng.move_shapes(doc, 1, [{"id": block_id, "dx": 5}])
+        self.assertEqual(moved, [block_id])
+        doc, second = eng.create_html_block(doc, 1, {"html": ""})
+        self.assertNotEqual(second["id"], block_id)
+        doc, removed = eng.delete_shapes(doc, 1, [block_id])
+        self.assertEqual(removed, [block_id])
+        self.assertEqual(len(doc["sheets"][0]["layout"]["windows"]), 1)
+        with self.assertRaises(ValueError):
+            eng.update_html_block(doc, 1, block_id, {"html": "x"})
+        with self.assertRaises(ValueError):
+            eng.create_html_block(doc, 1, {"html": "a" * 1_000_001})
+
     def test_business_process_relayout(self):
         doc = eng.blank_document()
         doc, bp = eng.create_business_process(

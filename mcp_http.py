@@ -121,8 +121,49 @@ TOOLS = [
         ["documentId", "shapeId"],
     ),
     _tool(
+        "create_html_block",
+        "Create an HTML block: a resizable window that renders custom HTML/CSS/JS like a browser page (sandboxed iframe, no access to the app). width/height are the content area in px.",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+            "html": {"type": "string", "description": "Full HTML document or fragment (max 1,000,000 chars)"},
+            "title": {"type": "string"},
+            "x": {"type": "number"},
+            "y": {"type": "number"},
+            "width": {"type": "number"},
+            "height": {"type": "number"},
+        },
+        ["documentId", "html"],
+    ),
+    _tool(
+        "update_html_block",
+        "Update an HTML block by id (html, title, x, y, width, height, pageScale).",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+            "blockId": {"type": "string", "description": "Id like window-3, from describe_sheet.htmlBlocks"},
+            "html": {"type": "string"},
+            "title": {"type": "string"},
+            "x": {"type": "number"},
+            "y": {"type": "number"},
+            "width": {"type": "number"},
+            "height": {"type": "number"},
+        },
+        ["documentId", "blockId"],
+    ),
+    _tool(
+        "get_html_block",
+        "Read an HTML block including its source code.",
+        {
+            "documentId": {"type": "string"},
+            "sheetId": {"type": "integer"},
+            "blockId": {"type": "string"},
+        },
+        ["documentId", "blockId"],
+    ),
+    _tool(
         "delete_shapes",
-        "Delete one or more shapes by id.",
+        "Delete one or more shapes by id (also accepts HTML block ids).",
         {
             "documentId": {"type": "string"},
             "sheetId": {"type": "integer"},
@@ -574,6 +615,7 @@ def register_mcp(app, deps: dict[str, Callable]):
             "get_document_overview",
             "describe_sheet",
             "get_table",
+            "get_html_block",
             "list_business_processes",
         }
         write_tools = {
@@ -582,6 +624,8 @@ def register_mcp(app, deps: dict[str, Callable]):
             "delete_sheet",
             "create_shape",
             "update_shape",
+            "create_html_block",
+            "update_html_block",
             "delete_shapes",
             "move_shapes",
             "create_table",
@@ -619,6 +663,8 @@ def register_mcp(app, deps: dict[str, Callable]):
                     payload["updatedAt"] = row["updated_at"]
                 elif name == "get_table":
                     payload = eng.get_table(document, sheet_id, str(args.get("shapeId") or ""))
+                elif name == "get_html_block":
+                    payload = eng.get_html_block(document, sheet_id, str(args.get("blockId") or ""))
                 else:
                     payload = {"businessProcesses": eng.list_business_processes(document, sheet_id)}
                 return _text_result(payload)
@@ -646,6 +692,12 @@ def register_mcp(app, deps: dict[str, Callable]):
 
                     return _text_result(_mutate(doc_id, create_sheet_with_first_shape))
                 return _text_result(_mutate(doc_id, lambda d: eng.create_shape(d, sheet_id, args)))
+            if name == "create_html_block":
+                return _text_result(_mutate(doc_id, lambda d: eng.create_html_block(d, sheet_id, args)))
+            if name == "update_html_block":
+                return _text_result(
+                    _mutate(doc_id, lambda d: eng.update_html_block(d, sheet_id, str(args.get("blockId") or ""), args))
+                )
             if name == "update_shape":
                 return _text_result(
                     _mutate(doc_id, lambda d: eng.update_shape(d, sheet_id, str(args.get("shapeId") or ""), args))

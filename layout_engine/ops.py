@@ -313,6 +313,116 @@ def create_shape(doc: dict, sheet_id: int | None, payload: dict) -> tuple[dict, 
     return document, {"id": sid, "type": shape_type, "sheetId": sheet["id"]}
 
 
+HTML_BLOCK_MAX_CHARS = 1_000_000
+HTML_BLOCK_HEADER_HEIGHT = 40
+
+
+def _find_html_block(layout: dict, block_id: str) -> dict | None:
+    for win in layout.get("windows") or []:
+        if win.get("kind") == "html" and str(win.get("connId") or "") == str(block_id):
+            return win
+    return None
+
+
+def _next_window_conn_id(layout: dict) -> str:
+    used = 0
+    for win in layout.get("windows") or []:
+        conn_id = str(win.get("connId") or "")
+        if conn_id.startswith("window-"):
+            try:
+                used = max(used, int(conn_id[7:]))
+            except ValueError:
+                pass
+    n = max(int(layout.get("windowCounter") or 1), used + 1)
+    layout["windowCounter"] = n + 1
+    return f"window-{n}"
+
+
+def _clean_html(value: Any) -> str:
+    html = "" if value is None else str(value)
+    if len(html) > HTML_BLOCK_MAX_CHARS:
+        raise ValueError("html_too_large")
+    return html
+
+
+def _html_block_summary(win: dict, include_html: bool = False) -> dict:
+    item = {
+        "id": win.get("connId"),
+        "type": "html-block",
+        "title": str(win.get("docTitle") or win.get("title") or ""),
+        "x": parse_px(win.get("left")),
+        "y": parse_px(win.get("top")),
+        "width": parse_px(win.get("width")),
+        "height": parse_px(win.get("height")) - HTML_BLOCK_HEADER_HEIGHT,
+        "pageScale": win.get("pageScale", 1),
+        "htmlLength": len(win.get("html") or ""),
+    }
+    if include_html:
+        item["html"] = win.get("html") or ""
+    return item
+
+
+def create_html_block(doc: dict, sheet_id: int | None, payload: dict) -> tuple[dict, dict]:
+    """Create an HTML block (sandboxed iframe window). width/height describe the content area."""
+    document, sheet = get_sheet(doc, sheet_id)
+    layout = sheet["layout"]
+    layout["windows"] = list(layout.get("windows") or [])
+    title = str(payload.get("title") or payload.get("name") or "HTML-блок").strip() or "HTML-блок"
+    win = {
+        "connId": _next_window_conn_id(layout),
+        "kind": "html",
+        "html": _clean_html(payload.get("html")),
+        "src": "",
+        "docTitle": title,
+        "customTitle": "",
+        "title": title,
+        "left": px(float(payload.get("x", payload.get("left", 120)))),
+        "top": px(float(payload.get("y", payload.get("top", 120)))),
+        "width": px(max(120.0, float(payload.get("width", 480)))),
+        "height": px(max(60.0, float(payload.get("height", 360))) + HTML_BLOCK_HEADER_HEIGHT),
+        "pageScale": min(4.0, max(0.25, float(payload.get("pageScale", 1)))),
+        "zIndex": bump_z(layout),
+        "aboveConnectors": False,
+    }
+    layout["windows"].append(win)
+    document = set_sheet_layout(document, sheet["id"], layout)
+    return document, {"id": win["connId"], "type": "html-block", "sheetId": sheet["id"]}
+
+
+def update_html_block(doc: dict, sheet_id: int | None, block_id: str, patch: dict) -> tuple[dict, dict]:
+    document, sheet = get_sheet(doc, sheet_id)
+    layout = sheet["layout"]
+    win = _find_html_block(layout, block_id)
+    if not win:
+        raise ValueError("html_block_not_found")
+    if "html" in patch:
+        win["html"] = _clean_html(patch.get("html"))
+    if "title" in patch or "name" in patch:
+        title = str(patch.get("title", patch.get("name")) or "").strip() or "HTML-блок"
+        win["docTitle"] = title
+        win["title"] = title
+    if "x" in patch or "left" in patch:
+        win["left"] = px(float(patch.get("x", patch.get("left"))))
+    if "y" in patch or "top" in patch:
+        win["top"] = px(float(patch.get("y", patch.get("top"))))
+    if "width" in patch:
+        win["width"] = px(max(120.0, float(patch["width"])))
+    if "height" in patch:
+        win["height"] = px(max(60.0, float(patch["height"])) + HTML_BLOCK_HEADER_HEIGHT)
+    if "pageScale" in patch:
+        win["pageScale"] = min(4.0, max(0.25, float(patch["pageScale"])))
+    document = set_sheet_layout(document, sheet["id"], layout)
+    return document, {"id": block_id, "type": "html-block", "sheetId": sheet["id"]}
+
+
+def get_html_block(doc: dict, sheet_id: int | None, block_id: str) -> dict:
+    _, sheet = get_sheet(doc, sheet_id)
+    win = _find_html_block(sheet["layout"], block_id)
+    if not win:
+        raise ValueError("html_block_not_found")
+    return _html_block_summary(win, include_html=True)
+
+
 def update_shape(doc: dict, sheet_id: int | None, shape_id: str, patch: dict) -> tuple[dict, dict]:
     document, sheet = get_sheet(doc, sheet_id)
     layout = sheet["layout"]
@@ -373,7 +483,7 @@ def move_shapes(doc: dict, sheet_id: int | None, moves: list[dict]) -> tuple[dic
     layout = sheet["layout"]
     updated = []
     for move in moves or []:
-        shape = find_shape(layout, str(move.get("id") or ""))
+        shape = find_shape(layout, str(move.get("id") or "")) or _find_html_block(layout, str(move.get("id") or ""))
         if not shape:
             continue
         if "x" in move or "left" in move:
@@ -384,7 +494,7 @@ def move_shapes(doc: dict, sheet_id: int | None, moves: list[dict]) -> tuple[dic
             shape["left"] = px(parse_px(shape.get("left")) + float(move["dx"]))
         if "dy" in move:
             shape["top"] = px(parse_px(shape.get("top")) + float(move["dy"]))
-        updated.append(shape["id"])
+        updated.append(shape.get("id") or shape.get("connId"))
     document = set_sheet_layout(document, sheet["id"], layout)
     return document, updated
 
@@ -1393,11 +1503,15 @@ def describe_sheet(doc: dict, sheet_id: int | None = None) -> dict:
             "tables": len(tables),
             "connectors": len(layout.get("connectors") or []),
             "windows": len(layout.get("windows") or []),
+            "htmlBlocks": sum(1 for w in layout.get("windows") or [] if w.get("kind") == "html"),
             "businessProcesses": len(list_business_processes(document, sheet["id"])),
             "bpTasks": sum(1 for s in layout.get("shapes") or [] if s.get("bpRole") == "task"),
             "bpAutomations": sum(1 for s in layout.get("shapes") or [] if s.get("bpRole") == "automation"),
         },
         "shapes": shapes_summary,
+        "htmlBlocks": [
+            _html_block_summary(w) for w in layout.get("windows") or [] if w.get("kind") == "html"
+        ],
         "tables": tables,
         "businessProcesses": list_business_processes(document, sheet["id"]),
         "connectors": [

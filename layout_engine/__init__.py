@@ -7,6 +7,7 @@ from .ops import (
     add_bp_task,
     connect_shapes,
     create_business_process,
+    create_html_block,
     create_shape,
     create_sheet,
     create_table,
@@ -18,6 +19,7 @@ from .ops import (
     delete_sheet,
     describe_sheet,
     document_overview,
+    get_html_block,
     get_table,
     list_business_processes,
     move_shapes,
@@ -25,12 +27,16 @@ from .ops import (
     set_table_cells,
     update_bp_automation,
     update_business_process,
+    update_html_block,
     update_bp_stage,
     update_bp_task,
     update_shape,
 )
 
 __all__ = [
+    "create_html_block",
+    "get_html_block",
+    "update_html_block",
     "blank_document",
     "normalize_document",
     "parse_layout",

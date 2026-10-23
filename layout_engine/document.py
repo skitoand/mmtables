@@ -230,6 +230,14 @@ def remove_shapes(sheet_layout: dict, shape_ids: list[str]) -> list[str]:
         else:
             kept.append(shape)
     sheet_layout["shapes"] = kept
+    kept_windows = []
+    for win in sheet_layout.get("windows") or []:
+        conn_id = str(win.get("connId") or "")
+        if conn_id and conn_id in wanted and win.get("kind") == "html":
+            removed.append(conn_id)
+        else:
+            kept_windows.append(win)
+    sheet_layout["windows"] = kept_windows
     if removed:
         removed_set = set(removed)
         sheet_layout["connectors"] = [

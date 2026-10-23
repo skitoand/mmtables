@@ -260,6 +260,38 @@ def register_api_v1(app, deps):
         except Exception as exc:
             return _err(exc)
 
+    @app.post("/api/v1/docs/<doc_id>/html-blocks")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_create_html_block(doc_id):
+        payload = _json()
+        try:
+            return jsonify(
+                _mutate(
+                    doc_id,
+                    lambda document, p: eng.create_html_block(document, p.get("sheetId"), p),
+                    payload,
+                )
+            )
+        except Exception as exc:
+            return _err(exc)
+
+    @app.patch("/api/v1/docs/<doc_id>/html-blocks/<block_id>")
+    @require_auth
+    @require_scope("docs:write")
+    def api_v1_update_html_block(doc_id, block_id):
+        payload = _json()
+        try:
+            return jsonify(
+                _mutate(
+                    doc_id,
+                    lambda document, p: eng.update_html_block(document, p.get("sheetId"), block_id, p),
+                    payload,
+                )
+            )
+        except Exception as exc:
+            return _err(exc)
+
     @app.patch("/api/v1/docs/<doc_id>/shapes/<shape_id>")
     @require_auth
     @require_scope("docs:write")
