@@ -2695,7 +2695,7 @@ function renderShapeText(textEl) {
 }
 const SHAPE_TEXT_RICH_ALLOWED_TAGS = new Set(["SPAN", "BR", "B", "I", "U", "S", "STRONG", "EM"]);
 const SHAPE_TEXT_RICH_ALLOWED_STYLES = new Set([
-  "color", "font-weight", "font-style", "font-size", "font-family", "text-decoration"
+  "color", "font-weight", "font-style", "font-size", "font-family", "text-decoration", "text-decoration-line"
 ]);
 function isShapeTextRichFormattingAllowed(textEl) {
   if (!textEl) return false;
@@ -17796,6 +17796,8 @@ function createShapeTable(opts = {}, doSave = true) {
       r,
       c,
       raw: String(cell.raw ?? cell.text ?? ""),
+      html: typeof cell.html === "string" && cell.html ? sanitizeShapeTextHtml(cell.html) : "",
+      htmlRaw: typeof cell.html === "string" && cell.html ? String(cell.htmlRaw ?? "") : "",
       fontFamily: cell.fontFamily || "Arial",
       fontSize: toNumber(cell.fontSize, 14, 8, 144),
       color: themeAwareColor(cell.color, "var(--table-cell-text, #334155)", ["#334155"]),
@@ -18260,6 +18262,83 @@ function createShapeTable(opts = {}, doSave = true) {
     if (formulaEditorOverlay && formulaEditorOverlay.isConnected) return getEditorRawText(formulaEditorOverlay);
     return getEditorRawText(editingCell);
   };
+  let cellFormatRange = null;
+  let cellFormatPanelGesture = false;
+  const readEditingCellHtml = (td) => {
+    if (!td || td.querySelector("div,p")) return "";
+    const html = sanitizeShapeTextHtml(td.innerHTML || "");
+    return /<(b|i|u|s|strong|em)\b|<span\s+style=/i.test(html) ? html : "";
+  };
+  const getCellFormatRange = () => {
+    const td = editingCell;
+    if (!td || td.contentEditable !== "true") return null;
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount && !sel.isCollapsed) {
+      const live = sel.getRangeAt(0);
+      if (td.contains(live.commonAncestorContainer)) return live.cloneRange();
+    }
+    if (cellFormatRange && !cellFormatRange.collapsed && td.contains(cellFormatRange.commonAncestorContainer)) {
+      return cellFormatRange.cloneRange();
+    }
+    return null;
+  };
+  const captureCellFormatSelection = () => {
+    const range = getCellFormatRange();
+    if (!range) return false;
+    cellFormatRange = range;
+    cellFormatPanelGesture = true;
+    document.addEventListener("mouseup", () => {
+      window.setTimeout(() => { cellFormatPanelGesture = false; }, 0);
+    }, { once: true, capture: true });
+    return true;
+  };
+  const applyCellInlineFormat = (options) => {
+    const range = getCellFormatRange();
+    if (!range) return false;
+    const styles = {};
+    if (options.bold != null) styles.fontWeight = options.bold ? "700" : "400";
+    if (options.italic != null) styles.fontStyle = options.italic ? "italic" : "normal";
+    if (options.color) styles.color = options.color;
+    if (options.fontSize != null) styles.fontSize = `${Math.max(8, Number(options.fontSize) || 8)}px`;
+    if (options.fontFamily) styles.fontFamily = options.fontFamily;
+    if (options.underline != null || options.strike != null) {
+      const deco = [];
+      if (options.underline) deco.push("underline");
+      if (options.strike) deco.push("line-through");
+      styles.textDecoration = deco.length ? deco.join(" ") : "none";
+    }
+    if (!Object.keys(styles).length) return false;
+    const host = range.commonAncestorContainer;
+    const reuse = host.nodeType === Node.ELEMENT_NODE && host.dataset && host.dataset.cellFmt === "1"
+      && range.startContainer === host && range.startOffset === 0 && range.endOffset === host.childNodes.length;
+    if (reuse) {
+      Object.assign(host.style, styles);
+      return true;
+    }
+    const span = document.createElement("span");
+    span.dataset.cellFmt = "1";
+    Object.assign(span.style, styles);
+    span.appendChild(range.extractContents());
+    range.insertNode(span);
+    const next = document.createRange();
+    next.selectNodeContents(span);
+    cellFormatRange = next;
+    return true;
+  };
+  const applyCellInlineFormatFromPanel = (source) => {
+    if (!source || !isInlineTextFormatControl(source)) return false;
+    if (!applyCellInlineFormat(buildShapeTextFormatOptionsFromPanel(source))) return false;
+    const td = editingCell;
+    if (td && source.type === "checkbox" && cellFormatRange) {
+      td.focus({ preventScroll: true });
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(cellFormatRange.cloneRange());
+      }
+    }
+    return true;
+  };
   const dumpCellStates = () => Array.from(state.cells.values()).map((cell) => {
     const isFormula = String(cell.raw || "").trim().startsWith("=");
     const parsedNumeric = parseStrictNumericLikeText(cell.raw, { numberFormat: cell.numberFormat });
@@ -18592,7 +18671,11 @@ function createShapeTable(opts = {}, doSave = true) {
       fill2: cell.fill2,
       fillDirection: cell.fillDirection
     });
-    if (!isFilterHeaderCell) td.textContent = getCellDisplayValue(cell);
+    if (!isFilterHeaderCell) {
+      const display = getCellDisplayValue(cell);
+      if (cell.html && cell.htmlRaw === cell.raw && display === cell.raw) td.innerHTML = cell.html;
+      else td.textContent = display;
+    }
   };
   const removeFormulaEditorOverlay = () => {
     if (!formulaEditorOverlay) return;
@@ -18868,9 +18951,14 @@ function createShapeTable(opts = {}, doSave = true) {
     const c = Number(td.dataset.c);
     const cell = getCellState(r, c);
     if (cell) {
+      const usedOverlay = !!(formulaEditorOverlay && formulaEditorOverlay.isConnected);
       cell.raw = getEditingCellRawText();
+      const html = usedOverlay || cell.raw.trim().startsWith("=") ? "" : readEditingCellHtml(td);
+      cell.html = html;
+      cell.htmlRaw = html ? cell.raw : "";
       setCellState(cell);
     }
+    cellFormatRange = null;
     removeFormulaEditorOverlay();
     td.contentEditable = "false";
     td.classList.remove("cell-editing");
@@ -18920,7 +19008,9 @@ function createShapeTable(opts = {}, doSave = true) {
     } else {
       removeFormulaEditorOverlay();
       td.contentEditable = "true";
-      td.textContent = nextText;
+      const keepRich = !!(cell && cell.html && cell.htmlRaw === cell.raw && nextText === cell.raw);
+      if (keepRich) td.innerHTML = cell.html;
+      else td.textContent = nextText;
       syncEditorRawText(td);
       setActiveFormulaEditor(td);
       td.focus();
@@ -19011,6 +19101,8 @@ function createShapeTable(opts = {}, doSave = true) {
           c,
           cell: cell ? {
             raw: String(cell.raw || ""),
+            html: cell.html || "",
+            htmlRaw: cell.htmlRaw || "",
             fontFamily: cell.fontFamily,
             fontSize: cell.fontSize,
             color: cell.color,
@@ -19715,6 +19807,17 @@ function createShapeTable(opts = {}, doSave = true) {
         td.addEventListener("keydown", (event) => {
           if (editingCell !== td) return;
           event.stopPropagation();
+          if ((event.ctrlKey || event.metaKey) && !event.altKey && td.contentEditable === "true") {
+            const key = String(event.key || "").toLowerCase();
+            const cmd = key === "b" ? "bold" : key === "i" ? "italic" : key === "u" ? "underline"
+              : (key === "x" && event.shiftKey) ? "strikeThrough" : null;
+            if (cmd) {
+              event.preventDefault();
+              document.execCommand("styleWithCSS", false, true);
+              document.execCommand(cmd);
+              return;
+            }
+          }
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             finishCellEdit(td);
@@ -19750,6 +19853,7 @@ function createShapeTable(opts = {}, doSave = true) {
           refreshActiveFormulaReferenceHighlight();
         });
         td.addEventListener("blur", () => {
+          if (cellFormatPanelGesture) return;
           if (formulaEditorOverlay && formulaEditorOverlay.isConnected) return;
           finishCellEdit(td);
         });
@@ -20525,6 +20629,10 @@ function createShapeTable(opts = {}, doSave = true) {
     updateConnectorGuides: updateCellConnectorGuides,
     syncToFormatPanel: syncToFormatPanelFromState,
     applyCellStyleFromFormatPanel: applyPanelToCellState,
+    captureFormatSelection: captureCellFormatSelection,
+    applyInlineFormatFromPanel: applyCellInlineFormatFromPanel,
+    isFormatGestureActive: () => cellFormatPanelGesture || (!!editingCell && !!cellFormatRange),
+    finishEditingIfAny: () => { if (editingCell) finishCellEdit(editingCell); },
     adjustAllFontSizesBy,
     applyFromFormatPanel: () => {
       if (node.__tableSelectionScope === "cells" && selectedCells.length) return applyPanelToCellState();
@@ -21716,6 +21824,7 @@ function applyFormat(opts = {}) {
   }
   if (!selectedShape) return;
   if (selectedShape.dataset.shapeType === "shape-table") {
+    if (formatSource && selectedShape.__tableApi?.applyInlineFormatFromPanel?.(formatSource)) return;
     if (selectedShape.__tableApi && selectedShape.__tableApi.applyFromFormatPanel) {
       const changed = selectedShape.__tableApi.applyFromFormatPanel();
       if (changed) {
@@ -22953,6 +23062,19 @@ safeOn(redoBtn, "click", redoAction);
 
 document.addEventListener("mouseup", () => {
   window.setTimeout(() => { shapeTextFormatPanelGesture = false; }, 0);
+}, true);
+
+if (formatPanel) {
+  formatPanel.addEventListener("mousedown", () => {
+    selectedShape?.__tableApi?.captureFormatSelection?.();
+  }, true);
+}
+document.addEventListener("pointerdown", (event) => {
+  const api = selectedShape?.__tableApi;
+  if (!api?.isFormatGestureActive?.()) return;
+  if (formatPanel?.contains(event.target)) return;
+  if (event.target.closest?.('.shape-table-grid td[contenteditable="true"]')) return;
+  api.finishEditingIfAny();
 }, true);
 
 document.addEventListener("selectionchange", () => {
