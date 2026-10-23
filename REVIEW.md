@@ -2373,3 +2373,17 @@ tar -xzf /opt/apps/backups/mmtable-PROD-BACKUP-20260701-110846-before-deploy.tar
 - Изоляция: `sandbox="allow-scripts allow-forms allow-popups allow-modals"` без `allow-same-origin` — код не видит приложение/сессию.
 - Ресайз как у окон: угол — масштаб содержимого, стороны — размер поля. Кнопка ✎ — редактор кода, ↻ — перезапуск, лимит 1 000 000 символов.
 - Проверка: `node --check`; локально (без входа, прямым вызовом) — рендер, изоляция (`contentDocument` недоступен), ресайз стороной/углом, обновление кода; прод отдаёт новую версию и иконку. Сквозная проверка через UI под аккаунтом не выполнена.
+
+---
+
+## 2026-10-23 — HTML-блок через MCP и REST API
+
+**Коммит:** `8f4e25c9885aa0735d7d32401e6da1fac59fea4c`  
+**GitHub Actions:** https://github.com/skitoand/mmtables/actions/runs/39929302794  
+**Бэкап:** создаётся шагом деплоя (см. лог run)  
+**Статус:** OK
+
+- MCP: `create_html_block`, `update_html_block`, `get_html_block`; `delete_shapes` и `move_shapes` принимают id блока (`window-N`); `describe_sheet`/`get_document_overview` показывают `htmlBlocks` и счётчик.
+- REST: `POST /api/v1/docs/<id>/html-blocks`, `PATCH /api/v1/docs/<id>/html-blocks/<blockId>`.
+- Размеры `width`/`height` — область содержимого (шапка 40px добавляется сервером); лимит html 1 000 000 символов.
+- Проверка: `python3 -m unittest discover -s tests` — 35 тестов OK (добавлен тест жизненного цикла блока); после выкладки прод отдаёт 200, новый REST-маршрут отвечает 401 без токена. Вызов новых MCP-инструментов на проде с токеном не выполнялся.
