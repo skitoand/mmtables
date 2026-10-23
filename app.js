@@ -11725,10 +11725,18 @@ function adjustSheetWindowPageScaleFromWheel(node, event) {
   return true;
 }
 
+function isHtmlBlockNode(node) {
+  return !!(node && node.dataset && node.dataset.kind === "html");
+}
+
 function handleWheelOverSheetWindow(node, event) {
   if (!node) return false;
   const interactive = node.classList.contains("sheet-interact");
   const zoomModifier = event.altKey || event.ctrlKey || event.metaKey;
+
+  // HTML block: plain wheel never rescales the page. Selected block scrolls its own content
+  // (the iframe receives the wheel itself); an unselected one lets the desktop scroll/pan.
+  if (isHtmlBlockNode(node) && !zoomModifier) return false;
 
   // Default mode: wheel/pinch scales the page inside the window, never the desktop.
   // Interactive mode (double-click): plain wheel scrolls the embed; modifiers still scale.
@@ -11905,12 +11913,23 @@ function createSheetWindow(url, opts = {}, doSave = true) {
     }
     frame.src = node.dataset.embedUrl || frame.src;
   });
-  frame.addEventListener("mouseenter", () => setViewportScrollLock(true));
-  frame.addEventListener("mouseleave", () => setViewportScrollLock(false));
+  if (!isHtmlBlock) {
+    frame.addEventListener("mouseenter", () => setViewportScrollLock(true));
+    frame.addEventListener("mouseleave", () => setViewportScrollLock(false));
+  }
   const frameParts = ensureSheetFrameViewport(node);
   const frameViewport = frameParts?.viewport || node.querySelector(".sheet-frame-viewport");
   const wheelCatcher = frameParts?.catcher || frameViewport?.querySelector?.(".sheet-frame-wheel-catcher");
-  if (frameViewport) {
+  if (frameViewport && isHtmlBlock) {
+    // Выбранный блок остаётся «живым» (клики и скролл внутри); у невыбранного колесо крутит рабочий стол.
+    frameViewport.addEventListener("mouseenter", () => {
+      if (node.classList.contains("sheet-interact")) setViewportScrollLock(true);
+    });
+    frameViewport.addEventListener("mouseleave", () => {
+      setViewportScrollLock(false);
+      if (selectedWindow !== node) setSheetWindowInteract(node, false);
+    });
+  } else if (frameViewport) {
     frameViewport.addEventListener("mouseenter", () => setViewportScrollLock(true));
     frameViewport.addEventListener("mouseleave", () => {
       setViewportScrollLock(false);
@@ -11925,6 +11944,10 @@ function createSheetWindow(url, opts = {}, doSave = true) {
       if (event.button !== 0) return;
       event.stopPropagation();
       selectWindow(node);
+      if (isHtmlBlock) {
+        clearAllSheetWindowInteract(node);
+        setSheetWindowInteract(node, true);
+      }
     });
     wheelCatcher.addEventListener("dblclick", (event) => {
       event.preventDefault();
@@ -23715,8 +23738,7 @@ viewportEl.addEventListener("wheel", (e) => {
       : null);
 
   // Any wheel/pinch over embedded window content must never zoom/pan the desktop.
-  if (sheetWindow) {
-    handleWheelOverSheetWindow(sheetWindow, e);
+  if (sheetWindow && (handleWheelOverSheetWindow(sheetWindow, e) !== false || !isHtmlBlockNode(sheetWindow))) {
     return;
   }
 
