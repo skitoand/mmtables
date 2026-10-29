@@ -13371,9 +13371,13 @@ function getConnectorRenderPoints(conn) {
         gapStart,
         getPreferredCenterExitDirection(fromNode, fromReferencePoint, routeStyle)
       )
-      : getOffsetPointFromEdge(p1Raw, p2Raw, gapStart);
+      : (shouldOffsetConnectorAlongAnchor(routeStyle, fromAnchor)
+        ? getOffsetPointFromAnchorDirection(p1Raw, fromAnchor, gapStart)
+        : getOffsetPointFromEdge(p1Raw, p2Raw, gapStart));
   } else if (connectorEndHasCell(conn.from) && fromAnchor !== "c") {
-    p1 = getOffsetPointFromEdge(p1Raw, fromReferencePoint, gapStart);
+    p1 = shouldOffsetConnectorAlongAnchor(routeStyle, fromAnchor)
+      ? getOffsetPointFromAnchorDirection(p1Raw, fromAnchor, gapStart)
+      : getOffsetPointFromEdge(p1Raw, fromReferencePoint, gapStart);
   }
   if (toNode) {
     p2 = toAnchor === "c"
@@ -13383,9 +13387,13 @@ function getConnectorRenderPoints(conn) {
         gapEnd,
         getPreferredCenterExitDirection(toNode, toReferencePoint, routeStyle)
       )
-      : getOffsetPointFromEdge(p2Raw, p1Raw, gapEnd);
+      : (shouldOffsetConnectorAlongAnchor(routeStyle, toAnchor)
+        ? getOffsetPointFromAnchorDirection(p2Raw, toAnchor, gapEnd)
+        : getOffsetPointFromEdge(p2Raw, p1Raw, gapEnd));
   } else if (connectorEndHasCell(conn.to) && toAnchor !== "c") {
-    p2 = getOffsetPointFromEdge(p2Raw, toReferencePoint, gapEnd);
+    p2 = shouldOffsetConnectorAlongAnchor(routeStyle, toAnchor)
+      ? getOffsetPointFromAnchorDirection(p2Raw, toAnchor, gapEnd)
+      : getOffsetPointFromEdge(p2Raw, toReferencePoint, gapEnd);
   }
   return {
     p1,
@@ -13398,13 +13406,86 @@ function getConnectorRenderPoints(conn) {
 }
 
 function normalizeConnectorRouteStyle(value) {
-  return ["straight", "orthogonal-horizontal", "orthogonal-vertical"].includes(value)
+  return ["curve", "straight", "orthogonal-horizontal", "orthogonal-vertical"].includes(value)
     ? value
-    : "straight";
+    : "curve";
 }
 
 function isOrthogonalRouteStyle(value) {
-  return normalizeConnectorRouteStyle(value) !== "straight";
+  const style = normalizeConnectorRouteStyle(value);
+  return style === "orthogonal-horizontal" || style === "orthogonal-vertical";
+}
+
+function isCurveRouteStyle(value) {
+  return normalizeConnectorRouteStyle(value) === "curve";
+}
+
+function shouldOffsetConnectorAlongAnchor(routeStyle, anchor) {
+  return (isCurveRouteStyle(routeStyle) || isOrthogonalRouteStyle(routeStyle))
+    && ["n", "e", "s", "w"].includes(anchor);
+}
+
+function getOffsetPointFromAnchorDirection(edgePoint, anchor, gapPx = 5) {
+  const g = Math.max(0, Number(gapPx) || 0);
+  const x = Number(edgePoint?.x) || 0;
+  const y = Number(edgePoint?.y) || 0;
+  if (anchor === "e") return { x: x + g, y };
+  if (anchor === "w") return { x: x - g, y };
+  if (anchor === "n") return { x, y: y - g };
+  if (anchor === "s") return { x, y: y + g };
+  return { x, y };
+}
+
+function connectorAnchorTravelDir(anchor, fromPoint, toPoint, role = "out") {
+  if (role === "out") {
+    if (anchor === "e") return { x: 1, y: 0 };
+    if (anchor === "w") return { x: -1, y: 0 };
+    if (anchor === "n") return { x: 0, y: -1 };
+    if (anchor === "s") return { x: 0, y: 1 };
+  } else {
+    // Direction of travel when arriving into the target anchor.
+    if (anchor === "w") return { x: 1, y: 0 };
+    if (anchor === "e") return { x: -1, y: 0 };
+    if (anchor === "n") return { x: 0, y: 1 };
+    if (anchor === "s") return { x: 0, y: -1 };
+  }
+  const dx = (toPoint?.x || 0) - (fromPoint?.x || 0);
+  const dy = (toPoint?.y || 0) - (fromPoint?.y || 0);
+  if (Math.abs(dx) >= Math.abs(dy)) return { x: dx >= 0 ? 1 : -1, y: 0 };
+  return { x: 0, y: dy >= 0 ? 1 : -1 };
+}
+
+function buildCurveControlPoints(p1, p2, fromAnchor = "c", toAnchor = "c") {
+  const dist = Math.hypot((p2.x - p1.x), (p2.y - p1.y));
+  const pull = Math.max(40, Math.min(220, dist * 0.5));
+  const outDir = connectorAnchorTravelDir(fromAnchor, p1, p2, "out");
+  const inDir = connectorAnchorTravelDir(toAnchor, p1, p2, "in");
+  return {
+    c1: { x: p1.x + outDir.x * pull, y: p1.y + outDir.y * pull },
+    c2: { x: p2.x - inDir.x * pull, y: p2.y - inDir.y * pull }
+  };
+}
+
+function sampleCubicBezier(p1, c1, c2, p2, steps = 24) {
+  const count = Math.max(8, Math.min(64, Number(steps) || 24));
+  const points = [];
+  for (let i = 0; i <= count; i += 1) {
+    const t = i / count;
+    const u = 1 - t;
+    const tt = t * t;
+    const uu = u * u;
+    const uuu = uu * u;
+    const ttt = tt * t;
+    points.push({
+      x: uuu * p1.x + 3 * uu * t * c1.x + 3 * u * tt * c2.x + ttt * p2.x,
+      y: uuu * p1.y + 3 * uu * t * c1.y + 3 * u * tt * c2.y + ttt * p2.y
+    });
+  }
+  return normalizeConnectorRoutePoints(points);
+}
+
+function connectorCurvePathD(p1, c1, c2, p2) {
+  return `M ${p1.x} ${p1.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`;
 }
 
 function cloneConnectorPoint(point) {
@@ -13443,12 +13524,15 @@ function normalizeConnectorRoutePoints(points) {
 function buildDefaultConnectorRoutePoints(p1, p2, routeStyle) {
   const style = normalizeConnectorRouteStyle(routeStyle);
   if (!isOrthogonalRouteStyle(style)) return [];
-  if (style === "orthogonal-vertical") {
-    if (Math.abs(p1.x - p2.x) < 0.5 || Math.abs(p1.y - p2.y) < 0.5) return [];
-    return [{ x: p1.x, y: p2.y }];
-  }
   if (Math.abs(p1.x - p2.x) < 0.5 || Math.abs(p1.y - p2.y) < 0.5) return [];
-  return [{ x: p2.x, y: p1.y }];
+  if (style === "orthogonal-vertical") {
+    // Vertical exits/entries: keep first/last segments vertical.
+    const midY = (p1.y + p2.y) / 2;
+    return [{ x: p1.x, y: midY }, { x: p2.x, y: midY }];
+  }
+  // Horizontal exits/entries: keep first/last segments horizontal so arrows stay perpendicular.
+  const midX = (p1.x + p2.x) / 2;
+  return [{ x: midX, y: p1.y }, { x: midX, y: p2.y }];
 }
 
 function getConnectorPathState(conn) {
@@ -13456,10 +13540,28 @@ function getConnectorPathState(conn) {
   if (!renderPoints) return null;
   const routeStyle = normalizeConnectorRouteStyle(conn.routeStyle);
   const { p1, p2, p1Raw, p2Raw } = renderPoints;
+  if (isCurveRouteStyle(routeStyle)) {
+    const { c1, c2 } = buildCurveControlPoints(p1, p2, conn.from?.anchor || "c", conn.to?.anchor || "c");
+    const samples = sampleCubicBezier(p1, c1, c2, p2, 28);
+    return {
+      routeStyle,
+      orthogonal: false,
+      curved: true,
+      points: samples,
+      pathD: connectorCurvePathD(p1, c1, c2, p2),
+      curve: { p1, c1, c2, p2 },
+      p1,
+      p2,
+      p1Raw,
+      p2Raw
+    };
+  }
   if (!isOrthogonalRouteStyle(routeStyle)) {
-    return { routeStyle, orthogonal: false, points: [p1, p2], p1, p2, p1Raw, p2Raw };
+    return { routeStyle, orthogonal: false, curved: false, points: [p1, p2], p1, p2, p1Raw, p2Raw };
   }
   const internal = normalizeConnectorRoutePoints(conn.routePoints).map(cloneConnectorPoint);
+  // Old mindmap links used a single L-bend that approached children vertically.
+  if (conn.mindMap && internal.length === 1) internal.length = 0;
   if (!internal.length) {
     internal.push(...buildDefaultConnectorRoutePoints(p1, p2, routeStyle));
   } else if (internal.length === 1) {
@@ -13481,10 +13583,11 @@ function getConnectorPathState(conn) {
     else last.x = p2.x;
   }
   const points = [p1, ...normalizeConnectorRoutePoints(internal), p2];
-  return { routeStyle, orthogonal: true, points, p1, p2, p1Raw, p2Raw };
+  return { routeStyle, orthogonal: true, curved: false, points, p1, p2, p1Raw, p2Raw };
 }
 
-function connectorPathToSvg(points) {
+function connectorPathToSvg(points, pathState = null) {
+  if (pathState?.pathD) return pathState.pathD;
   if (!Array.isArray(points) || points.length < 2) return "";
   return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
 }
@@ -13986,7 +14089,7 @@ function getOffsetPointFromShapeCenter(node, otherPoint, offsetPx = 5, preferred
   return { x: edgeX + dx * offsetPx, y: edgeY + dy * offsetPx };
 }
 
-function getPreferredCenterExitDirection(node, otherPoint, routeStyle = "straight") {
+function getPreferredCenterExitDirection(node, otherPoint, routeStyle = "curve") {
   const style = normalizeConnectorRouteStyle(routeStyle);
   const { left, top, width: w, height: h } = getConnectableBounds(node);
   const cx = left + w / 2;
@@ -13997,7 +14100,7 @@ function getPreferredCenterExitDirection(node, otherPoint, routeStyle = "straigh
     if (Math.abs(dx) > Math.abs(dy)) return dx >= 0 ? "e" : "w";
     return dy >= 0 ? "s" : "n";
   }
-  if (style === "orthogonal-horizontal") return otherPoint.x >= cx ? "e" : "w";
+  if (style === "orthogonal-horizontal" || style === "curve") return otherPoint.x >= cx ? "e" : "w";
   if (style === "orthogonal-vertical") return otherPoint.y >= cy ? "s" : "n";
   return null;
 }
@@ -14271,12 +14374,12 @@ function getOppositeConnectorAnchor(anchor) {
 }
 
 const MINDMAP_LAYOUTS = {
-  "logic-right": { id: "logic-right", label: "Логика →", dir: "e", routeStyle: "orthogonal-horizontal" },
-  "logic-left": { id: "logic-left", label: "Логика ←", dir: "w", routeStyle: "orthogonal-horizontal" },
-  "org-down": { id: "org-down", label: "Орг ↓", dir: "s", routeStyle: "orthogonal-vertical" },
-  "org-up": { id: "org-up", label: "Орг ↑", dir: "n", routeStyle: "orthogonal-vertical" },
-  mindmap: { id: "mindmap", label: "Mind Map", dir: "lr", routeStyle: "straight" },
-  "tree-right": { id: "tree-right", label: "Дерево →", dir: "e", routeStyle: "straight" }
+  "logic-right": { id: "logic-right", label: "Логика →", dir: "e", routeStyle: "curve" },
+  "logic-left": { id: "logic-left", label: "Логика ←", dir: "w", routeStyle: "curve" },
+  "org-down": { id: "org-down", label: "Орг ↓", dir: "s", routeStyle: "curve" },
+  "org-up": { id: "org-up", label: "Орг ↑", dir: "n", routeStyle: "curve" },
+  mindmap: { id: "mindmap", label: "Mind Map", dir: "lr", routeStyle: "curve" },
+  "tree-right": { id: "tree-right", label: "Дерево →", dir: "e", routeStyle: "curve" }
 };
 const MINDMAP_H_GAP = 48;
 const MINDMAP_V_GAP = 28;
@@ -14356,9 +14459,13 @@ function updateMindMapLinkStyle(parentNode, childNode, side, routeStyle) {
   conn.to = { ...(conn.to || {}), nodeId: getShapeEndpointId(childNode), anchor: toAnchor };
   delete conn.to.shapeId;
   delete conn.to.cell;
-  conn.routeStyle = normalizeConnectorRouteStyle(routeStyle);
+  conn.routeStyle = normalizeConnectorRouteStyle(routeStyle || "curve");
   conn.routePoints = [];
   if ((conn.startArrowShape || "classic") === "classic") conn.startArrowShape = "line";
+  if (isCurveRouteStyle(conn.routeStyle) || isOrthogonalRouteStyle(conn.routeStyle)) {
+    conn.gapStart = Math.min(Number(conn.gapStart ?? 30) || 30, 24);
+    conn.gapEnd = Math.min(Number(conn.gapEnd ?? 30) || 30, 24);
+  }
 }
 
 function layoutMindMapNode(node, left, centerY, dir, routeStyle, freezeNode) {
@@ -14572,12 +14679,12 @@ function spawnLinkedShapeFromAnchor(sourceNode, anchor, event = null) {
     shadow: 0,
     startArrowShape: "line",
     endArrowShape: "classic",
-    routeStyle: "straight",
-    routePoints: [],
-    gapStart: 30,
-    gapEnd: 30,
+    gapStart: 24,
+    gapEnd: 24,
     ...(cloneStyleData(defaultStyles.connector) || {}),
-    mindMap: true
+    mindMap: true,
+    routeStyle: "curve",
+    routePoints: []
   });
   const layoutId = normalizeMindMapLayoutId(sourceNode.dataset.mindMapLayout);
   layoutMindMapNode(
@@ -14734,13 +14841,14 @@ function finishConnectorDraft(event) {
           shadow: 0,
           startArrowShape: "line",
           endArrowShape: "classic",
-          routeStyle: "straight",
+          routeStyle: "curve",
           routePoints: [],
           gapStart: 30,
           gapEnd: 30
         },
         ...(cloneStyleData(defaultStyles.connector) || {}),
-        ...(styleClipboard && styleClipboard.type === "connector" ? cloneStyleData(styleClipboard.data) || {} : {})
+        ...(styleClipboard && styleClipboard.type === "connector" ? cloneStyleData(styleClipboard.data) || {} : {}),
+        ...(!(styleClipboard && styleClipboard.type === "connector") ? { routeStyle: "curve", routePoints: [] } : {})
       });
       saveLayout();
     }
@@ -14893,7 +15001,7 @@ function renderConnectors() {
     const state = getConnectorPathState(c);
     if (!state) return;
     const { p1, p2, attach1, attach2 } = state;
-    const pathD = connectorPathToSvg(state.points);
+    const pathD = connectorPathToSvg(state.points, state);
     const color = c.color || "#1f2937";
     const width = Math.max(1, Number(c.width) || 2);
     const startMarkerId = `conn-start-${c.id}`;
@@ -14962,7 +15070,9 @@ function renderConnectors() {
     const endArrowShape = c.endArrowShape || "classic";
     lineSegments.forEach((segment, segmentIndex) => {
       const segmentPoints = segment.points || [];
-      const segPathD = connectorPathToSvg(segmentPoints);
+      const segPathD = (lineSegments.length === 1 && state.pathD)
+        ? state.pathD
+        : connectorPathToSvg(segmentPoints);
       if (!segPathD) return;
       const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
       line.setAttribute("class", `conn-line${isConnectorSelected ? " selected" : ""}`);
@@ -23343,7 +23453,7 @@ safeOn(fpResetBtn, "click", () => {
     c.shadow = 0;
     c.startArrowShape = "line";
     c.endArrowShape = "classic";
-    c.routeStyle = "straight";
+    c.routeStyle = "curve";
     c.routePoints = [];
     c.gapStart = 30;
     c.gapEnd = 30;
