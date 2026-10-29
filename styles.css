@@ -2713,9 +2713,9 @@ body.dark .fp-mindmap-option.is-active{
 
 .fp-arrow-form-row{
   display:grid;
-  grid-template-columns:minmax(200px, 200px) minmax(0, 1fr);
+  grid-template-columns:minmax(88px, 120px) minmax(0, 1fr);
   align-items:center;
-  column-gap:14px;
+  column-gap:10px;
 }
 
 .fp-arrow-form-row .fp-label-inline{
@@ -2731,6 +2731,7 @@ body.dark .fp-mindmap-option.is-active{
 .fp-arrow-select{
   position:relative;
   min-width:0;
+  width:100%;
 }
 
 .fp-arrow-select-trigger{
@@ -2766,9 +2767,12 @@ body.dark .fp-mindmap-option.is-active{
   display:none;
   position:absolute;
   left:0;
-  right:0;
+  right:auto;
   top:calc(100% + 4px);
-  grid-template-columns:repeat(4, 1fr);
+  width:max(100%, 220px);
+  max-width:min(280px, calc(100vw - 24px));
+  box-sizing:border-box;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
   gap:6px;
   padding:6px;
   background:#fff;
@@ -2778,8 +2782,23 @@ body.dark .fp-mindmap-option.is-active{
   z-index:30;
 }
 
+.fp-arrow-select-menu .fp-arrow-option{
+  width:100%;
+  min-width:0;
+  height:40px;
+  padding:4px;
+  box-sizing:border-box;
+}
+
 .fp-arrow-select.is-open .fp-arrow-select-menu{
   display:grid;
+}
+
+/* Keep route options fully visible even at the format panel min-width. */
+.fp-conn-route-menu{
+  width:100%;
+  max-width:100%;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
 }
 
 .fp-style-actions{

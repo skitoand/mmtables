@@ -7448,9 +7448,9 @@ function applyCreationStylePreset(type, opts = {}) {
 }
 
 function snapshotStyleForSelection() {
-  if (selectedConnector) {
-    const c = connectors.find((it) => it.id === selectedConnector);
-    if (!c) return null;
+  const activeConnectors = getActiveConnectorSelection();
+  if (activeConnectors.length) {
+    const c = activeConnectors[0];
     return {
       type: "connector",
       data: {
@@ -7724,31 +7724,35 @@ function applyStyleDataToShapeTargets(targets, data) {
 }
 
 function getStyleTypeForCurrentSelection() {
-  if (selectedConnector) return "connector";
+  if (getActiveConnectorSelection().length) return "connector";
   const targets = getStyleOperationTargets().filter((node) => node.dataset.shapeType !== "shape-line");
   if (!targets.length) return null;
   return targets[0].dataset.shapeType || "shape";
 }
 
+function applyConnectorStyleData(conn, data = {}) {
+  if (!conn) return false;
+  conn.color = data.color || conn.color || "#1f2937";
+  conn.width = Math.max(1, Number(data.width) || conn.width || 2);
+  conn.lineStyle = normalizeBorderLineStyle(data.lineStyle || conn.lineStyle || "solid");
+  conn.opacity = normalizeOpacityValue(data.opacity ?? conn.opacity ?? 1);
+  conn.shadow = Math.max(0, Number(data.shadow ?? conn.shadow ?? 0) || 0);
+  conn.startArrowShape = data.startArrowShape || conn.startArrowShape || "classic";
+  conn.endArrowShape = data.endArrowShape || conn.endArrowShape || "classic";
+  conn.routeStyle = normalizeConnectorRouteStyle(data.routeStyle || conn.routeStyle);
+  if (!isOrthogonalRouteStyle(conn.routeStyle)) conn.routePoints = [];
+  conn.gapStart = Math.max(0, Number(data.gapStart ?? conn.gapStart ?? 30) || 0);
+  conn.gapEnd = Math.max(0, Number(data.gapEnd ?? conn.gapEnd ?? 30) || 0);
+  if (data.labelStyle) conn.labelStyle = normalizeConnectorLabelStyle(data.labelStyle);
+  return true;
+}
+
 function applyStyleSnapshotToSelection(snap) {
   if (!snap?.data) return false;
-  if (selectedConnector) {
+  const selectedConnectors = getActiveConnectorSelection();
+  if (selectedConnectors.length) {
     if (snap.type !== "connector") return false;
-    const c = connectors.find((it) => it.id === selectedConnector);
-    if (!c) return false;
-    const data = snap.data || {};
-    c.color = data.color || c.color || "#1f2937";
-    c.width = Math.max(1, Number(data.width) || c.width || 2);
-    c.lineStyle = normalizeBorderLineStyle(data.lineStyle || c.lineStyle || "solid");
-    c.opacity = normalizeOpacityValue(data.opacity ?? c.opacity ?? 1);
-    c.shadow = Math.max(0, Number(data.shadow ?? c.shadow ?? 0) || 0);
-    c.startArrowShape = data.startArrowShape || c.startArrowShape || "classic";
-    c.endArrowShape = data.endArrowShape || c.endArrowShape || "classic";
-    c.routeStyle = normalizeConnectorRouteStyle(data.routeStyle || c.routeStyle);
-    if (!isOrthogonalRouteStyle(c.routeStyle)) c.routePoints = [];
-    c.gapStart = Math.max(0, Number(data.gapStart ?? c.gapStart ?? 30) || 0);
-    c.gapEnd = Math.max(0, Number(data.gapEnd ?? c.gapEnd ?? 30) || 0);
-    if (data.labelStyle) c.labelStyle = normalizeConnectorLabelStyle(data.labelStyle);
+    selectedConnectors.forEach((conn) => applyConnectorStyleData(conn, snap.data || {}));
     renderConnectors();
     saveLayout();
     syncFormatPanel();
@@ -7963,7 +7967,7 @@ function syncBpProcessesToTheme(opts = {}) {
 }
 
 function resetCurrentStyleToDefault() {
-  if (selectedConnector) {
+  if (getActiveConnectorSelection().length) {
     const data = getDefaultStyleData("connector");
     if (!data || !Object.keys(data).length) return false;
     return applyStyleSnapshotToSelection({ type: "connector", data });
@@ -8581,13 +8585,62 @@ function getConnectorRouteButtonsValue(container) {
   return normalizeConnectorRouteStyle(active?.dataset.route);
 }
 
+function getActiveConnectorSelection() {
+  if (selectedConnector) {
+    const single = connectors.find((it) => it.id === selectedConnector);
+    return single ? [single] : [];
+  }
+  if (
+    multiSelectedConnectorIds.size
+    && !selectedShape
+    && !multiSelectedShapeIds.size
+    && !selectedGroupId
+    && !selectedWindow
+  ) {
+    return connectors.filter((conn) => multiSelectedConnectorIds.has(conn.id));
+  }
+  return [];
+}
+
 function getSelectionMode() {
-  if (selectedConnector) return "connector";
+  if (selectedConnector || getActiveConnectorSelection().length) return "connector";
   if (selectedWindow) return "window";
   if (selectedGroupId) return "shape";
   if (!selectedShape && multiSelectedShapeIds.size) return "shape";
   if (selectedShape) return "shape";
   return "desktop";
+}
+
+function toggleConnectorMultiSelection(connId) {
+  if (isWorkspaceReadOnly() || !connId) return;
+  if (activeConnectorLabelEditId && activeConnectorLabelEditId !== connId) {
+    finishConnectorLabelEditing();
+  }
+  clearAllTableCellSelections();
+  clearSelectedShape();
+  clearSelectedGroup();
+  clearSelectedWindow();
+  multiSelectedShapeIds.clear();
+  multiSelectedWindowIds.clear();
+  if (selectedConnector && selectedConnector !== connId) {
+    multiSelectedConnectorIds.add(selectedConnector);
+  }
+  selectedConnector = null;
+  if (multiSelectedConnectorIds.has(connId)) multiSelectedConnectorIds.delete(connId);
+  else multiSelectedConnectorIds.add(connId);
+  if (multiSelectedConnectorIds.size === 1) {
+    const onlyId = Array.from(multiSelectedConnectorIds)[0];
+    multiSelectedConnectorIds.clear();
+    selectConnector(onlyId);
+    return;
+  }
+  renderConnectors();
+  if (formatToggle.checked) {
+    showFormatPanel();
+    syncFormatPanel();
+  } else if (!multiSelectedConnectorIds.size) {
+    syncFormatPanel();
+  }
 }
 
 function setControlVisibilityByMode(mode) {
@@ -15046,6 +15099,10 @@ function renderConnectors() {
     }
     const selectFromPointer = (e) => {
       e.stopPropagation();
+      if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        toggleConnectorMultiSelection(c.id);
+        return;
+      }
       selectConnector(c.id);
     };
     const hitLine = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -15095,8 +15152,8 @@ function renderConnectors() {
       line.setAttribute("marker-end", isLast && endArrowShape !== "line" ? `url(#${endMarkerId})` : "none");
       layer.appendChild(line);
     });
-    if (labelLayout) appendConnectorLabelOverlay(c, labelLayout, selectedConnector === c.id);
-    if (selectedConnector === c.id) {
+    if (labelLayout) appendConnectorLabelOverlay(c, labelLayout, isConnectorSelected);
+    if (isConnectorSelected) {
       ["from", "to"].forEach((side) => {
         const p = side === "from" ? p1 : p2;
         appendConnectorOverlayHandle(p, {
@@ -15138,7 +15195,7 @@ function renderConnectors() {
           }
         });
       });
-      if (state.orthogonal) {
+      if (selectedConnector === c.id && state.orthogonal) {
         getConnectorSegments(state.points).forEach(({ index, a, b }) => {
           appendConnectorOverlayHandle({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, {
             connectorId: c.id,
@@ -22180,33 +22237,62 @@ function syncFormatPanel() {
     updateFormatPanelVisuals();
     return;
   }
-  if (selectedConnector) {
-    const c = connectors.find((it) => it.id === selectedConnector);
-    if (!c) return;
-    fpBorder.value = c.color || "#1f2937";
-    if (fpBorderEnabled) fpBorderEnabled.checked = true;
-    fpBorderWidth.value = Math.max(1, Number(c.width) || 2);
-    if (fpBorderWidthNum) fpBorderWidthNum.value = fpBorderWidth.value;
-    if (fpLineStyle) fpLineStyle.value = c.lineStyle || "solid";
-    setConnectorRouteButtons(fpConnRouteStyle, normalizeConnectorRouteStyle(c.routeStyle));
-    if (fpOpacity) fpOpacity.value = String(Math.round(normalizeOpacityValue(c.opacity ?? 1) * 100));
-    if (fpOpacityNum && fpOpacity) fpOpacityNum.value = fpOpacity.value;
-    if (fpShadow) fpShadow.value = String(Math.max(0, Number(c.shadow) || 0));
-    if (fpShadowNum && fpShadow) fpShadowNum.value = fpShadow.value;
-    if (fpConnGapStart) fpConnGapStart.value = String(Number(c.gapStart ?? c.gap ?? 30));
-    if (fpConnGapStartNum && fpConnGapStart) fpConnGapStartNum.value = fpConnGapStart.value;
-    if (fpConnGapEnd) fpConnGapEnd.value = String(Number(c.gapEnd ?? c.gap ?? 30));
-    if (fpConnGapEndNum && fpConnGapEnd) fpConnGapEndNum.value = fpConnGapEnd.value;
-    setArrowShapeButtons(fpArrowStartShape, c.startArrowShape || "classic");
-    setArrowShapeButtons(fpArrowEndShape, c.endArrowShape || "classic");
-    const labelStyle = getConnectorLabelStyle(c);
-    if (fpFontFamily) setFontSelectValue(fpFontFamily, labelStyle.fontFamily);
-    if (fpFontSize) fpFontSize.value = String(labelStyle.fontSize);
-    if (fpTextColor) fpTextColor.value = rgbToHex(labelStyle.color || c.color || "#1f2937");
-    if (fpBold) fpBold.checked = labelStyle.bold;
-    if (fpItalic) fpItalic.checked = labelStyle.italic;
-    if (fpStrike) fpStrike.checked = labelStyle.strike;
-    if (fpUnderline) fpUnderline.checked = labelStyle.underline;
+  const activeConnectors = getActiveConnectorSelection();
+  if (activeConnectors.length) {
+    const first = activeConnectors[0];
+    const mixed = (getter) => activeConnectors.some((conn) => getter(conn) !== getter(first));
+    const color = first.color || "#1f2937";
+    const width = Math.max(1, Number(first.width) || 2);
+    const lineStyle = first.lineStyle || "solid";
+    const routeStyle = normalizeConnectorRouteStyle(first.routeStyle);
+    const opacityPct = Math.round(normalizeOpacityValue(first.opacity ?? 1) * 100);
+    const shadow = Math.max(0, Number(first.shadow) || 0);
+    const gapStart = Number(first.gapStart ?? first.gap ?? 30);
+    const gapEnd = Number(first.gapEnd ?? first.gap ?? 30);
+    const startArrow = first.startArrowShape || "classic";
+    const endArrow = first.endArrowShape || "classic";
+    fpBorder.value = color;
+    setControlMixedFlag(fpBorder, mixed((conn) => conn.color || "#1f2937"));
+    if (fpBorderEnabled) {
+      setCheckboxMixedState(fpBorderEnabled, false, true);
+      fpBorderEnabled.checked = true;
+    }
+    fpBorderWidth.value = width;
+    if (fpBorderWidthNum) fpBorderWidthNum.value = String(width);
+    if (fpBorderWidth && fpBorderWidthNum) {
+      setRangeMixedState(fpBorderWidth, fpBorderWidthNum, mixed((conn) => Math.max(1, Number(conn.width) || 2)), width);
+    }
+    if (fpLineStyle) setSelectMixedState(fpLineStyle, mixed((conn) => conn.lineStyle || "solid"), lineStyle);
+    setConnectorRouteButtons(fpConnRouteStyle, routeStyle);
+    if (mixed((conn) => normalizeConnectorRouteStyle(conn.routeStyle))) setControlMixedFlag(fpConnRouteStyle, true);
+    else setControlMixedFlag(fpConnRouteStyle, false);
+    if (fpOpacity && fpOpacityNum) setRangeMixedState(fpOpacity, fpOpacityNum, mixed((conn) => Math.round(normalizeOpacityValue(conn.opacity ?? 1) * 100)), opacityPct);
+    if (fpShadow && fpShadowNum) setRangeMixedState(fpShadow, fpShadowNum, mixed((conn) => Math.max(0, Number(conn.shadow) || 0)), shadow);
+    if (fpConnGapStart && fpConnGapStartNum) setRangeMixedState(fpConnGapStart, fpConnGapStartNum, mixed((conn) => Number(conn.gapStart ?? conn.gap ?? 30)), gapStart);
+    if (fpConnGapEnd && fpConnGapEndNum) setRangeMixedState(fpConnGapEnd, fpConnGapEndNum, mixed((conn) => Number(conn.gapEnd ?? conn.gap ?? 30)), gapEnd);
+    setArrowShapeButtons(fpArrowStartShape, startArrow);
+    if (mixed((conn) => conn.startArrowShape || "classic")) setControlMixedFlag(fpArrowStartShape, true);
+    else setControlMixedFlag(fpArrowStartShape, false);
+    setArrowShapeButtons(fpArrowEndShape, endArrow);
+    if (mixed((conn) => conn.endArrowShape || "classic")) setControlMixedFlag(fpArrowEndShape, true);
+    else setControlMixedFlag(fpArrowEndShape, false);
+    const labelStyle = getConnectorLabelStyle(first);
+    if (fpFontFamily) {
+      setFontSelectValue(fpFontFamily, labelStyle.fontFamily);
+      setControlMixedFlag(fpFontFamily, mixed((conn) => getConnectorLabelStyle(conn).fontFamily));
+    }
+    if (fpFontSize) {
+      fpFontSize.value = String(labelStyle.fontSize);
+      setControlMixedFlag(fpFontSize, mixed((conn) => getConnectorLabelStyle(conn).fontSize));
+    }
+    if (fpTextColor) {
+      fpTextColor.value = rgbToHex(labelStyle.color || color);
+      setControlMixedFlag(fpTextColor, mixed((conn) => getConnectorLabelStyle(conn).color || conn.color || "#1f2937"));
+    }
+    if (fpBold) setCheckboxMixedState(fpBold, mixed((conn) => !!getConnectorLabelStyle(conn).bold), labelStyle.bold);
+    if (fpItalic) setCheckboxMixedState(fpItalic, mixed((conn) => !!getConnectorLabelStyle(conn).italic), labelStyle.italic);
+    if (fpStrike) setCheckboxMixedState(fpStrike, mixed((conn) => !!getConnectorLabelStyle(conn).strike), labelStyle.strike);
+    if (fpUnderline) setCheckboxMixedState(fpUnderline, mixed((conn) => !!getConnectorLabelStyle(conn).underline), labelStyle.underline);
     setAlignButtons(labelStyle.hAlign, labelStyle.vAlign);
     if (fpX) fpX.value = String(labelStyle.paddingTop);
     if (fpW) fpW.value = String(labelStyle.paddingLeft);
@@ -22419,12 +22505,17 @@ function updateFormatPanelVisuals() {
 function adjustShapeTextFontSizesBy(delta) {
   const step = Number(delta) || 0;
   if (!step) return false;
-  if (selectedConnector) {
-    const conn = connectors.find((item) => item.id === selectedConnector);
-    if (!conn || !String(conn.labelText || "").length) return false;
-    const labelStyle = getConnectorLabelStyle(conn);
-    labelStyle.fontSize = clampFontSizeStep(labelStyle.fontSize + step, labelStyle.fontSize);
-    conn.labelStyle = labelStyle;
+  const activeConnectors = getActiveConnectorSelection();
+  if (activeConnectors.length) {
+    let changed = false;
+    activeConnectors.forEach((conn) => {
+      if (!String(conn.labelText || "").length) return;
+      const labelStyle = getConnectorLabelStyle(conn);
+      labelStyle.fontSize = clampFontSizeStep(labelStyle.fontSize + step, labelStyle.fontSize);
+      conn.labelStyle = labelStyle;
+      changed = true;
+    });
+    if (!changed) return false;
     renderConnectors();
     syncFormatPanel();
     saveLayout();
@@ -22515,21 +22606,34 @@ function applyFormat(opts = {}) {
     if (!opts.preview) saveLayout({ recordHistory: false });
     return;
   }
-  if (selectedConnector) {
-    const c = connectors.find((it) => it.id === selectedConnector);
-    if (!c) return;
-    c.color = fpBorder.value;
-    c.width = Math.max(1, Number(fpBorderWidth.value) || 2);
-    c.lineStyle = fpLineStyle ? fpLineStyle.value : "solid";
-    c.routeStyle = getConnectorRouteButtonsValue(fpConnRouteStyle);
-    if (!isOrthogonalRouteStyle(c.routeStyle)) c.routePoints = [];
-    c.opacity = normalizeOpacityValue(Number(fpOpacity ? fpOpacity.value : 100) / 100);
-    c.shadow = Math.max(0, Number(fpShadow ? fpShadow.value : 0) || 0);
-    c.gapStart = Math.max(0, Number(fpConnGapStart ? fpConnGapStart.value : 30) || 0);
-    c.gapEnd = Math.max(0, Number(fpConnGapEnd ? fpConnGapEnd.value : 30) || 0);
-    c.startArrowShape = getArrowShapeButtonsValue(fpArrowStartShape);
-    c.endArrowShape = getArrowShapeButtonsValue(fpArrowEndShape);
-    if (!formatSource || isAnyTextFormatControl(formatSource)) applyConnectorLabelStyleFromPanel(c, formatSource);
+  const formatConnectors = getActiveConnectorSelection();
+  if (formatConnectors.length) {
+    const nextColor = fpBorder && !isControlMixed(fpBorder) ? fpBorder.value : null;
+    const nextWidth = fpBorderWidth && !isControlMixed(fpBorderWidth) ? Math.max(1, Number(fpBorderWidth.value) || 2) : null;
+    const nextLineStyle = fpLineStyle && !isControlMixed(fpLineStyle) ? fpLineStyle.value : null;
+    const nextRoute = fpConnRouteStyle && !isControlMixed(fpConnRouteStyle) ? getConnectorRouteButtonsValue(fpConnRouteStyle) : null;
+    const nextOpacity = fpOpacity && !isControlMixed(fpOpacity) ? normalizeOpacityValue(Number(fpOpacity.value) / 100) : null;
+    const nextShadow = fpShadow && !isControlMixed(fpShadow) ? Math.max(0, Number(fpShadow.value) || 0) : null;
+    const nextGapStart = fpConnGapStart && !isControlMixed(fpConnGapStart) ? Math.max(0, Number(fpConnGapStart.value) || 0) : null;
+    const nextGapEnd = fpConnGapEnd && !isControlMixed(fpConnGapEnd) ? Math.max(0, Number(fpConnGapEnd.value) || 0) : null;
+    const nextStartArrow = fpArrowStartShape && !isControlMixed(fpArrowStartShape) ? getArrowShapeButtonsValue(fpArrowStartShape) : null;
+    const nextEndArrow = fpArrowEndShape && !isControlMixed(fpArrowEndShape) ? getArrowShapeButtonsValue(fpArrowEndShape) : null;
+    formatConnectors.forEach((c) => {
+      if (nextColor != null) c.color = nextColor;
+      if (nextWidth != null) c.width = nextWidth;
+      if (nextLineStyle != null) c.lineStyle = nextLineStyle;
+      if (nextRoute != null) {
+        c.routeStyle = nextRoute;
+        if (!isOrthogonalRouteStyle(c.routeStyle)) c.routePoints = [];
+      }
+      if (nextOpacity != null) c.opacity = nextOpacity;
+      if (nextShadow != null) c.shadow = nextShadow;
+      if (nextGapStart != null) c.gapStart = nextGapStart;
+      if (nextGapEnd != null) c.gapEnd = nextGapEnd;
+      if (nextStartArrow != null) c.startArrowShape = nextStartArrow;
+      if (nextEndArrow != null) c.endArrowShape = nextEndArrow;
+      if (!formatSource || isAnyTextFormatControl(formatSource)) applyConnectorLabelStyleFromPanel(c, formatSource);
+    });
     renderConnectors();
     if (!opts.preview) {
       syncFormatPanel();
@@ -23216,6 +23320,7 @@ function bindArrowShapePicker(container) {
     btn.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
+      clearControlMixedState(container);
       setArrowShapeButtons(container, btn.dataset.shape || "classic");
       container.classList.remove("is-open");
       applyFormat();
@@ -23242,6 +23347,7 @@ function bindConnectorRoutePicker(container) {
     btn.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
+      clearControlMixedState(container);
       setConnectorRouteButtons(container, btn.dataset.route || "straight");
       container.classList.remove("is-open");
       applyFormat();
@@ -23255,10 +23361,9 @@ document.addEventListener("click", (event) => {
   document.querySelectorAll(".fp-arrow-select.is-open").forEach((el) => el.classList.remove("is-open"));
 });
 safeOn(fpFront, "click", () => {
-  if (selectedConnector) {
-    const c = connectors.find((it) => it.id === selectedConnector);
-    if (!c) return;
-    c.zIndex = ++zCounter;
+  const activeConnectors = getActiveConnectorSelection();
+  if (activeConnectors.length) {
+    activeConnectors.forEach((c) => { c.zIndex = ++zCounter; });
     renderConnectors();
     saveLayout();
     syncFormatPanel();
@@ -23272,10 +23377,9 @@ safeOn(fpFront, "click", () => {
   syncFormatPanel();
 });
 safeOn(fpBack, "click", () => {
-  if (selectedConnector) {
-    const c = connectors.find((it) => it.id === selectedConnector);
-    if (!c) return;
-    c.zIndex = 1;
+  const activeConnectors = getActiveConnectorSelection();
+  if (activeConnectors.length) {
+    activeConnectors.forEach((c) => { c.zIndex = 1; });
     renderConnectors();
     saveLayout();
     syncFormatPanel();
@@ -23443,23 +23547,24 @@ safeOn(fpCancelBtn, "click", () => {
 });
 safeOn(fpApplyBtn, "click", () => applyFormat());
 safeOn(fpResetBtn, "click", () => {
-  if (selectedConnector) {
-    const c = connectors.find((it) => it.id === selectedConnector);
-    if (!c) return;
-    c.color = "#1f2937";
-    c.width = 2;
-    c.lineStyle = "solid";
-    c.opacity = 1;
-    c.shadow = 0;
-    c.startArrowShape = "line";
-    c.endArrowShape = "classic";
-    c.routeStyle = "curve";
-    c.routePoints = [];
-    c.gapStart = 30;
-    c.gapEnd = 30;
-    delete c.labelStyle;
-    delete c.labelText;
-    delete c.labelOffset;
+  const resetConnectors = getActiveConnectorSelection();
+  if (resetConnectors.length) {
+    resetConnectors.forEach((c) => {
+      c.color = "#1f2937";
+      c.width = 2;
+      c.lineStyle = "solid";
+      c.opacity = 1;
+      c.shadow = 0;
+      c.startArrowShape = "line";
+      c.endArrowShape = "classic";
+      c.routeStyle = "curve";
+      c.routePoints = [];
+      c.gapStart = 30;
+      c.gapEnd = 30;
+      delete c.labelStyle;
+      delete c.labelText;
+      delete c.labelOffset;
+    });
     renderConnectors();
     saveLayout();
     syncFormatPanel();
@@ -23511,11 +23616,12 @@ function applyHorizontalAlignForCurrentSelection(h) {
   const nextH = h || "left";
   // Capture V from the UI BEFORE changing any buttons — H click must not touch V.
   const keepVFromUi = readUiVerticalAlign();
-  if (selectedConnector) {
-    const conn = connectors.find((item) => item.id === selectedConnector);
-    if (!conn) return;
-    const labelStyle = getConnectorLabelStyle(conn);
-    conn.labelStyle = { ...labelStyle, hAlign: nextH, vAlign: labelStyle.vAlign || keepVFromUi };
+  const alignConnectors = getActiveConnectorSelection();
+  if (alignConnectors.length) {
+    alignConnectors.forEach((conn) => {
+      const labelStyle = getConnectorLabelStyle(conn);
+      conn.labelStyle = { ...labelStyle, hAlign: nextH, vAlign: labelStyle.vAlign || keepVFromUi };
+    });
     setHorizontalAlignButtons(nextH);
     renderConnectors();
     saveLayout();
@@ -23549,11 +23655,12 @@ function applyVerticalAlignForCurrentSelection(v) {
   const nextV = v || "top";
   // Capture H from the UI BEFORE changing any buttons — V click must not touch H.
   const keepHFromUi = readUiHorizontalAlign();
-  if (selectedConnector) {
-    const conn = connectors.find((item) => item.id === selectedConnector);
-    if (!conn) return;
-    const labelStyle = getConnectorLabelStyle(conn);
-    conn.labelStyle = { ...labelStyle, hAlign: labelStyle.hAlign || keepHFromUi, vAlign: nextV };
+  const alignConnectors = getActiveConnectorSelection();
+  if (alignConnectors.length) {
+    alignConnectors.forEach((conn) => {
+      const labelStyle = getConnectorLabelStyle(conn);
+      conn.labelStyle = { ...labelStyle, hAlign: labelStyle.hAlign || keepHFromUi, vAlign: nextV };
+    });
     setVerticalAlignButtons(nextV);
     renderConnectors();
     saveLayout();
