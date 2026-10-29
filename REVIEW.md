@@ -1,5 +1,18 @@
 # Review — журнал выкладок MIndMapTable
 
+## 2026-10-29 — «СФЕРА + MMTable», редактирование таблиц внутри СФЕРЫ
+
+- СФЕРА commit: `4c94522ba40caa6a0ced86faebee8f14cf821d7a`, ветка `codex/mmtable-embedded-editor`; Actions https://github.com/skitoand/knowledge-base/actions/runs/40833312999 — success.
+- MMTable commit: `a92b041a11a3a414cbc3f2fbd9759f53392fcb05`, main; Actions https://github.com/skitoand/mmtables/actions/runs/40832893346 — success.
+- Документ автоматически открывается в рабочей области СФЕРЫ. Редактор с инструментами и автосохранением сохраняет iframe при перерисовке оболочки; при уходе/выходе удаляется. Доступны полный экран, обновление и дополнительная новая вкладка. Встроенный MMTable скрывает операции перехода к другим документам и профиль, сохраняет инструменты и переключение просмотр/редактирование.
+- Вход — существующий 90-секундный одноразовый билет, привязанный к документу и пользователю. При обмене заново проверяются организация, связь и актуальные права; reader не повышается до editor. Восстановлены document-open/session backchannel endpoints в production-ветке СФЕРЫ. Исправлен неверный audience в MMTable: mmtable-open проверяется отдельно от обычной SSO-сессии. Только специальные document embed routes разрешают frame-ancestors self и https://sfera.crystalsystems.ru; обычные страницы сохраняют X-Frame-Options SAMEORIGIN.
+- Локально: WebKit/Firefox с настоящими обоими серверами — вход, точный документ, без popup, кнопка редактирования, создание таблицы, ввод ячейки, автосохранение, повторное открытие, сохранение iframe при перерисовке, очистка. Проверки прав/подписи/повторных билетов/SSO прошли; HTML/RTF в обоих браузерах и две существующие Node-проверки прошли. Синтаксис JS/Python/Bash и diff-check успешны. Chrome не запускался.
+- Production WebKit: отдельный тестовый аккаунт, временный раздел/документ, реальный signed bridge, вход в iframe, редактирование ячейки, сохранение через API и повторное открытие со значением — успешно. При первом прогоне проверка чтения DOM после reload выполнялась до окончания загрузки; ожидание готовности таблицы исправлено и сценарий прошёл повторно. Тестовые пользователи/документы/сессии удалены в обеих базах; пользовательские документы не менялись. Снимок просмотрен.
+- Production: оба systemd service active; СФЕРА local/public /api/health HTTP 200 ok:true; MMTable local/public /api/me HTTP 200, главная HTTP 200. Публичные JS/CSS/index обоих сервисов и серверные Python совпали с коммитами по контрольным суммам. СФЕРА JS146/CSS136/app102; MMTable app/CSS 20261029-sfera-embed-v1.
+- Backup СФЕРЫ: `/opt/apps/backups/knowledge-base-PROD-BACKUP-20261029-070640-before-deploy.tar.gz`. Backup MMTable: `/opt/apps/backups/mmtable-PROD-BACKUP-20261029-070244-before-deploy.tar.gz`.
+- Чистые копии: `/private/tmp/sfera-html-preview-20261029` и `/private/tmp/mmtable-sfera-embed-20261029`; сторонние изменения исходных рабочих деревьев сохранены.
+
+
 Прод: https://mmtable.crystalsystems.ru  
 Сервер: `95.163.226.145` (`/opt/apps/mmtable`)  
 Бэкапы: `/opt/apps/backups/`
