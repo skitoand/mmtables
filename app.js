@@ -937,6 +937,7 @@ function liftShapeControlsToOverlay(node) {
     if (!el) return;
     el.dataset.liftedFromShape = shapeId;
     el.classList.toggle("bp-automation-handles", isBpProcessAutomation(node) && el.classList.contains("shape-handles"));
+    el.classList.toggle("bp-stage-handles", isBpProcessStage(node) && el.classList.contains("shape-handles"));
     layer.appendChild(el);
   });
   syncLiftedControlsPosition(node);
@@ -5643,10 +5644,33 @@ function syncFileBrowserOpenButton() {
   if (fileModalEditBtn) fileModalEditBtn.disabled = disabled;
 }
 
+function findFileBrowserDocumentRow(docId) {
+  if (!fileBrowserTree || !docId) return null;
+  const target = String(docId);
+  return Array.from(fileBrowserTree.querySelectorAll(".file-browser-row.file")).find(
+    (row) => row.dataset.docId === target
+  ) || null;
+}
+
+function syncFileBrowserSelectionClasses() {
+  if (!fileBrowserTree) return;
+  const selectedId = fileBrowserSelectedDocId ? String(fileBrowserSelectedDocId) : "";
+  fileBrowserTree.querySelectorAll(".file-browser-row.file").forEach((row) => {
+    row.classList.toggle("selected", !!selectedId && row.dataset.docId === selectedId);
+  });
+}
+
 function selectFileBrowserDocument(docId) {
-  fileBrowserSelectedDocId = docId;
-  renderFileBrowser();
-  renderFileBrowserPreview(docId);
+  const nextId = docId || null;
+  if (fileBrowserSelectedDocId === nextId) {
+    syncFileBrowserOpenButton();
+    return;
+  }
+  fileBrowserSelectedDocId = nextId;
+  // Update highlight in place — full tree rebuild jumps the scroll position.
+  if (nextId && !findFileBrowserDocumentRow(nextId)) renderFileBrowser();
+  else syncFileBrowserSelectionClasses();
+  renderFileBrowserPreview(nextId);
   syncFileBrowserOpenButton();
 }
 
@@ -6077,6 +6101,7 @@ function showFileBrowserDocumentMenu(event, doc) {
 function createFileBrowserDocumentRow(doc, extraClass = "") {
   const row = document.createElement("div");
   row.className = `file-browser-row file${doc.id === fileBrowserSelectedDocId ? " selected" : ""}${extraClass ? ` ${extraClass}` : ""}`;
+  row.dataset.docId = String(doc.id || "");
   row.setAttribute("role", "treeitem");
   const caret = document.createElement("span");
   caret.className = "file-browser-caret placeholder";
@@ -6124,6 +6149,7 @@ function createFileBrowserFolderRow(folder, childDocs) {
 
 function renderFileBrowser() {
   if (!fileBrowserTree) return;
+  const keepScrollTop = fileBrowserTree.scrollTop;
   const ownedDocs = getOwnedDocuments();
   const sharedDocs = getSharedDocuments();
   if (!ownedDocs.length && !sharedDocs.length && !foldersCache.length) {
@@ -6162,6 +6188,7 @@ function renderFileBrowser() {
     wrap.appendChild(children);
     fileBrowserTree.appendChild(wrap);
   }
+  fileBrowserTree.scrollTop = keepScrollTop;
 }
 
 function renderFileModalList() {

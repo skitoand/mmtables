@@ -1018,6 +1018,20 @@ body.workspace-readonly .bp-stage-controls{display:none!important}
 .bp-stage-control-right{right:0;top:50%;transform:translate(50%,-50%)}
 .bp-stage-control-top{left:50%;top:0;transform:translate(-50%,-50%)}
 .bp-stage-control-bottom{left:50%;bottom:0;transform:translate(-50%,50%)}
+/* Mid-edge resize grips sit on the same anchors as stage +/- controls — hide them. */
+.shape[data-bp-role="stage"] .shape-handles .h.n,
+.shape[data-bp-role="stage"] .shape-handles .h.e,
+.shape[data-bp-role="stage"] .shape-handles .h.s,
+.shape[data-bp-role="stage"] .shape-handles .h.w,
+.interaction-controls-layer .shape-handles.bp-stage-handles .h.n,
+.interaction-controls-layer .shape-handles.bp-stage-handles .h.e,
+.interaction-controls-layer .shape-handles.bp-stage-handles .h.s,
+.interaction-controls-layer .shape-handles.bp-stage-handles .h.w{
+  display:none !important;
+  pointer-events:none !important;
+}
+.interaction-controls-layer .bp-stage-controls{z-index:20050}
+.interaction-controls-layer .bp-stage-control{z-index:20051}
 .bp-process-section-toggles{position:absolute;inset:0;pointer-events:none;z-index:20010}
 .bp-process-section-toggle{
   position:absolute;
