@@ -1,5 +1,25 @@
 # Review — журнал выкладок MIndMapTable
 
+## 2026-10-29 — плавный изгиб соединителей MindMap
+
+**Commit:** `2d3c14a` — Add smooth curve connector route as mindmap default.
+**Бэкап:** `mmtable-PROD-BACKUP-20261029-093550-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #40850865569](https://github.com/skitoand/mmtables/actions/runs/40850865569)
+**Статус:** OK
+
+### Что сделано
+
+- В «Маршрут» добавлен «Плавный изгиб» (cubic bezier) с перпендикулярным подходом к якорям.
+- Ортогональный маршрут строит Z-локоть: последний участок горизонтальный/вертикальный, стрелки не торчат вбок.
+- MindMap и новые соединители по умолчанию используют `curve`.
+- Cache-buster: `app.js?v=20261029-conn-curve-v1`.
+
+### Проверка
+
+- [x] Actions success на `2d3c14a`.
+- [x] SHA256 `app.js` / `index.html` локально = сервер.
+- [x] Публичный URL отдаёт `20261029-conn-curve-v1`; на проде есть `isCurveRouteStyle` / `buildCurveControlPoints`.
+
 ## 2026-10-29 — Option+ MindMap spawn и переключение вида схемы
 
 **Commit:** `8417eed` — Add Option+ mindmap spawn and subtree layout switcher.
