@@ -23,7 +23,7 @@ class SferaSyncReceiverTests(unittest.TestCase):
         connection.executescript(
             """
             CREATE TABLE users (email TEXT PRIMARY KEY, name TEXT, auth_provider TEXT);
-            CREATE TABLE user_documents (id TEXT PRIMARY KEY, email TEXT, name TEXT, layout_json TEXT, is_active INTEGER);
+            CREATE TABLE user_documents (id TEXT PRIMARY KEY, email TEXT, name TEXT, layout_json TEXT, is_active INTEGER, updated_at TEXT);
             CREATE TABLE document_access (document_id TEXT, user_email TEXT, role TEXT);
             CREATE TABLE user_folders (id TEXT PRIMARY KEY, email TEXT, name TEXT, sort_order INTEGER, created_at TEXT, updated_at TEXT);
             CREATE TABLE sfera_user_identity_links (sfera_user_id TEXT PRIMARY KEY, mmtable_email TEXT);
@@ -134,6 +134,42 @@ class SferaSyncReceiverTests(unittest.TestCase):
         self.assertEqual(dispatch_mmtable_outbox(connection, deliver_fn=sent.append), {"attempted": 1, "delivered": 1, "failed": 0})
         self.assertEqual(sent[0]["idempotencyKey"], first)
         connection.close()
+
+    def test_document_title_sync_does_not_bump_canvas_updated_at(self):
+        connection = self.db()
+        connection.execute(
+            """INSERT INTO user_documents(id, email, name, layout_json, is_active, updated_at)
+               VALUES ('doc_local_1', 'owner@example.test', 'Старое имя', '{}', 1, '2026-09-14T09:00:00+00:00')"""
+        )
+        connection.execute(
+            """INSERT INTO sfera_document_links(
+                 sfera_document_id, sfera_organization_id, mmtable_document_id, owner_email, source_updated_at
+               ) VALUES ('sfera_doc_1', 'org_1', 'doc_local_1', 'owner@example.test', '2026-09-14T09:00:00+00:00')"""
+        )
+        connection.commit()
+        connection.close()
+
+        payload = {
+            "sourceApp": "sfera",
+            "event": "document.updated",
+            "organizationId": "org_1",
+            "idempotencyKey": "doc-title-event-1",
+            "occurredAt": "2026-09-14T10:00:00+00:00",
+            "data": {
+                "id": "sfera_doc_1",
+                "title": "Новое имя из Сферы",
+                "updatedAt": "2026-09-14T10:00:00+00:00",
+            },
+        }
+        self.assertEqual(self.signed_post(payload).status_code, 200)
+
+        connection = self.db()
+        document = connection.execute(
+            "SELECT name, updated_at FROM user_documents WHERE id = 'doc_local_1'"
+        ).fetchone()
+        connection.close()
+        self.assertEqual(document["name"], "Новое имя из Сферы")
+        self.assertEqual(document["updated_at"], "2026-09-14T09:00:00+00:00")
 
 
 if __name__ == "__main__":

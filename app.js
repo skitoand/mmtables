@@ -14666,6 +14666,116 @@ function canSpawnLinkedShape(node) {
   return true;
 }
 
+function getMindMapNodeRect(node) {
+  return {
+    left: node?.offsetLeft || 0,
+    top: node?.offsetTop || 0,
+    width: node?.offsetWidth || 0,
+    height: node?.offsetHeight || 0
+  };
+}
+
+function defaultMindMapSiblingPlacement(anchor) {
+  if (anchor === "s" || anchor === "n") {
+    return { axis: "x", direction: 1, align: "top", gap: MINDMAP_H_GAP };
+  }
+  return { axis: "y", direction: 1, align: "left", gap: MINDMAP_V_GAP };
+}
+
+function inferMindMapSiblingPlacement(prevNode, lastNode) {
+  const prev = getMindMapNodeRect(prevNode);
+  const last = getMindMapNodeRect(lastNode);
+  const prevCx = prev.left + prev.width / 2;
+  const prevCy = prev.top + prev.height / 2;
+  const lastCx = last.left + last.width / 2;
+  const lastCy = last.top + last.height / 2;
+  const dCx = lastCx - prevCx;
+  const dCy = lastCy - prevCy;
+  const vertical = Math.abs(dCy) >= Math.abs(dCx);
+
+  if (vertical) {
+    const leftDiff = Math.abs(last.left - prev.left);
+    const rightDiff = Math.abs((last.left + last.width) - (prev.left + prev.width));
+    const centerDiff = Math.abs(lastCx - prevCx);
+    let align = "left";
+    if (leftDiff <= centerDiff && leftDiff <= rightDiff) align = "left";
+    else if (rightDiff <= centerDiff) align = "right";
+    else align = "center";
+    const goingDown = last.top >= prev.top;
+    const gap = goingDown
+      ? last.top - (prev.top + prev.height)
+      : prev.top - (last.top + last.height);
+    return { axis: "y", direction: goingDown ? 1 : -1, align, gap };
+  }
+
+  const topDiff = Math.abs(last.top - prev.top);
+  const bottomDiff = Math.abs((last.top + last.height) - (prev.top + prev.height));
+  const middleDiff = Math.abs(lastCy - prevCy);
+  let align = "top";
+  if (topDiff <= middleDiff && topDiff <= bottomDiff) align = "top";
+  else if (bottomDiff <= middleDiff) align = "bottom";
+  else align = "middle";
+  const goingRight = last.left >= prev.left;
+  const gap = goingRight
+    ? last.left - (prev.left + prev.width)
+    : prev.left - (last.left + last.width);
+  return { axis: "x", direction: goingRight ? 1 : -1, align, gap };
+}
+
+function positionFromMindMapSiblingPlacement(lastNode, placement, width, height) {
+  const last = getMindMapNodeRect(lastNode);
+  let left = last.left;
+  let top = last.top;
+  if (placement.axis === "y") {
+    top = placement.direction > 0
+      ? last.top + last.height + placement.gap
+      : last.top - placement.gap - height;
+    if (placement.align === "center") left = last.left + last.width / 2 - width / 2;
+    else if (placement.align === "right") left = last.left + last.width - width;
+    else left = last.left;
+  } else {
+    left = placement.direction > 0
+      ? last.left + last.width + placement.gap
+      : last.left - placement.gap - width;
+    if (placement.align === "middle") top = last.top + last.height / 2 - height / 2;
+    else if (placement.align === "bottom") top = last.top + last.height - height;
+    else top = last.top;
+  }
+  return { left, top };
+}
+
+function resolveNextMindMapChildPosition(sourceNode, anchor, width, height) {
+  const siblings = getMindMapChildNodes(sourceNode);
+  if (!siblings.length) {
+    const left = sourceNode.offsetLeft || 0;
+    const top = sourceNode.offsetTop || 0;
+    const sw = sourceNode.offsetWidth || 0;
+    const sh = sourceNode.offsetHeight || 0;
+    let nextLeft = left;
+    let nextTop = top;
+    if (anchor === "e") {
+      nextLeft = left + sw + MINDMAP_H_GAP;
+      nextTop = top + sh / 2 - height / 2;
+    } else if (anchor === "w") {
+      nextLeft = left - width - MINDMAP_H_GAP;
+      nextTop = top + sh / 2 - height / 2;
+    } else if (anchor === "s") {
+      nextLeft = left + sw / 2 - width / 2;
+      nextTop = top + sh + MINDMAP_V_GAP;
+    } else if (anchor === "n") {
+      nextLeft = left + sw / 2 - width / 2;
+      nextTop = top - height - MINDMAP_V_GAP;
+    }
+    return { left: nextLeft, top: nextTop, relayout: true };
+  }
+  const last = siblings[siblings.length - 1];
+  const placement = siblings.length >= 2
+    ? inferMindMapSiblingPlacement(siblings[siblings.length - 2], last)
+    : defaultMindMapSiblingPlacement(anchor);
+  const pos = positionFromMindMapSiblingPlacement(last, placement, width, height);
+  return { left: pos.left, top: pos.top, relayout: false };
+}
+
 function spawnLinkedShapeFromAnchor(sourceNode, anchor, event = null) {
   if (!canSpawnLinkedShape(sourceNode)) return null;
   if (event) {
@@ -14675,21 +14785,13 @@ function spawnLinkedShapeFromAnchor(sourceNode, anchor, event = null) {
   }
   const sourceData = readShapeData(sourceNode);
   if (!sourceData) return null;
-  const gap = MINDMAP_H_GAP;
   const w = Number.parseFloat(sourceData.width) || sourceNode.offsetWidth || 220;
   const h = Number.parseFloat(sourceData.height) || sourceNode.offsetHeight || 120;
-  const left = Number.parseFloat(sourceData.left) || sourceNode.offsetLeft || 0;
-  const top = Number.parseFloat(sourceData.top) || sourceNode.offsetTop || 0;
-  let nextLeft = left;
-  let nextTop = top;
-  if (anchor === "e") nextLeft = left + w + gap;
-  else if (anchor === "w") nextLeft = left - w - gap;
-  else if (anchor === "s") nextTop = top + h + gap;
-  else if (anchor === "n") nextTop = top - h - gap;
+  const nextPos = resolveNextMindMapChildPosition(sourceNode, anchor, w, h);
   const childData = {
     ...sourceData,
-    left: formatPositionPx(nextLeft),
-    top: formatPositionPx(nextTop),
+    left: formatPositionPx(nextPos.left),
+    top: formatPositionPx(nextPos.top),
     text: "",
     textHtml: undefined,
     mindMap: true,
@@ -14720,6 +14822,7 @@ function spawnLinkedShapeFromAnchor(sourceNode, anchor, event = null) {
   child.dataset.mindMap = "1";
   const fromId = getShapeEndpointId(sourceNode);
   const toId = getShapeEndpointId(child);
+  const routeStyle = getMindMapLayoutSpec(sourceNode.dataset.mindMapLayout).routeStyle || "curve";
   connectors.push({
     id: nextConnectorId(),
     zIndex: 1,
@@ -14736,18 +14839,23 @@ function spawnLinkedShapeFromAnchor(sourceNode, anchor, event = null) {
     gapEnd: 24,
     ...(cloneStyleData(defaultStyles.connector) || {}),
     mindMap: true,
-    routeStyle: "curve",
+    routeStyle,
     routePoints: []
   });
   const layoutId = normalizeMindMapLayoutId(sourceNode.dataset.mindMapLayout);
-  layoutMindMapNode(
-    sourceNode,
-    sourceNode.offsetLeft,
-    sourceNode.offsetTop + (sourceNode.offsetHeight || 0) / 2,
-    getMindMapLayoutSpec(layoutId).dir,
-    getMindMapLayoutSpec(layoutId).routeStyle,
-    true
-  );
+  const layoutSpec = getMindMapLayoutSpec(layoutId);
+  if (nextPos.relayout) {
+    layoutMindMapNode(
+      sourceNode,
+      sourceNode.offsetLeft,
+      sourceNode.offsetTop + (sourceNode.offsetHeight || 0) / 2,
+      layoutSpec.dir,
+      layoutSpec.routeStyle,
+      true
+    );
+  } else {
+    updateMindMapLinkStyle(sourceNode, child, anchor, layoutSpec.routeStyle);
+  }
   selectShape(child);
   renderConnectors();
   saveLayout();

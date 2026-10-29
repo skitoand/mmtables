@@ -378,8 +378,10 @@ def register_sfera_sync(app, deps):
             ).fetchone()
             local_document_id = link["mmtable_document_id"] if link else ""
             if event != "document.deleted" and local_document_id:
+                # Title-only sync from Sfera: do not bump user_documents.updated_at.
+                # That field is the canvas optimistic-lock version and must change only on layout saves.
                 conn.execute(
-                    "UPDATE user_documents SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    "UPDATE user_documents SET name = ? WHERE id = ?",
                     (str(data.get("title") or "Документ MMTable"), local_document_id),
                 )
                 conn.execute(
