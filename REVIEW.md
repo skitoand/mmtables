@@ -1,5 +1,24 @@
 # Review — журнал выкладок MIndMapTable
 
+## 2026-10-29 — выбор документа без прыжка + плюсики стадий BP
+
+**Commit:** `3c346e8` — Fix file browser selection jump and hide BP stage mid-handles over plus buttons.
+**Бэкап:** `mmtable-PROD-BACKUP-20261029-101743-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #40856400976](https://github.com/skitoand/mmtables/actions/runs/40856400976)
+**Статус:** OK
+
+### Что сделано
+
+- В «Открыть документ» клик только выделяет строку на месте (без пересборки списка и сдвига скролла); двойной клик открывает.
+- На стадиях BP mid-edge resize grips скрыты — больше не перекрывают красные «+».
+- Cache-buster: `app.js` / `styles.css` `?v=20261029-bp-plus-v1`.
+
+### Проверка
+
+- [x] Actions success на `3c346e8`.
+- [x] SHA256 `app.js` / `index.html` / `styles.css` локально = сервер.
+- [x] Публичный URL отдаёт `bp-plus-v1`.
+
 ## 2026-10-29 — spawn по соседним отступам + Sfera title без bump version
 
 **Commit:** `7ba0126` — Preserve mindmap sibling spacing on spawn and stop Sfera title sync from bumping canvas version.
