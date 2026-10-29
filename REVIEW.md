@@ -1,5 +1,24 @@
 # Review — журнал выкладок MIndMapTable
 
+## 2026-10-29 — spawn по соседним отступам + Sfera title без bump version
+
+**Commit:** `7ba0126` — Preserve mindmap sibling spacing on spawn and stop Sfera title sync from bumping canvas version.
+**Бэкап:** `mmtable-PROD-BACKUP-20261029-100554-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #40854799297](https://github.com/skitoand/mmtables/actions/runs/40854799297)
+**Статус:** OK
+
+### Что сделано
+
+- Option+ дочерние фигуры повторяют выравнивание и зазор последней пары соседей; полный relayout только для первого ребёнка и «Вид схемы».
+- Inbound sync названия из Сферы обновляет только `name`, не трогает `user_documents.updated_at` (optimistic lock canvas).
+- Cache-buster: `app.js?v=20261029-sibling-spawn-v1`.
+
+### Проверка
+
+- [x] Actions success на `7ba0126`.
+- [x] SHA256 `app.js` / `index.html` / `sfera_sync.py` локально = сервер.
+- [x] Публичный URL отдаёт `sibling-spawn-v1`; unittest `test_document_title_sync_does_not_bump_canvas_updated_at` OK.
+
 ## 2026-10-29 — мультивыделение стрелок и меню «Маршрут»
 
 **Commit:** `660e2a6` — Fix multi-select connector formatting and route menu fit.
