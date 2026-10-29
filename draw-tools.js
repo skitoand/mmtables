@@ -520,7 +520,7 @@
   }
 
   function shouldYieldPointerToInteractiveTarget(target) {
-    return !!(target && target.closest && target.closest(".shape, .sheet-window, .conn-point, .conn-arrow, .resize-handle, .shape-handles, .h"));
+    return !!(target && target.closest && target.closest(".shape, .sheet-window, .conn-point, .conn-arrow, .conn-plus, .resize-handle, .shape-handles, .h"));
   }
 
   function startDraw(event) {

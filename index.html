@@ -7,7 +7,7 @@
     <title>MMTable</title>
     <link rel="icon" type="image/png" sizes="128x128" href="assets/favicon.png?v=20260701-crop" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=20260701-crop" />
-    <link rel="stylesheet" href="styles.css?v=20261029-sfera-embed-v1" />
+    <link rel="stylesheet" href="styles.css?v=20261029-mindmap-layout-v1" />
   </head>
   <body>
     <script>if(new URLSearchParams(location.search).get("embed")==="sfera")document.body.classList.add("sfera-embedded");</script>
@@ -508,6 +508,33 @@
             <button id="fpGroup" type="button" class="fp-wide-button">Группировать</button>
             <button id="fpLock" type="button" class="fp-wide-button">Блокировать/Разблокировать</button>
 
+            <div id="fpMindMapWrap" class="fp-mindmap-wrap hidden">
+              <div class="fp-subtitle-line">Mind Map</div>
+              <button id="fpMindMapLayoutBtn" type="button" class="fp-wide-button" aria-expanded="false" aria-haspopup="true">
+                Вид схемы
+              </button>
+              <div id="fpMindMapLayoutMenu" class="fp-mindmap-menu hidden" role="menu" aria-label="Вид схемы Mind Map">
+                <button type="button" class="fp-mindmap-option" data-mindmap-layout="logic-right" role="menuitem" title="Логика вправо">
+                  <svg viewBox="0 0 64 40" aria-hidden="true"><rect x="4" y="14" width="16" height="12" rx="2" fill="#cbd5e1"/><rect x="36" y="4" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="36" y="16" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="36" y="28" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><path d="M20 20H36M36 8H30V20M36 32H30V20" fill="none" stroke="#334155" stroke-width="1.5"/></svg>
+                </button>
+                <button type="button" class="fp-mindmap-option" data-mindmap-layout="logic-left" role="menuitem" title="Логика влево">
+                  <svg viewBox="0 0 64 40" aria-hidden="true"><rect x="44" y="14" width="16" height="12" rx="2" fill="#cbd5e1"/><rect x="14" y="4" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="14" y="16" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="14" y="28" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><path d="M44 20H28M28 8H34V20M28 32H34V20" fill="none" stroke="#334155" stroke-width="1.5"/></svg>
+                </button>
+                <button type="button" class="fp-mindmap-option" data-mindmap-layout="org-down" role="menuitem" title="Оргструктура вниз">
+                  <svg viewBox="0 0 64 40" aria-hidden="true"><rect x="24" y="2" width="16" height="10" rx="2" fill="#cbd5e1"/><rect x="4" y="26" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="25" y="26" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="46" y="26" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><path d="M32 12V20H11V26M32 20H32V26M32 20H53V26" fill="none" stroke="#334155" stroke-width="1.5"/></svg>
+                </button>
+                <button type="button" class="fp-mindmap-option" data-mindmap-layout="org-up" role="menuitem" title="Оргструктура вверх">
+                  <svg viewBox="0 0 64 40" aria-hidden="true"><rect x="24" y="28" width="16" height="10" rx="2" fill="#cbd5e1"/><rect x="4" y="6" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="25" y="6" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="46" y="6" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><path d="M32 28V20H11V14M32 20V14M32 20H53V14" fill="none" stroke="#334155" stroke-width="1.5"/></svg>
+                </button>
+                <button type="button" class="fp-mindmap-option" data-mindmap-layout="mindmap" role="menuitem" title="Mind Map влево-вправо">
+                  <svg viewBox="0 0 64 40" aria-hidden="true"><rect x="24" y="14" width="16" height="12" rx="2" fill="#cbd5e1"/><rect x="4" y="6" width="12" height="7" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="4" y="27" width="12" height="7" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="48" y="6" width="12" height="7" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="48" y="27" width="12" height="7" rx="1.5" fill="#fff" stroke="#64748b"/><path d="M24 20H16M16 9.5V20M16 30.5V20M40 20H48M48 9.5V20M48 30.5V20" fill="none" stroke="#334155" stroke-width="1.5"/></svg>
+                </button>
+                <button type="button" class="fp-mindmap-option" data-mindmap-layout="tree-right" role="menuitem" title="Дерево вправо">
+                  <svg viewBox="0 0 64 40" aria-hidden="true"><rect x="4" y="14" width="16" height="12" rx="2" fill="#cbd5e1"/><rect x="36" y="4" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="36" y="16" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><rect x="36" y="28" width="14" height="8" rx="1.5" fill="#fff" stroke="#64748b"/><path d="M20 20L36 8M20 20L36 20M20 20L36 32" fill="none" stroke="#334155" stroke-width="1.5"/></svg>
+                </button>
+              </div>
+            </div>
+
             <div class="fp-table-only hidden" id="fpTableOps">
               <div class="fp-subtitle-line">Таблица</div>
               <div class="fp-table-size-grid">
@@ -931,7 +958,7 @@
     <script src="vendor/laser-pointer.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="vendor/perfect-freehand.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="draw-tools.js?v=20260913-format-style-v1"></script>
-    <script src="app.js?v=20261029-sfera-embed-v1"></script>
+    <script src="app.js?v=20261029-mindmap-layout-v1"></script>
     <script src="bitrix-chart.js?v=20260902-readable-date-axis-v2"></script>
   </body>
 </html>

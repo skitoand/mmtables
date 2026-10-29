@@ -226,6 +226,9 @@ const fpDistributeH = $("fpDistributeH");
 const fpDistributeV = $("fpDistributeV");
 const fpGroup = $("fpGroup");
 const fpLock = $("fpLock");
+const fpMindMapWrap = $("fpMindMapWrap");
+const fpMindMapLayoutBtn = $("fpMindMapLayoutBtn");
+const fpMindMapLayoutMenu = $("fpMindMapLayoutMenu");
 const fpCopyStyle = $("fpCopyStyle");
 const fpPasteStyle = $("fpPasteStyle");
 const fpDefaultStyle = $("fpDefaultStyle");
@@ -717,11 +720,15 @@ function suppressCellConnectorArrowBrowserMenu(event) {
 function shouldSuppressConnectorContextMenu(event) {
   if (!event) return false;
   if (connectorDraft) return true;
-  if (event.target?.closest?.(".conn-arrow, .conn-point, .table-cell-conn-arrow, .table-cell-connector-guides")) {
+  if (event.target?.closest?.(".conn-arrow, .conn-plus, .conn-point, .table-cell-conn-arrow, .table-cell-connector-guides")) {
     return true;
   }
   // macOS: Ctrl+click opens the browser menu; Ctrl is reserved for connector arrows.
   if ((event.ctrlKey || event.metaKey) && ctrlModifierActive && !isWorkspaceReadOnly() && !guestPublicView) {
+    return true;
+  }
+  // Option/Alt is reserved for linked-shape "+" handles.
+  if (event.altKey && altModifierActive && !isWorkspaceReadOnly() && !guestPublicView) {
     return true;
   }
   return false;
@@ -907,9 +914,15 @@ function syncModifierKeysFromEvent(event) {
 }
 
 function syncConnectorModifierChrome() {
+  const canUseModifiers = !isWorkspaceReadOnly() && !guestPublicView;
+  const editingText = !!document.activeElement?.closest?.('[contenteditable="true"]');
   document.body.classList.toggle(
     "ctrl-connector-mode",
-    !!ctrlModifierActive && !isWorkspaceReadOnly() && !guestPublicView
+    !!ctrlModifierActive && canUseModifiers
+  );
+  document.body.classList.toggle(
+    "option-spawn-mode",
+    !!altModifierActive && !ctrlModifierActive && canUseModifiers && !editingText
   );
   updateAllTableCellConnectorGuides();
 }
@@ -8622,6 +8635,7 @@ function setControlVisibilityByMode(mode) {
     fpBorderWidthNum.max = showDesktop ? "120" : "20";
   }
   updateFormulaDecimalsControl();
+  syncMindMapLayoutControls();
 }
 
 function applyTextAlign(text, h, v) {
@@ -10644,7 +10658,7 @@ function canStartMarqueeSelectionFromTarget(target, touchMode = false) {
   if (target.closest(".shape-table-grid td")) return false;
   if (target.closest(".sheet-window")) return false;
   if (target.closest(".conn-line, .conn-hit-line")) return false;
-  if (target.closest(".resize-handle, .shape-resize-handle, .shape-line-handle, .shape-param-handle, .conn-point, .conn-arrow")) return false;
+  if (target.closest(".resize-handle, .shape-resize-handle, .shape-line-handle, .shape-param-handle, .conn-point, .conn-arrow, .conn-plus")) return false;
   if (target.closest("input, textarea, select, button")) return false;
   if (target.isContentEditable || target.closest('[contenteditable="true"]')) return false;
   if (target.closest(".shape")) return !!touchMode;
@@ -11376,7 +11390,7 @@ function attachDrag(node, handle, opts = {}) {
     if (event.target.closest(".table-add-col") || event.target.closest(".table-add-row")) return;
     if (event.target.closest(".table-cell-toolbar")) return;
     if (event.target.closest(".h") || event.target.closest(".shape-line-handle") || event.target.closest(".shape-param-handle") || event.target.closest(".resize-handle")) return;
-    if (event.target.closest(".conn-arrow, .conn-point")) return;
+    if (event.target.closest(".conn-arrow, .conn-plus, .conn-point")) return;
     if (event.target.closest(".bp-process-section-toggle")) return;
     if (event.target.closest(".bp-task-title, .bp-task-toggle, .bp-task-field")) return;
     if (event.target.closest(".bp-automation-title, .bp-automation-toggle, .bp-automation-field, .bp-automation-tool-row")) return;
@@ -12983,6 +12997,8 @@ function createShapeBase(type, opts = {}) {
   if (opts.attachedNoteId) node.dataset.attachedNoteId = String(opts.attachedNoteId);
   if (opts.attachedNote) node.dataset.attachedNote = "1";
   if (opts.noteOwnerId) node.dataset.noteOwnerId = String(opts.noteOwnerId);
+  if (opts.mindMap) node.dataset.mindMap = "1";
+  if (opts.mindMapLayout) node.dataset.mindMapLayout = normalizeMindMapLayoutId(opts.mindMapLayout);
   node.dataset.borderWidth = String(Math.max(0, Number(opts.borderWidth ?? 1) || 0));
   node.dataset.borderEnabled = opts.borderEnabled === false ? "0" : "1";
   if (opts.border != null || opts.borderColor != null) {
@@ -14242,6 +14258,343 @@ function layoutConnectorPoints(node) {
     a.style.top = `${v[1]}px`;
     a.textContent = v[2];
   });
+  box.querySelectorAll(".conn-plus").forEach((btn) => {
+    const v = arrows[btn.dataset.anchor];
+    if (!v) return;
+    btn.style.left = `${v[0]}px`;
+    btn.style.top = `${v[1]}px`;
+  });
+}
+
+function getOppositeConnectorAnchor(anchor) {
+  return ({ n: "s", e: "w", s: "n", w: "e" })[anchor] || "c";
+}
+
+const MINDMAP_LAYOUTS = {
+  "logic-right": { id: "logic-right", label: "Логика →", dir: "e", routeStyle: "orthogonal-horizontal" },
+  "logic-left": { id: "logic-left", label: "Логика ←", dir: "w", routeStyle: "orthogonal-horizontal" },
+  "org-down": { id: "org-down", label: "Орг ↓", dir: "s", routeStyle: "orthogonal-vertical" },
+  "org-up": { id: "org-up", label: "Орг ↑", dir: "n", routeStyle: "orthogonal-vertical" },
+  mindmap: { id: "mindmap", label: "Mind Map", dir: "lr", routeStyle: "straight" },
+  "tree-right": { id: "tree-right", label: "Дерево →", dir: "e", routeStyle: "straight" }
+};
+const MINDMAP_H_GAP = 48;
+const MINDMAP_V_GAP = 28;
+
+function normalizeMindMapLayoutId(value) {
+  const id = String(value || "").trim();
+  return MINDMAP_LAYOUTS[id] ? id : "logic-right";
+}
+
+function getMindMapLayoutSpec(value) {
+  return MINDMAP_LAYOUTS[normalizeMindMapLayoutId(value)];
+}
+
+function getShapeEndpointId(node) {
+  return node?.dataset?.connId || node?.dataset?.shapeId || "";
+}
+
+function connectorEndpointId(end) {
+  return String(end?.nodeId || end?.shapeId || "").trim();
+}
+
+function isMindMapConnector(conn) {
+  return !!(conn && conn.mindMap);
+}
+
+function getMindMapChildLinks(parentNode) {
+  const parentId = getShapeEndpointId(parentNode);
+  if (!parentId) return [];
+  return connectors.filter((conn) => (
+    isMindMapConnector(conn)
+    && connectorEndpointId(conn.from) === parentId
+    && connectorEndpointId(conn.to)
+    && connectorEndpointId(conn.to) !== parentId
+  ));
+}
+
+function getMindMapChildNodes(parentNode) {
+  return getMindMapChildLinks(parentNode)
+    .map((conn) => getConnectableById(connectorEndpointId(conn.to)))
+    .filter((node) => node && !node.__isGroup);
+}
+
+function shapeHasMindMapChildren(node) {
+  return getMindMapChildLinks(node).length > 0;
+}
+
+function findMindMapConnectorBetween(parentNode, childNode) {
+  const parentId = getShapeEndpointId(parentNode);
+  const childId = getShapeEndpointId(childNode);
+  if (!parentId || !childId) return null;
+  return connectors.find((conn) => (
+    isMindMapConnector(conn)
+    && connectorEndpointId(conn.from) === parentId
+    && connectorEndpointId(conn.to) === childId
+  )) || null;
+}
+
+function measureMindMapSubtreeSpan(node, axis) {
+  const children = getMindMapChildNodes(node);
+  const size = axis === "y" ? (node.offsetHeight || 0) : (node.offsetWidth || 0);
+  if (!children.length) return Math.max(1, size);
+  const gap = axis === "y" ? MINDMAP_V_GAP : MINDMAP_H_GAP;
+  const childSpan = children.reduce((sum, child, index) => (
+    sum + measureMindMapSubtreeSpan(child, axis) + (index ? gap : 0)
+  ), 0);
+  return Math.max(size, childSpan);
+}
+
+function updateMindMapLinkStyle(parentNode, childNode, side, routeStyle) {
+  const conn = findMindMapConnectorBetween(parentNode, childNode);
+  if (!conn) return;
+  const fromAnchor = side;
+  const toAnchor = getOppositeConnectorAnchor(side);
+  conn.from = { ...(conn.from || {}), nodeId: getShapeEndpointId(parentNode), anchor: fromAnchor };
+  delete conn.from.shapeId;
+  delete conn.from.cell;
+  conn.to = { ...(conn.to || {}), nodeId: getShapeEndpointId(childNode), anchor: toAnchor };
+  delete conn.to.shapeId;
+  delete conn.to.cell;
+  conn.routeStyle = normalizeConnectorRouteStyle(routeStyle);
+  conn.routePoints = [];
+  if ((conn.startArrowShape || "classic") === "classic") conn.startArrowShape = "line";
+}
+
+function layoutMindMapNode(node, left, centerY, dir, routeStyle, freezeNode) {
+  const width = node.offsetWidth || 0;
+  const height = node.offsetHeight || 0;
+  let nodeLeft = left;
+  let nodeTop = freezeNode ? node.offsetTop : (centerY - height / 2);
+  if (freezeNode) {
+    nodeLeft = node.offsetLeft;
+    centerY = node.offsetTop + height / 2;
+  } else {
+    setNodePosition(node, nodeLeft, nodeTop);
+  }
+
+  const children = getMindMapChildNodes(node);
+  if (!children.length) return;
+
+  if (dir === "lr") {
+    const rightKids = [];
+    const leftKids = [];
+    children.forEach((child, index) => {
+      (index % 2 === 0 ? rightKids : leftKids).push(child);
+    });
+    const placeSide = (list, side) => {
+      if (!list.length) return;
+      const spans = list.map((child) => measureMindMapSubtreeSpan(child, "y"));
+      const total = spans.reduce((sum, value, index) => sum + value + (index ? MINDMAP_V_GAP : 0), 0);
+      let y = centerY - total / 2;
+      const childLeft = side === "e"
+        ? nodeLeft + width + MINDMAP_H_GAP
+        : nodeLeft - MINDMAP_H_GAP;
+      list.forEach((child, index) => {
+        const span = spans[index];
+        const childCenter = y + span / 2;
+        const placedLeft = side === "e" ? childLeft : childLeft - (child.offsetWidth || 0);
+        layoutMindMapNode(child, placedLeft, childCenter, side, routeStyle, false);
+        updateMindMapLinkStyle(node, child, side, routeStyle);
+        y += span + MINDMAP_V_GAP;
+      });
+    };
+    placeSide(rightKids, "e");
+    placeSide(leftKids, "w");
+    return;
+  }
+
+  if (dir === "e" || dir === "w") {
+    const spans = children.map((child) => measureMindMapSubtreeSpan(child, "y"));
+    const total = spans.reduce((sum, value, index) => sum + value + (index ? MINDMAP_V_GAP : 0), 0);
+    let y = centerY - total / 2;
+    children.forEach((child, index) => {
+      const span = spans[index];
+      const childCenter = y + span / 2;
+      const childLeft = dir === "e"
+        ? nodeLeft + width + MINDMAP_H_GAP
+        : nodeLeft - MINDMAP_H_GAP - (child.offsetWidth || 0);
+      layoutMindMapNode(child, childLeft, childCenter, dir, routeStyle, false);
+      updateMindMapLinkStyle(node, child, dir, routeStyle);
+      y += span + MINDMAP_V_GAP;
+    });
+    return;
+  }
+
+  const spans = children.map((child) => measureMindMapSubtreeSpan(child, "x"));
+  const total = spans.reduce((sum, value, index) => sum + value + (index ? MINDMAP_H_GAP : 0), 0);
+  let x = nodeLeft + width / 2 - total / 2;
+  const childTopBase = dir === "s"
+    ? nodeTop + height + MINDMAP_V_GAP
+    : nodeTop - MINDMAP_V_GAP;
+  children.forEach((child, index) => {
+    const span = spans[index];
+    const childWidth = child.offsetWidth || 0;
+    const childLeft = x + (span - childWidth) / 2;
+    const childHeight = child.offsetHeight || 0;
+    const childCenter = dir === "s"
+      ? childTopBase + childHeight / 2
+      : childTopBase - childHeight / 2;
+    layoutMindMapNode(child, childLeft, childCenter, dir, routeStyle, false);
+    updateMindMapLinkStyle(node, child, dir, routeStyle);
+    x += span + MINDMAP_H_GAP;
+  });
+}
+
+function applyMindMapLayoutToSelection(layoutId) {
+  if (!selectedShape || !canEditCurrentDocument()) return false;
+  if (!shapeHasMindMapChildren(selectedShape)) return false;
+  const spec = getMindMapLayoutSpec(layoutId);
+  selectedShape.dataset.mindMap = "1";
+  selectedShape.dataset.mindMapLayout = spec.id;
+  layoutMindMapNode(
+    selectedShape,
+    selectedShape.offsetLeft,
+    selectedShape.offsetTop + (selectedShape.offsetHeight || 0) / 2,
+    spec.dir,
+    spec.routeStyle,
+    true
+  );
+  updateDesktopExtent();
+  renderConnectors();
+  syncSelectionControlsOverlay();
+  syncMindMapLayoutControls();
+  saveLayout();
+  return true;
+}
+
+function closeMindMapLayoutMenu() {
+  if (!fpMindMapLayoutMenu) return;
+  fpMindMapLayoutMenu.classList.add("hidden");
+  if (fpMindMapLayoutBtn) fpMindMapLayoutBtn.setAttribute("aria-expanded", "false");
+}
+
+function syncMindMapLayoutControls() {
+  if (!fpMindMapWrap) return;
+  const show = !!(
+    selectedShape
+    && !multiSelectedShapeIds.size
+    && !selectedGroupId
+    && !selectedConnector
+    && shapeHasMindMapChildren(selectedShape)
+    && canEditCurrentDocument()
+  );
+  fpMindMapWrap.classList.toggle("hidden", !show);
+  if (!show) {
+    closeMindMapLayoutMenu();
+    return;
+  }
+  const current = normalizeMindMapLayoutId(selectedShape.dataset.mindMapLayout || "logic-right");
+  if (fpMindMapLayoutBtn) {
+    const spec = getMindMapLayoutSpec(current);
+    fpMindMapLayoutBtn.textContent = `Вид схемы: ${spec.label}`;
+  }
+  if (fpMindMapLayoutMenu) {
+    fpMindMapLayoutMenu.querySelectorAll(".fp-mindmap-option").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.mindmapLayout === current);
+    });
+  }
+}
+
+function canSpawnLinkedShape(node) {
+  if (!node || !canEditCurrentDocument()) return false;
+  if (isWorkspaceReadOnly() || guestPublicView) return false;
+  const type = node.dataset?.shapeType || "";
+  if (!["shape-rect", "shape-note", "shape-image"].includes(type)) return false;
+  if (isBpProcessMember(node) || node.dataset?.bpRole) return false;
+  if (isAttachedAnnotationNote(node)) return false;
+  return true;
+}
+
+function spawnLinkedShapeFromAnchor(sourceNode, anchor, event = null) {
+  if (!canSpawnLinkedShape(sourceNode)) return null;
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+  }
+  const sourceData = readShapeData(sourceNode);
+  if (!sourceData) return null;
+  const gap = MINDMAP_H_GAP;
+  const w = Number.parseFloat(sourceData.width) || sourceNode.offsetWidth || 220;
+  const h = Number.parseFloat(sourceData.height) || sourceNode.offsetHeight || 120;
+  const left = Number.parseFloat(sourceData.left) || sourceNode.offsetLeft || 0;
+  const top = Number.parseFloat(sourceData.top) || sourceNode.offsetTop || 0;
+  let nextLeft = left;
+  let nextTop = top;
+  if (anchor === "e") nextLeft = left + w + gap;
+  else if (anchor === "w") nextLeft = left - w - gap;
+  else if (anchor === "s") nextTop = top + h + gap;
+  else if (anchor === "n") nextTop = top - h - gap;
+  const childData = {
+    ...sourceData,
+    left: formatPositionPx(nextLeft),
+    top: formatPositionPx(nextTop),
+    text: "",
+    textHtml: undefined,
+    mindMap: true,
+    mindMapLayout: undefined,
+    zIndex: (++zCounter)
+  };
+  delete childData.id;
+  delete childData.connId;
+  delete childData.groupId;
+  delete childData.frameId;
+  delete childData.attachedNoteId;
+  delete childData.attachedNote;
+  delete childData.noteOwnerId;
+  delete childData.bpProcessId;
+  delete childData.bpRole;
+  delete childData.mindMapLayout;
+  const child = createShapeFromData(childData, 0, 0, { doSave: false });
+  if (!child) return null;
+  sourceNode.dataset.mindMap = "1";
+  if (!sourceNode.dataset.mindMapLayout) {
+    sourceNode.dataset.mindMapLayout = ({
+      e: "logic-right",
+      w: "logic-left",
+      s: "org-down",
+      n: "org-up"
+    })[anchor] || "logic-right";
+  }
+  child.dataset.mindMap = "1";
+  const fromId = getShapeEndpointId(sourceNode);
+  const toId = getShapeEndpointId(child);
+  connectors.push({
+    id: nextConnectorId(),
+    zIndex: 1,
+    from: { nodeId: fromId, anchor },
+    to: { nodeId: toId, anchor: getOppositeConnectorAnchor(anchor) },
+    color: "#1f2937",
+    width: 2,
+    lineStyle: "solid",
+    opacity: 1,
+    shadow: 0,
+    startArrowShape: "line",
+    endArrowShape: "classic",
+    routeStyle: "straight",
+    routePoints: [],
+    gapStart: 30,
+    gapEnd: 30,
+    ...(cloneStyleData(defaultStyles.connector) || {}),
+    mindMap: true
+  });
+  const layoutId = normalizeMindMapLayoutId(sourceNode.dataset.mindMapLayout);
+  layoutMindMapNode(
+    sourceNode,
+    sourceNode.offsetLeft,
+    sourceNode.offsetTop + (sourceNode.offsetHeight || 0) / 2,
+    getMindMapLayoutSpec(layoutId).dir,
+    getMindMapLayoutSpec(layoutId).routeStyle,
+    true
+  );
+  selectShape(child);
+  renderConnectors();
+  saveLayout();
+  if (child.dataset.shapeType === "shape-rect" || child.dataset.shapeType === "shape-note") {
+    startInlineShapeEditing(child, "", { select: false });
+  }
+  return child;
 }
 
 function syncConnectorDraftSvgSize(svg) {
@@ -14481,6 +14834,32 @@ function attachConnectorPoints(shape) {
     ar.addEventListener("pointerdown", (e) => startConnectorFromPoint(shape, a, e));
     box.appendChild(ar);
   });
+  const spawnType = shape?.dataset?.shapeType || "";
+  const canAttachSpawnPlus = ["shape-rect", "shape-note", "shape-image"].includes(spawnType)
+    && !shape?.dataset?.bpRole
+    && !isAttachedAnnotationNote(shape);
+  if (canAttachSpawnPlus) {
+    ["n", "e", "s", "w"].forEach((a) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "conn-plus";
+      btn.dataset.anchor = a;
+      btn.setAttribute("aria-label", "Создать связанную фигуру");
+      btn.title = "Создать связанную фигуру";
+      btn.innerHTML = "<span aria-hidden=\"true\">+</span>";
+      ["contextmenu", "auxclick"].forEach((eventName) => {
+        btn.addEventListener(eventName, (event) => {
+          if (eventName === "auxclick" && event.button !== 2) return;
+          suppressCellConnectorArrowBrowserMenu(event);
+        });
+      });
+      btn.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        spawnLinkedShapeFromAnchor(shape, a, e);
+      });
+      box.appendChild(btn);
+    });
+  }
   shape.appendChild(box);
   layoutConnectorPoints(shape);
 }
@@ -21118,6 +21497,8 @@ function readShapeData(node) {
     attachedNoteId: node.dataset.attachedNoteId || undefined,
     attachedNote: isAttachedAnnotationNote(node) || undefined,
     noteOwnerId: node.dataset.noteOwnerId || undefined,
+    mindMap: node.dataset.mindMap === "1" || undefined,
+    mindMapLayout: node.dataset.mindMapLayout || undefined,
     textTool: node.dataset.textTool === "1" || undefined,
     imageSrc: node.dataset.shapeType === "shape-image" ? (node.dataset.imageSrc || "") : undefined,
     tableData
@@ -21903,6 +22284,7 @@ function syncFormatPanel() {
     setAlignButtons(text.dataset.halign || "left", text.dataset.valign || "top");
     syncTextPaddingControlsFromText(text);
   }
+  syncMindMapLayoutControls();
   updateFormatPanelVisuals();
 }
 
@@ -22889,6 +23271,32 @@ safeOn(fpDistributeV, "click", () => {
 });
 safeOn(fpGroup, "click", () => showFeatureHint("Группировка"));
 safeOn(fpLock, "click", () => showFeatureHint("Блокировка"));
+safeOn(fpMindMapLayoutBtn, "click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  if (!fpMindMapLayoutMenu || fpMindMapWrap?.classList.contains("hidden")) return;
+  const open = fpMindMapLayoutMenu.classList.contains("hidden");
+  document.querySelectorAll(".fp-arrow-select.is-open").forEach((el) => el.classList.remove("is-open"));
+  fpMindMapLayoutMenu.classList.toggle("hidden", !open);
+  fpMindMapLayoutBtn.setAttribute("aria-expanded", open ? "true" : "false");
+});
+if (fpMindMapLayoutMenu) {
+  fpMindMapLayoutMenu.querySelectorAll(".fp-mindmap-option").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const layoutId = btn.dataset.mindmapLayout || "logic-right";
+      if (applyMindMapLayoutToSelection(layoutId)) {
+        closeMindMapLayoutMenu();
+      }
+    });
+  });
+}
+document.addEventListener("pointerdown", (event) => {
+  if (!fpMindMapLayoutMenu || fpMindMapLayoutMenu.classList.contains("hidden")) return;
+  if (event.target?.closest?.("#fpMindMapWrap")) return;
+  closeMindMapLayoutMenu();
+}, true);
 safeOn(fpCopyStyle, "click", () => {
   if (copyCurrentStyle()) showHint("Стиль скопирован и будет применен к новым объектам.", "warning", 2200);
   else showFeatureHint("Копирование стиля");
