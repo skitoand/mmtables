@@ -1,5 +1,24 @@
 # Review — журнал выкладок MIndMapTable
 
+## 2026-10-29 — spawn: сторона связи и клик по «+» поверх соединителя
+
+**Commit:** `09297ea` — Fix mindmap spawn link side and Option+ hit-testing on connectors.
+**Бэкап:** `mmtable-PROD-BACKUP-20261029-184243-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #40933358081](https://github.com/skitoand/mmtables/actions/runs/40933358081)
+**Статус:** OK
+
+### Что сделано
+
+- При продолжении стека MindMap стрелка использует сторону существующих детей (не сторону нажатого «+»).
+- В Option-режиме `conn-hit-line` не перехватывает клики — правый «+» снова создаёт фигуру.
+- Cache-buster: `app.js` / `styles.css` `?v=20261029-spawn-link-v1`.
+
+### Проверка
+
+- [x] Actions success на `09297ea`.
+- [x] SHA256 `app.js` / `index.html` / `styles.css` локально = сервер.
+- [x] Публичный URL отдаёт `spawn-link-v1`.
+
 ## 2026-10-29 — выбор документа без прыжка + плюсики стадий BP
 
 **Commit:** `3c346e8` — Fix file browser selection jump and hide BP stage mid-handles over plus buttons.
