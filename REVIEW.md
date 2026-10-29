@@ -1,5 +1,25 @@
 # Review — журнал выкладок MIndMapTable
 
+## 2026-10-29 — Option+ MindMap spawn и переключение вида схемы
+
+**Commit:** `8417eed` — Add Option+ mindmap spawn and subtree layout switcher.
+**Бэкап:** `mmtable-PROD-BACKUP-20261029-083332-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #40842982863](https://github.com/skitoand/mmtables/actions/runs/40842982863)
+**Статус:** OK
+
+### Что сделано
+
+- При Option на обычной фигуре появляются круглые `+`; клик создаёт такую же фигуру со связью MindMap.
+- В «Формат → Положение» для узла с потомками — кнопка «Вид схемы»; перестраивает выбранный узел и его поддерево, не родителей.
+- Cache-buster: `app.js?v=20261029-mindmap-layout-v1`, `styles.css?v=20261029-mindmap-layout-v1`.
+
+### Проверка
+
+- [x] Actions success на commit `8417eed`.
+- [x] SHA256 `app.js` / `styles.css` / `index.html` / `draw-tools.js` локально = `/opt/apps/mmtable` = публичный URL.
+- [x] На проде есть `spawnLinkedShapeFromAnchor`, `MINDMAP_LAYOUTS`, `option-spawn-mode`, `fpMindMapLayoutBtn`; Sfera-код сохранён.
+- [x] Публичный `index.html` отдаёт `20261029-mindmap-layout-v1`.
+
 ## 2026-10-29 — «СФЕРА + MMTable», редактирование таблиц внутри СФЕРЫ
 
 - СФЕРА commit: `4c94522ba40caa6a0ced86faebee8f14cf821d7a`, ветка `codex/mmtable-embedded-editor`; Actions https://github.com/skitoand/knowledge-base/actions/runs/40833312999 — success.
