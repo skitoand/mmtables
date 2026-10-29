@@ -1425,7 +1425,15 @@ def _get_comment_row(conn, doc_id, comment_id):
 
 @app.after_request
 def _security_headers(response):
-    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    embedded = request.args.get("embed") == "sfera" and (
+        request.endpoint in {"spa_document", "spa_document_sheet", "login_sfera_open"}
+    )
+    if embedded:
+        response.headers.pop("X-Frame-Options", None)
+        response.headers["Content-Security-Policy"] = "frame-ancestors 'self' https://sfera.crystalsystems.ru"
+        response.headers["Cache-Control"] = "no-store"
+    else:
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     return response
@@ -1627,7 +1635,8 @@ def login_sfera_open():
     session["sfera_user_id"] = str(claims.get("sferaUserId") or "")
     session["sfera_organizations"] = [{"id": str(claims.get("organizationId") or "")}]
     session["sfera_claims_expires_at"] = time.time() + min(max(int(claims.get("expiresIn") or 90), 30), 90)
-    response = redirect(f"/d/{document_id}")
+    suffix = "?embed=sfera" if request.args.get("embed") == "sfera" else ""
+    response = redirect(f"/d/{document_id}{suffix}")
     response.headers["Cache-Control"] = "no-store"
     return response
 

@@ -3484,3 +3484,14 @@ body.dark .bitrix-chart-info-popover{
 .html-block-code{width:100%;min-height:340px;max-height:60vh;resize:vertical;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;color:#0f172a;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;tab-size:2;white-space:pre;overflow:auto}
 body.dark .html-block-modal-hint{color:#94a3b8}
 body.dark .html-block-code{background:#0b1220;color:#e2e8f0;border-color:#334155}
+
+/* Embedded documents retain editing tools but omit app/account navigation. */
+body.sfera-embedded #fileCreateBtn,
+body.sfera-embedded #fileOpenBtn,
+body.sfera-embedded #fileOpenSferaBtn,
+body.sfera-embedded #fileDeleteBtn,
+body.sfera-embedded #fileCopyBtn,
+body.sfera-embedded #profileBtn,
+body.sfera-embedded .app-menu-footer { display:none; }
+body.sfera-embedded #currentDocumentTitle { display:none; }
+body.sfera-embedded .toolbar { border-radius:0; }

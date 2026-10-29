@@ -10909,7 +10909,7 @@ function setObjectsToolbarPreferred(visible) {
 function syncObjectsToolbarFromStorage() {
   let preferred = false;
   try {
-    preferred = localStorage.getItem(OBJECTS_TOOLBAR_KEY) === "1";
+    preferred = document.body.classList.contains("sfera-embedded") || localStorage.getItem(OBJECTS_TOOLBAR_KEY) === "1";
   } catch {}
   if (objectsToggle) objectsToggle.checked = preferred;
   syncObjectsToolbarVisibility();

@@ -25,7 +25,7 @@ def authorization_url(callback_url, state):
     return f"{_base_url()}/api/sso/mmtable/authorize?{query}"
 
 
-def _signed_request(endpoint, payload):
+def _signed_request(endpoint, payload, *, audience="mmtable"):
     secret = _secret()
     if not secret:
         raise RuntimeError("sfera_sso_not_configured")
@@ -53,9 +53,11 @@ def _signed_request(endpoint, payload):
         raise PermissionError(str(data.get("error") or "sfera_sso_exchange_failed")) from error
     except (URLError, OSError, TimeoutError) as error:
         raise RuntimeError("sfera_sso_unavailable") from error
-    if not isinstance(data, dict) or data.get("issuer") != "sfera" or data.get("audience") != "mmtable":
+    if not isinstance(data, dict) or data.get("issuer") != "sfera" or data.get("audience") != audience:
         raise PermissionError("invalid_sfera_sso_claims")
-    if not str(data.get("email") or "").strip() or not isinstance(data.get("organizations"), list):
+    if not str(data.get("email") or "").strip():
+        raise PermissionError("invalid_sfera_sso_claims")
+    if audience == "mmtable" and not isinstance(data.get("organizations"), list):
         raise PermissionError("invalid_sfera_sso_claims")
     return data
 
@@ -79,6 +81,7 @@ def consume_open_token(token, document_id):
     data = _signed_request(
         "/api/sso/mmtable/open-token",
         {"token": str(token or "").strip(), "documentId": str(document_id or "").strip()},
+        audience="mmtable-open",
     )
     if data.get("audience") != "mmtable-open":
         raise PermissionError("invalid_mmtable_open_claims")
