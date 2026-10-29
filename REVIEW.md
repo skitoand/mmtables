@@ -1,5 +1,25 @@
 # Review — журнал выкладок MIndMapTable
 
+## 2026-10-29 — мультивыделение стрелок и меню «Маршрут»
+
+**Commit:** `660e2a6` — Fix multi-select connector formatting and route menu fit.
+**Бэкап:** `mmtable-PROD-BACKUP-20261029-095134-before-deploy.tar.gz`
+**Деплой:** GitHub Actions [Deploy Production #40852909104](https://github.com/skitoand/mmtables/actions/runs/40852909104)
+**Статус:** OK
+
+### Что сделано
+
+- При выделении нескольких стрелок (рамка или Shift/⌘/Ctrl+клик) панель «Формат» открывается в режиме соединителей; стиль применяется ко всем выбранным.
+- На всех выделенных стрелках видны точки начала/конца.
+- Меню «Маршрут» / формы стрелок не обрезается при минимальной ширине панели (сетка 2×2).
+- Cache-buster: `app.js?v=20261029-multi-conn-fmt-v1`, `styles.css?v=20261029-route-menu-fit-v1`.
+
+### Проверка
+
+- [x] Actions success на `660e2a6`.
+- [x] SHA256 `app.js` / `index.html` / `styles.css` локально = сервер.
+- [x] Публичный URL отдаёт `multi-conn-fmt-v1` / `route-menu-fit-v1`; на проде есть `getActiveConnectorSelection` / `toggleConnectorMultiSelection` / `fp-conn-route-menu`.
+
 ## 2026-10-29 — плавный изгиб соединителей MindMap
 
 **Commit:** `2d3c14a` — Add smooth curve connector route as mindmap default.
