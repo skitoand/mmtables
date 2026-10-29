@@ -14709,6 +14709,20 @@ function defaultMindMapSiblingPlacement(anchor) {
   return { axis: "y", direction: 1, align: "left", gap: MINDMAP_V_GAP };
 }
 
+function defaultMindMapSiblingPlacementFromParent(parentNode, siblingNode, fallbackAnchor) {
+  const parent = getMindMapNodeRect(parentNode);
+  const sibling = getMindMapNodeRect(siblingNode);
+  const dCx = (sibling.left + sibling.width / 2) - (parent.left + parent.width / 2);
+  const dCy = (sibling.top + sibling.height / 2) - (parent.top + parent.height / 2);
+  // Child to the side → continue stacking vertically; child above/below → horizontally.
+  if (Math.abs(dCx) >= Math.abs(dCy)) {
+    const goingDown = sibling.top + sibling.height / 2 >= parent.top + parent.height / 2;
+    return { axis: "y", direction: goingDown ? 1 : -1, align: "left", gap: MINDMAP_V_GAP };
+  }
+  const goingRight = sibling.left + sibling.width / 2 >= parent.left + parent.width / 2;
+  return { axis: "x", direction: goingRight ? 1 : -1, align: "top", gap: MINDMAP_H_GAP };
+}
+
 function inferMindMapSiblingPlacement(prevNode, lastNode) {
   const prev = getMindMapNodeRect(prevNode);
   const last = getMindMapNodeRect(lastNode);
@@ -14798,9 +14812,25 @@ function resolveNextMindMapChildPosition(sourceNode, anchor, width, height) {
   const last = siblings[siblings.length - 1];
   const placement = siblings.length >= 2
     ? inferMindMapSiblingPlacement(siblings[siblings.length - 2], last)
-    : defaultMindMapSiblingPlacement(anchor);
+    : defaultMindMapSiblingPlacementFromParent(sourceNode, last, anchor);
   const pos = positionFromMindMapSiblingPlacement(last, placement, width, height);
   return { left: pos.left, top: pos.top, relayout: false };
+}
+
+function resolveMindMapSpawnLinkSide(sourceNode, clickedAnchor, continuingSiblings) {
+  const fallback = ["n", "e", "s", "w"].includes(clickedAnchor) ? clickedAnchor : "e";
+  if (!continuingSiblings) return fallback;
+  // Keep the same parent-side as existing mindmap children so a bottom "+"
+  // that continues a right-hand stack still connects e→w, not s→n.
+  const links = getMindMapChildLinks(sourceNode);
+  for (let i = links.length - 1; i >= 0; i -= 1) {
+    const side = String(links[i]?.from?.anchor || "").trim();
+    if (side === "n" || side === "e" || side === "s" || side === "w") return side;
+  }
+  const layoutDir = getMindMapLayoutSpec(sourceNode.dataset.mindMapLayout).dir;
+  if (layoutDir === "e" || layoutDir === "w" || layoutDir === "n" || layoutDir === "s") return layoutDir;
+  if (layoutDir === "lr") return fallback === "w" ? "w" : "e";
+  return fallback;
 }
 
 function spawnLinkedShapeFromAnchor(sourceNode, anchor, event = null) {
@@ -14849,12 +14879,13 @@ function spawnLinkedShapeFromAnchor(sourceNode, anchor, event = null) {
   child.dataset.mindMap = "1";
   const fromId = getShapeEndpointId(sourceNode);
   const toId = getShapeEndpointId(child);
+  const linkSide = resolveMindMapSpawnLinkSide(sourceNode, anchor, !nextPos.relayout);
   const routeStyle = getMindMapLayoutSpec(sourceNode.dataset.mindMapLayout).routeStyle || "curve";
   connectors.push({
     id: nextConnectorId(),
     zIndex: 1,
-    from: { nodeId: fromId, anchor },
-    to: { nodeId: toId, anchor: getOppositeConnectorAnchor(anchor) },
+    from: { nodeId: fromId, anchor: linkSide },
+    to: { nodeId: toId, anchor: getOppositeConnectorAnchor(linkSide) },
     color: "#1f2937",
     width: 2,
     lineStyle: "solid",
@@ -14881,7 +14912,7 @@ function spawnLinkedShapeFromAnchor(sourceNode, anchor, event = null) {
       true
     );
   } else {
-    updateMindMapLinkStyle(sourceNode, child, anchor, layoutSpec.routeStyle);
+    updateMindMapLinkStyle(sourceNode, child, linkSide, layoutSpec.routeStyle);
   }
   selectShape(child);
   renderConnectors();
@@ -15233,6 +15264,8 @@ function renderConnectors() {
       }
     }
     const selectFromPointer = (e) => {
+      // Option/Alt spawn mode: "+" sits on the same edge as connector hit lines.
+      if (e.altKey || document.body.classList.contains("option-spawn-mode")) return;
       e.stopPropagation();
       if (e.shiftKey || e.metaKey || e.ctrlKey) {
         toggleConnectorMultiSelection(c.id);

@@ -1160,6 +1160,10 @@ body.option-spawn-mode .shape.selected .conn-arrow,
 body.option-spawn-mode .shape.multi-selected .conn-arrow,
 body.ctrl-connector-mode .shape.selected .conn-plus,
 body.ctrl-connector-mode .shape.multi-selected .conn-plus{display:none !important}
+/* Connector hit paths sit above shapes and steal clicks from edge "+" buttons. */
+body.option-spawn-mode .conn-hit-line{
+  pointer-events:none !important;
+}
 .conn-layer{position:absolute;inset:0;pointer-events:none}
 .conn-overlay-layer{z-index:10023}
 .conn-layer-item{overflow:visible}
