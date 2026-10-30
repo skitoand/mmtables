@@ -42,6 +42,7 @@ ssh -oHostKeyAlgorithms=+ssh-rsa \
 Обычно нужно выкладывать весь runtime-комплект:
 
 - `app.js`
+- `document-save.js`
 - `bitrix-chart.js`
 - `index.html`
 - `styles.css`
@@ -58,8 +59,8 @@ ssh -oHostKeyAlgorithms=+ssh-rsa \
 
 Основной способ публикации — **через GitHub**:
 
-1. **Локально** — закоммитить изменения в `main`
-2. **Push** — `git push origin main`
+1. **Локально** — закоммитить изменения в отдельной рабочей ветке, опубликовать её и создать Pull Request в `main`
+2. **Verify и merge** — дождаться проверок, объединить PR в `main`; прямую публикацию из рабочей ветки не запускать
 3. **GitHub Actions** — workflow `.github/workflows/deploy.yml` автоматически:
    - создаёт бэкап на сервере в `/opt/apps/backups/`
    - выкладывает файлы из коммита на прод
