@@ -3,6 +3,16 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+[[ "${GITHUB_ACTIONS:-}" == true && "${GITHUB_REF:-}" == refs/heads/main ]] || {
+  echo 'Production deploy requires GitHub Actions on main.' >&2; exit 1;
+}
+[[ "$(git -C "$ROOT_DIR" rev-parse HEAD)" == "${GITHUB_SHA:-}" &&
+   "$(git -C "$ROOT_DIR" rev-parse origin/main)" == "${GITHUB_SHA:-}" &&
+   -z "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal)" ]] || {
+  echo 'Production requires the current published main and a clean checkout.' >&2; exit 1;
+}
+
+
 HOST="${DEPLOY_HOST:-95.163.226.145}"
 USER_NAME="${DEPLOY_USER:-root}"
 SSH_KEY="${DEPLOY_SSH_KEY:-$HOME/.ssh/lumalms_deploy}"
@@ -65,6 +75,7 @@ require_local_file() {
 }
 
 require_local_file "$ROOT_DIR/app.js"
+require_local_file "$ROOT_DIR/document-save.js"
 require_local_file "$ROOT_DIR/index.html"
 require_local_file "$ROOT_DIR/styles.css"
 require_local_file "$ROOT_DIR/server.py"
@@ -98,14 +109,16 @@ retry 6 remote_ssh \
    trap 'rm -f \"\${SNAPSHOT}\"' EXIT; \
    mkdir -p '${REMOTE_BACKUP_DIR}'; \
    python3 -c \"import sqlite3; src=sqlite3.connect('${REMOTE_APP_DIR}/workspace.db'); dst=sqlite3.connect('\${SNAPSHOT}'); src.backup(dst); dst.close(); src.close()\"; \
+   SAVE_RUNTIME=''; if [ -f '${REMOTE_APP_DIR}/document-save.js' ]; then SAVE_RUNTIME=document-save.js; fi; \
    tar --transform='s|^.deploy-workspace-${TS}.db\$|workspace.db|' \
      -czf '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}' -C '${REMOTE_APP_DIR}' \
-     app.js index.html styles.css server.py assets/favicon.png assets/apple-touch-icon.png \
+     app.js \${SAVE_RUNTIME} index.html styles.css server.py assets/favicon.png assets/apple-touch-icon.png \
      .deploy-workspace-${TS}.db bitrix-chart.js draw-tools.js \
      vendor/perfect-freehand.js vendor/laser-pointer.js; \
    ls -lh '${REMOTE_BACKUP_DIR}/${BACKUP_NAME}'"
 
 echo "2/4 Uploading files to /tmp"
+retry 6 remote_scp "$ROOT_DIR/document-save.js" "${USER_NAME}@${HOST}:/tmp/mmtable_document_save.js"
 retry 6 remote_scp "$ROOT_DIR/app.js" "${USER_NAME}@${HOST}:/tmp/mmtable_app.js"
 retry 6 remote_scp "$ROOT_DIR/bitrix-chart.js" "${USER_NAME}@${HOST}:/tmp/mmtable_bitrix_chart.js"
 retry 6 remote_scp "$ROOT_DIR/draw-tools.js" "${USER_NAME}@${HOST}:/tmp/mmtable_draw_tools.js"
@@ -149,6 +162,7 @@ retry 6 remote_scp "$ROOT_DIR/assets/whiteboard-icons/"*.svg "${USER_NAME}@${HOS
 
 echo "3/4 Installing files and restarting gunicorn"
 retry 6 remote_ssh "
+  install -m 644 /tmp/mmtable_document_save.js '${REMOTE_APP_DIR}/document-save.js' &&
   install -m 644 /tmp/mmtable_app.js '${REMOTE_APP_DIR}/app.js' &&
   install -m 644 /tmp/mmtable_bitrix_chart.js '${REMOTE_APP_DIR}/bitrix-chart.js' &&
   install -m 644 /tmp/mmtable_draw_tools.js '${REMOTE_APP_DIR}/draw-tools.js' &&
@@ -213,5 +227,8 @@ echo "4/4 Checking public URL"
 env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
   curl -I --max-time 15 "$PUBLIC_URL" | sed -n '1,12p'
 
+env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+  curl -fsS --max-time 15 "$PUBLIC_URL" >/dev/null
+remote_ssh "printf '%s\n' '${GITHUB_SHA}' > '${REMOTE_APP_DIR}/.deployed-commit'"
 echo "Backup: ${REMOTE_BACKUP_DIR}/${BACKUP_NAME}"
 echo "Done. Add an entry to REVIEW.md with this backup name and deploy summary."
