@@ -1,5 +1,17 @@
 # Review — журнал выкладок MIndMapTable
 
+## 2026-10-30 — большие черновики и независимое от localStorage автосохранение
+
+- Production commit: `c452cc90fef8c7d26e242c681e07b967640df661`, main; PR https://github.com/skitoand/mmtables/pull/3.
+- Actions: https://github.com/skitoand/mmtables/actions/runs/41023614630 — success (verify/deploy).
+- Backup: `/opt/apps/backups/mmtable-PROD-BACKUP-20261030-080111-before-deploy.tar.gz`.
+- Причина предупреждения: полные черновики сохранялись в localStorage; в production есть документы больше 8 МБ. Старый незащищённый кэш в flushPersistDocument дополнительно мог бросить QuotaExceededError до HTTP-запроса и остановить серверное автосохранение.
+- Черновики перенесены в IndexedDB с немедленным снимком в памяти, последовательной/coalesced записью, защитой позднего чтения и tombstone удаления, миграцией старых localStorage-черновиков после durable commit. UI различает pending/persisted/failed. Кэш localStorage авторизованного документа больше не стоит перед HTTP-запросом; кэш viewport также best-effort. Ошибка backup не создаёт предупреждение на каждом вводе при успешном серверном сохранении.
+- Проверки: 44 Python-теста; Node — большие асинхронные черновики, миграция, позднее чтение, упорядоченное удаление, падение обоих хранилищ, очередь/версии/409. WebKit и Firefox с настоящими локальными СФЕРОЙ/MMTable: документ больше 8 МиБ, реально заполненный localStorage, серверное A/B/C, настоящий IndexedDB и восстановление после reload, отсутствие ложного предупреждения, 409 без потери текста, копия, смена документа, offline/retry и standalone. Chrome не использовался.
+- Production: mmtable/knowledge-base active; MMTable local/public / и /api/me HTTP 200; Sfera /api/health ok:true. Серверные и публичные app.js/document-save.js/index.html/styles.css совпали с коммитом; .deployed-commit подтверждён. Node-проверки повторены на скачанном production-модуле. Версии `20261030-indexed-drafts-v2`.
+- Пользовательские production-документы и SQLite-схема не менялись. Код подготовлен в чистой копии; исходные сторонние изменения сохранены.
+
+
 ## 2026-10-30 — защита текста фигур от конфликтов автосохранения
 
 **Production commit:** `e99839900fc0df6664f7c494567d59fd9b3f1e14`, main.
