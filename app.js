@@ -539,6 +539,39 @@ let currentDocumentId = null;
 let currentDocumentName = "Рабочий стол";
 let currentDocumentStore = null;
 let currentDocumentUpdatedAt = null;
+const documentDrafts = DocumentSave.createDraftStore(localStorage);
+let documentSaveNoticeKey = null;
+let documentRecoveryPendingKey = null;
+let documentRecoveryCopyPending = false;
+const documentDirtyKeys = new Set();
+const documentSaveQueue = DocumentSave.createQueue({
+  send: async (job, base) => {
+    if (documentSaveAccount() !== job.account) throw new Error("save_account_changed");
+    return fetchJson("/api/layout", {
+      method: "POST", headers: {"Content-Type": "application/json"}, silent: true,
+      body: JSON.stringify({layout: job.layout, documentId: job.docId,
+        baseUpdatedAt: base, sessionId: job.sessionId})
+    });
+  },
+  onSaved: (job, base, result) => {
+    const clean = documentDrafts.acknowledge(job.key, job.layout, base, result.updatedAt);
+    if (documentSaveKey() === job.key) {
+      currentDocumentUpdatedAt = String(result.updatedAt);
+      flushCurrentSheetLayout();
+      const sameCanvas = JSON.stringify(buildDocumentLayoutPayload()) === JSON.stringify(job.layout);
+      if (clean && sameCanvas) { documentDirtyKeys.delete(job.key); clearDocumentSaveNotice(job.key); }
+      else if (clean) stashCurrentDocumentDraft();
+    } else if (clean) documentDirtyKeys.delete(job.key);
+  },
+  onError: (job, error) => {
+    if (documentSaveKey() !== job.key) return;
+    if (error.status === 403) {
+      setDocumentOpenMode("view", {owned: false, holder: error.payload?.editLock, warn: true});
+    }
+    showDocumentSaveNotice(error.status === 409 ? "conflict" : error.status === 403 ? "locked" : "network");
+  }
+});
+
 let documentsCache = [];
 let foldersCache = [];
 let sferaBrowserState = {
@@ -4263,6 +4296,7 @@ function canManagePublicLinkCurrentDocument() {
 }
 
 function canEditCurrentDocument() {
+  if (documentRecoveryPendingKey && documentRecoveryPendingKey === documentSaveKey()) return false;
   if (guestPublicView) return false;
   if (documentEditSyncPending) return false;
   if (!(currentUser && ["owner", "admin", "editor"].includes(getCurrentDocumentRole()))) return false;
@@ -4537,6 +4571,7 @@ async function loadCurrentDocument(opts = {}) {
     if (opts.startPresence) {
       await startDocumentPresence(opts.mode === "edit" ? "edit" : "view");
     }
+    offerDocumentDraftRecovery(data.layout);
     return loaded;
   }
   const doc = loadActiveLocalDocument();
@@ -4549,9 +4584,170 @@ async function loadCurrentDocument(opts = {}) {
   return applyDocumentLayout(doc.layout || createBlankDocumentLayout(), parseAppRoute().sheetId);
 }
 
+function documentSaveAccount() {
+  return String(currentUser?.email || currentUser?.id || '').trim().toLowerCase();
+}
+function documentSaveKey() { return documentSaveAccount() + '\n' + String(currentDocumentId || ''); }
+function clearDocumentSaveNotice(key) {
+  if (key && documentSaveNoticeKey !== key) return;
+  document.getElementById('document-save-notice')?.remove();
+  documentSaveNoticeKey = null;
+}
+function stashDocumentDraft(job) {
+  documentDirtyKeys.add(job.key);
+  const stored = documentDrafts.write(job.key, {docId: job.docId, name: job.name,
+    account: job.account, base: job.base, layout: job.layout, savedAt: new Date().toISOString()});
+  if (!stored && documentSaveKey() === job.key) showDocumentSaveNotice('storage');
+  return stored;
+}
+function stashCurrentDocumentDraft() {
+  if (!currentUser || !currentDocumentId || guestPublicView || documentRecoveryPendingKey === documentSaveKey()) return;
+  if (!documentDirtyKeys.has(documentSaveKey())) return;
+  flushCurrentSheetLayout();
+  const key = documentSaveKey();
+  const draft = documentDrafts.read(key);
+  return stashDocumentDraft({key, docId: currentDocumentId, account: documentSaveAccount(), name: currentDocumentName,
+    base: documentSaveQueue.isBlocked(key) && draft ? draft.base : documentSaveQueue.version(key) || currentDocumentUpdatedAt,
+    layout: buildDocumentLayoutPayload()});
+}
+function offerDocumentDraftRecovery(serverLayout) {
+  if (!currentUser || !currentDocumentId || guestPublicView) return;
+  const key = documentSaveKey(), draft = documentDrafts.read(key);
+  clearDocumentSaveNotice();
+  documentRecoveryPendingKey = null;
+  if (!draft) return;
+  if (serverLayout && JSON.stringify(draft.layout) === JSON.stringify(serverLayout)) {
+    documentDrafts.remove(key); documentDirtyKeys.delete(key); return;
+  }
+  documentRecoveryPendingKey = key;
+  syncWorkspaceAccessMode();
+  showDocumentSaveNotice('recovery');
+}
+async function restoreDocumentDraft() {
+  const key = documentSaveKey(), draft = documentDrafts.read(key);
+  if (!draft) return;
+  await startDocumentPresence('edit');
+  if (key !== documentSaveKey()) return;
+  if (!editLockOwned) { showDocumentSaveNotice('locked'); return; }
+  const conflict = draft.base !== currentDocumentUpdatedAt;
+  if (conflict) documentSaveQueue.block(key, Object.assign(new Error('conflict'), {status: 409}));
+  else documentSaveQueue.setVersion(key, draft.base);
+  documentRecoveryPendingKey = null;
+  applyDocumentLayout(draft.layout, draft.layout.activeSheetId);
+  documentDirtyKeys.add(key);
+  syncWorkspaceAccessMode(); refreshObjectsToolbarForMode();
+  if (conflict) {
+    showDocumentSaveNotice('conflict');
+  } else {
+    documentSaveQueue.setVersion(key, draft.base);
+    clearDocumentSaveNotice(key);
+    if (autoSaveEnabled) scheduleDocumentPersist(0);
+  }
+}
+function latestDocumentRecoveryDraft() {
+  const key = documentSaveKey();
+  if (documentRecoveryPendingKey === key || !documentDirtyKeys.has(key)) return documentDrafts.read(key);
+  flushCurrentSheetLayout();
+  return {docId: currentDocumentId, account: documentSaveAccount(), name: currentDocumentName,
+    base: currentDocumentUpdatedAt, layout: buildDocumentLayoutPayload()};
+}
+async function saveDocumentDraftCopy() {
+  if (documentRecoveryCopyPending) return;
+  const key = documentSaveKey();
+  if (documentSaveQueue.isBusy(key)) await documentSaveQueue.idle();
+  if (key !== documentSaveKey()) return;
+  const draft = latestDocumentRecoveryDraft();
+  if (!draft) { showDocumentSaveNotice('storage'); return; }
+  documentRecoveryCopyPending = true;
+  const previousPending = documentEditSyncPending;
+  documentEditSyncPending = true; syncWorkspaceAccessMode();
+  try {
+    const data = await fetchJson('/api/docs', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: (draft.name || 'Документ') + ' — восстановленная копия', layout: draft.layout})});
+    if (!data.document?.id) throw new Error('recovery_copy_missing');
+    documentDrafts.remove(key); documentDirtyKeys.delete(key);
+    if (documentSaveKey() === key) {
+      documentRecoveryPendingKey = null; clearDocumentSaveNotice();
+      await openDocumentById(data.document.id, {mode: 'edit'});
+      showHint('Правки сохранены в отдельной копии. Исходный документ не изменён.', 'warning', 5500);
+    }
+  } catch (error) {
+    console.error('Recovery copy failed:', error);
+    showHint('Не удалось создать копию. Правки остаются на экране; их можно скачать.', 'error', 7000);
+  } finally {
+    documentRecoveryCopyPending = false; documentEditSyncPending = previousPending;
+    syncWorkspaceAccessMode(); refreshObjectsToolbarForMode();
+  }
+}
+function downloadDocumentDraft() {
+  const draft = latestDocumentRecoveryDraft();
+  if (!draft) return;
+  const url = URL.createObjectURL(new Blob([JSON.stringify(draft.layout, null, 2)], {type: 'application/json'}));
+  const a = document.createElement('a'); a.href = url; a.download = (draft.name || 'Документ') + ' — черновик.json';
+  a.click(); setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+async function useServerDocumentVersion() {
+  if (!window.confirm('Загрузить серверную версию? Локальные правки останутся отдельным черновиком в этом браузере.')) return;
+  stashCurrentDocumentDraft();
+  if (!documentDrafts.read(documentSaveKey())) { showDocumentSaveNotice('storage'); return; }
+  await documentSaveQueue.idle();
+  await reloadCurrentDocumentFromServer({quiet: true});
+}
+function showDocumentSaveNotice(reason) {
+  if (!currentUser || !currentDocumentId) return;
+  const key = documentSaveKey();
+  const existing = document.getElementById('document-save-notice');
+  if (documentSaveNoticeKey === key && existing?.dataset.reason === reason) return;
+  clearDocumentSaveNotice();
+  documentSaveNoticeKey = key;
+  const messages = {
+    conflict: 'Серверная версия изменилась. Ваши правки остаются на экране. Автосохранение приостановлено, чтобы не затереть данные.',
+    network: 'Не удалось сохранить на сервере. Ваши правки остаются на экране.',
+    locked: 'Сейчас нельзя сохранить изменения: нет доступа к редактированию. Ваши правки остаются на экране.',
+    recovery: 'В этом браузере есть несохранённый черновик этого документа. Восстановите его или сохраните отдельной копией.',
+    storage: 'Не удалось записать локальный черновик. Не закрывайте документ, пока правки не сохранятся на сервере.'
+  };
+  const host = document.createElement('section'); host.id = 'document-save-notice'; host.className = 'document-save-notice';
+  host.dataset.reason = reason;
+  host.addEventListener('pointerdown', event => { if (event.target.closest('button')) event.preventDefault(); });
+  host.setAttribute('role', 'status'); host.setAttribute('aria-live', 'polite');
+  const text = document.createElement('div');
+  text.textContent = messages[reason];
+  if (!['storage', 'recovery'].includes(reason)) text.textContent += documentDrafts.read(key)
+    ? ' Локальный черновик сохранён в этом браузере.'
+    : ' Локальная резервная копия недоступна: не закрывайте документ.';
+  host.append(text);
+  const actions = document.createElement('div'); actions.className = 'document-save-actions';
+  const add = (name, id, fn) => {
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = name;
+    button.dataset.documentSaveAction = id;
+    button.addEventListener('click', () => { if (documentSaveKey() === key) void fn(); }); actions.append(button);
+  };
+  if (reason === 'recovery') add('Восстановить черновик', 'restore', restoreDocumentDraft);
+  if (reason === 'network') add('Повторить сохранение', 'retry', () => persistCurrentDocument().catch(() => {}));
+  if (documentDrafts.read(key) || documentDirtyKeys.has(key)) {
+    add('Сохранить копию', 'copy', saveDocumentDraftCopy);
+    add('Скачать черновик', 'download', downloadDocumentDraft);
+  }
+  if (reason === 'conflict') add('Загрузить с сервера', 'server', useServerDocumentVersion);
+  if (documentRecoveryPendingKey === key) {
+    add('Удалить черновик', 'discard', () => {
+      if (!window.confirm('Удалить локальный черновик и оставить серверную версию?')) return;
+      documentDrafts.remove(key); documentDirtyKeys.delete(key); documentRecoveryPendingKey = null;
+      clearDocumentSaveNotice(key); syncWorkspaceAccessMode(); refreshObjectsToolbarForMode();
+    });
+  } else {
+    // Dismissal never deletes a recovery draft or unblocks an unsafe save.
+    add('Закрыть уведомление', 'close', () => clearDocumentSaveNotice(key));
+  }
+  host.append(actions); document.body.append(host);
+}
+
 function noteDocumentUpdatedAt(value) {
   const next = value == null || value === "" ? null : String(value);
   currentDocumentUpdatedAt = next;
+  if (currentUser && currentDocumentId) documentSaveQueue.setVersion(documentSaveKey(), next);
   return currentDocumentUpdatedAt;
 }
 
@@ -4760,6 +4956,7 @@ async function requestDocumentViewMode() {
       await persistCurrentDocument();
     } catch (err) {
       console.warn("Не удалось сохранить перед переходом в просмотр:", err);
+      return false;
     }
   }
   // Request view via presence, but keep editLockOwned until setDocumentOpenMode
@@ -4777,7 +4974,10 @@ async function reloadCurrentDocumentFromServer({ quiet = false } = {}) {
   pendingPersistTimer = null;
   const docId = currentDocumentId;
   const keepMode = documentOpenMode === "edit" ? "edit" : "view";
+  await documentSaveQueue.idle();
+  if (currentDocumentId !== docId) return false;
   const data = await fetchJson(`/api/docs/${encodeURIComponent(docId)}/activate`, { method: "POST" });
+  if (currentDocumentId !== docId) return false;
   const nextId = data.document?.id || data.activeDocumentId || docId;
   currentDocumentId = nextId;
   currentDocumentName = data.activeDocumentName || data.document?.name || currentDocumentName;
@@ -4792,6 +4992,7 @@ async function reloadCurrentDocumentFromServer({ quiet = false } = {}) {
   }
   await startDocumentPresence(keepMode);
   refreshObjectsToolbarForMode();
+  offerDocumentDraftRecovery(data.document?.layout);
   if (!quiet) {
     showHint("Документ обновлён с сервера.", "warning", 3000);
   }
@@ -4823,44 +5024,16 @@ async function persistCurrentDocument(layoutOverride = null) {
   // the previous canvas into another document id (cross-document overwrite).
   if (currentDocumentId !== docIdAtSave) return;
   if (currentUser) {
-    if (!currentDocumentUpdatedAt) {
-      showHint("Нет метки версии документа. Обновляю с сервера…", "warning", 3000);
-      try {
-        await reloadCurrentDocumentFromServer({ quiet: true });
-      } catch (err) {
-        console.error(err);
-      }
-      return;
-    }
+    const job = {key: documentSaveKey(), account: documentSaveAccount(), docId: docIdAtSave,
+      name: currentDocumentName, layout, base: documentSaveQueue.version(documentSaveKey()) || currentDocumentUpdatedAt,
+      sessionId: ensurePresenceSessionId()};
+    stashDocumentDraft(job);
     try {
-      const data = await fetchJson("/api/layout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          layout,
-          documentId: docIdAtSave,
-          baseUpdatedAt: currentDocumentUpdatedAt,
-          sessionId: ensurePresenceSessionId()
-        }),
-        silent: true
-      });
-      if (data && data.updatedAt) noteDocumentUpdatedAt(data.updatedAt);
-    } catch (err) {
-      if (err && (err.status === 403 || /edit_locked|lock_required/i.test(String(err.message || "")))) {
-        const holder = err.payload && err.payload.editLock;
-        setDocumentOpenMode("view", { owned: false, holder, warn: true });
-        return;
-      }
-      if (err && (err.status === 409 || /conflict|baseUpdatedAt|refusing_empty/i.test(String(err.message || "")))) {
-        showHint("Версия на сервере новее. Обновляю документ…", "warning", 3500);
-        try {
-          await reloadCurrentDocumentFromServer({ quiet: true });
-        } catch (reloadErr) {
-          console.error(reloadErr);
-        }
-        return;
-      }
-      throw err;
+      await documentSaveQueue.enqueue(job);
+    } catch (error) {
+      // A stale version is never permission to replace the user's canvas.
+      if (documentSaveKey() === job.key) showDocumentSaveNotice(error.status === 409 ? "conflict" : error.status === 403 ? "locked" : "network");
+      throw error;
     }
     return;
   }
@@ -4950,6 +5123,8 @@ async function prepareDocumentSwitch(nextDocId) {
     await persistCurrentDocument();
   } catch (err) {
     console.error("Failed to persist before document switch:", err);
+    if (!documentDrafts.read(documentSaveKey())) { showDocumentSaveNotice("storage"); return false; }
+    if (!window.confirm("Изменения ещё не сохранены на сервере. Локальный черновик останется в этом браузере. Перейти к другому документу?")) return false;
   }
   clearTimeout(pendingPersistTimer);
   pendingPersistTimer = null;
@@ -4962,9 +5137,9 @@ async function openDocumentById(docId, opts = {}) {
     exitGuestPublicView();
   }
   const openMode = opts.mode === "edit" ? "edit" : "view";
+  if (await prepareDocumentSwitch(docId) === false) return false;
   await stopDocumentPresence();
   editLockWarnedDocId = null;
-  await prepareDocumentSwitch(docId);
   if (currentUser) {
     const data = await fetchJson(`/api/docs/${encodeURIComponent(docId)}/activate`, { method: "POST" });
     clearTimeout(pendingPersistTimer);
@@ -5004,6 +5179,7 @@ async function openDocumentById(docId, opts = {}) {
     } else {
       flashDocumentModeBadge();
     }
+    offerDocumentDraftRecovery(nextLayout);
     return true;
   }
   const loaded = await activateDocumentRecord(docId, opts);
@@ -5057,9 +5233,9 @@ async function activateDocumentRecord(docId, opts = {}) {
   const openMode = opts.mode === "edit" ? "edit" : "view";
   // Always drop previous lock/presence, even when re-opening the same document
   // (e.g. switch from edit → view via «Открыть»).
+  if (await prepareDocumentSwitch(docId) === false) return false;
   await stopDocumentPresence();
   editLockWarnedDocId = null;
-  await prepareDocumentSwitch(docId);
   if (currentUser) {
     const data = await fetchJson(`/api/docs/${encodeURIComponent(docId)}/activate`, { method: "POST" });
     clearTimeout(pendingPersistTimer);
@@ -5091,6 +5267,7 @@ async function activateDocumentRecord(docId, opts = {}) {
       } else {
         flashDocumentModeBadge();
       }
+      offerDocumentDraftRecovery(data.document.layout);
       return loaded;
     }
     await loadCurrentDocument({ startPresence: false });
@@ -21873,6 +22050,8 @@ function scheduleLayoutSave(opts = {}) {
     scheduleHistorySnapshot(immediate ? 0 : 350);
   }
   flushCurrentSheetLayout();
+  if (currentUser && currentDocumentId) documentDirtyKeys.add(documentSaveKey());
+  stashCurrentDocumentDraft();
   if (autoSaveEnabled) {
     scheduleDocumentPersist(immediate ? 0 : 700);
   }
@@ -23308,8 +23487,13 @@ window.addEventListener("blur", () => {
   altModifierActive = false;
   syncConnectorModifierChrome();
 });
-window.addEventListener("beforeunload", () => {
+window.addEventListener("beforeunload", (event) => {
+  stashCurrentDocumentDraft();
   flushPendingLayoutSave();
+  if (currentUser && currentDocumentId &&
+      (documentDirtyKeys.has(documentSaveKey()) || documentDrafts.read(documentSaveKey()) || documentSaveQueue.isBusy(documentSaveKey()))) {
+    event.preventDefault(); event.returnValue = "";
+  }
   if (currentUser && currentDocumentId && presenceSessionId) {
     try {
       fetch(`/api/docs/${encodeURIComponent(currentDocumentId)}/presence`, {

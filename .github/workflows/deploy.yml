@@ -8,18 +8,52 @@ on:
       - 'REVIEW.md'
       - 'DEPLOY.md'
       - 'AGENTS.md'
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: read
+
 concurrency:
-  group: mmtable-production
+  group: mmtable-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
   cancel-in-progress: false
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install flask authlib python-dotenv requests
+      - run: python -m unittest discover -s tests
+      - run: |
+          node --check app.js
+          node --check document-save.js
+          node tests/test_document_save.cjs
+          bash -n scripts/deploy_prod.sh
+          git diff --check
   deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require a merged Pull Request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq ".[] | select(.merged_at != null and .merge_commit_sha == \"$GITHUB_SHA\") | .number")"
+          test -n "$pr" || { echo 'Production requires a merged Pull Request into main.' >&2; exit 1; }
 
       - name: Deploy to production
         env:
