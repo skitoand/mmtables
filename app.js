@@ -14987,6 +14987,14 @@ function defaultMindMapSiblingPlacementFromParent(parentNode, siblingNode, fallb
   return { axis: "x", direction: goingRight ? 1 : -1, align: "top", gap: MINDMAP_H_GAP };
 }
 
+function resolveMindMapSiblingAlignment(startDiff, endDiff, middleDiff, startAlign, endAlign, middleAlign) {
+  // Hand-aligned edges may differ by a few logical pixels. Prefer their shared
+  // edge to coincident centers, which would shift a newly created narrow block.
+  if (Math.min(startDiff, endDiff) <= 8) return startDiff <= endDiff ? startAlign : endAlign;
+  if (startDiff <= middleDiff && startDiff <= endDiff) return startAlign;
+  return endDiff <= middleDiff ? endAlign : middleAlign;
+}
+
 function inferMindMapSiblingPlacement(prevNode, lastNode) {
   const prev = getMindMapNodeRect(prevNode);
   const last = getMindMapNodeRect(lastNode);
@@ -14996,16 +15004,19 @@ function inferMindMapSiblingPlacement(prevNode, lastNode) {
   const lastCy = last.top + last.height / 2;
   const dCx = lastCx - prevCx;
   const dCy = lastCy - prevCy;
-  const vertical = Math.abs(dCy) >= Math.abs(dCx);
+  // Use rectangle overlap before center displacement: changing a block's width
+  // must not turn a vertical stack into a horizontal row (and vice versa).
+  const overlapX = Math.min(prev.left + prev.width, last.left + last.width) - Math.max(prev.left, last.left);
+  const overlapY = Math.min(prev.top + prev.height, last.top + last.height) - Math.max(prev.top, last.top);
+  const vertical = overlapX > 0 && overlapY <= 0
+    ? true
+    : (overlapY > 0 && overlapX <= 0 ? false : Math.abs(dCy) >= Math.abs(dCx));
 
   if (vertical) {
     const leftDiff = Math.abs(last.left - prev.left);
     const rightDiff = Math.abs((last.left + last.width) - (prev.left + prev.width));
     const centerDiff = Math.abs(lastCx - prevCx);
-    let align = "left";
-    if (leftDiff <= centerDiff && leftDiff <= rightDiff) align = "left";
-    else if (rightDiff <= centerDiff) align = "right";
-    else align = "center";
+    const align = resolveMindMapSiblingAlignment(leftDiff, rightDiff, centerDiff, "left", "right", "center");
     const goingDown = last.top >= prev.top;
     const gap = goingDown
       ? last.top - (prev.top + prev.height)
@@ -15016,10 +15027,7 @@ function inferMindMapSiblingPlacement(prevNode, lastNode) {
   const topDiff = Math.abs(last.top - prev.top);
   const bottomDiff = Math.abs((last.top + last.height) - (prev.top + prev.height));
   const middleDiff = Math.abs(lastCy - prevCy);
-  let align = "top";
-  if (topDiff <= middleDiff && topDiff <= bottomDiff) align = "top";
-  else if (bottomDiff <= middleDiff) align = "bottom";
-  else align = "middle";
+  const align = resolveMindMapSiblingAlignment(topDiff, bottomDiff, middleDiff, "top", "bottom", "middle");
   const goingRight = last.left >= prev.left;
   const gap = goingRight
     ? last.left - (prev.left + prev.width)
