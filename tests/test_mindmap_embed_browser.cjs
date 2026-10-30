@@ -92,6 +92,58 @@ const playwright=require(process.env.PLAYWRIGHT_MODULE||'playwright');
     return JSON.stringify(Object.fromEntries(fields.map(k=>[k,c[k]])))===expected;
    },result),true,'Inherited style survives server save and reload');
    console.log(engine+': real Sfera iframe; sibling/nested connector style inheritance; arrows/zero gaps preserved; default/reset no arrows; free-edge perpendicular curve; server save/reload — passed');
+
+   await frame.evaluate(()=>requestDocumentEditMode());await frame.waitForFunction(()=>canEditCurrentDocument());
+   const placementFixture=await frame.evaluate(({rootId})=>{
+    const root=getConnectableById(rootId),[prev,last]=getMindMapChildNodes(root);
+    // Keep this real document fixture small enough to see the manually positioned row.
+    desktop.querySelectorAll('.shape').forEach(node=>{if(![root,prev,last].includes(node))node.remove()});
+    const keep=new Set([getShapeEndpointId(prev),getShapeEndpointId(last)]);
+    const links=connectors.filter(c=>c.from.nodeId===rootId&&keep.has(c.to.nodeId));connectors.splice(0,connectors.length,...links);
+    const place=(node,left,top,width,height,text)=>{
+     node.style.width=width+'px';node.style.height=height+'px';setNodePosition(node,left,top);
+     const el=node.querySelector('.shape-text');el.textContent=text;finishInlineShapeEditing(el);
+    };
+    place(root,1100,1100,220,100,'JTBD');
+    place(prev,1420,1000,360,80,'Вернуть выручку, которая упала');
+    place(last,1426,1103,348,110,'Вернуть прибыль, которая упала');
+    renderConnectors();selectShape(root);
+    return {rootId,previous:[prev,last].map(n=>({id:getShapeEndpointId(n),...getMindMapNodeRect(n)})),gap:last.offsetTop-prev.offsetTop-prev.offsetHeight};
+   },result);
+   const rootLocator=frame.locator(`[data-conn-id="${placementFixture.rootId}"]`);
+   await rootLocator.click({position:{x:12,y:12}});
+   await page.keyboard.down('Alt');
+   await rootLocator.locator('.conn-plus[data-anchor="e"]').click();
+   await page.keyboard.up('Alt');
+   const third=await frame.evaluate(({rootId,previous,gap})=>{
+    const root=getConnectableById(rootId),children=getMindMapChildNodes(root);
+    if(children.length!==3)throw Error('Plus must add exactly one child');
+    for(const before of previous){const now=getMindMapNodeRect(getConnectableById(before.id));for(const k of ['left','top','width','height'])if(now[k]!==before[k])throw Error('An existing block moved/resized: '+k)}
+    const child=children[2],last=children[1];
+    if(child.offsetLeft!==last.offsetLeft)throw Error('Narrow new block must keep last block left edge, not its center');
+    if(child.offsetTop-last.offsetTop-last.offsetHeight!==gap)throw Error('Repeat measured edge gap');
+    selectShape(root);
+    return {id:getShapeEndpointId(child),...getMindMapNodeRect(child)};
+   },placementFixture);
+   // A different plus on the same parent continues the manually arranged sibling row.
+   await rootLocator.click({position:{x:12,y:12}});
+   await page.keyboard.down('Alt');
+   await rootLocator.locator('.conn-plus[data-anchor="s"]').click();
+   await page.keyboard.up('Alt');
+   const fourth=await frame.evaluate(({fixture,third})=>{
+    const children=getMindMapChildNodes(getConnectableById(fixture.rootId)),last=children[3];
+    if(children.length!==4||last.offsetLeft!==third.left||last.offsetTop-third.top-third.height!==fixture.gap)throw Error('Subsequent plus must preserve edge alignment and gap');
+    for(const before of fixture.previous){const now=getMindMapNodeRect(getConnectableById(before.id));for(const k of ['left','top','width','height'])if(now[k]!==before[k])throw Error('Later creation changed an existing block')}
+    clearSelection();scheduleLayoutSave({immediate:true});
+    return {id:getShapeEndpointId(last),...getMindMapNodeRect(last)};
+   },{fixture:placementFixture,third});
+   await frame.waitForFunction(()=>!pendingPersistTimer&&!documentSaveQueue.isBusy(documentSaveKey()));
+   await page.screenshot({path:`/private/tmp/mmtable-placement-${engine}.png`});
+   await frame.goto('https://mmtable.crystalsystems.ru/d/abcdef123456?embed=sfera');await ready();
+   await frame.waitForFunction(id=>!!getConnectableById(id),fourth.id);
+   assert.deepEqual(await frame.evaluate(id=>getMindMapNodeRect(getConnectableById(id)),fourth.id),{left:fourth.left,top:fourth.top,width:fourth.width,height:fourth.height},'Placement survives server save/reload');
+   console.log(engine+': real parent plus buttons; manually aligned unequal-width siblings; third/fourth repeat left edge and 23px gap; existing nodes unchanged; placement survives server save/reload — passed');
+
   }finally{closing=true;await browser.close()}
  }}finally{fixture.stdin.end();await new Promise(r=>fixture.on('exit',r))}
 })().catch(e=>{console.error(e);process.exitCode=1});
