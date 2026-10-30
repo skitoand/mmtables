@@ -1,5 +1,22 @@
 # Review — журнал выкладок MIndMapTable
 
+## 2026-10-30 — защита текста фигур от конфликтов автосохранения
+
+**Production commit:** `e99839900fc0df6664f7c494567d59fd9b3f1e14`, main.
+**PR:** https://github.com/skitoand/mmtables/pull/1
+**Деплой:** https://github.com/skitoand/mmtables/actions/runs/41019223011 — success (verify/deploy).
+**Бэкап:** `/opt/apps/backups/mmtable-PROD-BACKUP-20261030-071825-before-deploy.tar.gz`.
+**Статус:** OK.
+
+- Сохранения сериализованы; ожидающие промежуточные снимки заменяются последним вводом. Версия и ID привязаны к документу, поздний ответ не меняет другой открытый документ.
+- HTTP 409 больше не вызывает автоматическую загрузку сервера поверх холста. Правки сохраняются на экране, запись приостанавливается; доступны локальный черновик, восстановление, отдельная копия и скачивание JSON. Подтверждение старого снимка не удаляет более свежий черновик.
+- При недоступном localStorage приложение предупреждает; копию и JSON можно сохранить прямо из памяти. На время создания копии редактирование приостанавливается. Переключение документа сохраняет до освобождения edit lock.
+- Workflow запускает Python/Node проверки; production принимает только опубликованный чистый main после объединённого PR. Backup включает новый runtime при последующих выкладках; сервер записывает .deployed-commit после публичной проверки.
+- Проверки: 44 Python-теста; Node — последовательность/coalescing, раздельные версии, 409, network retry, account/document drafts, late ack и storage failure. WebKit/Firefox с двумя настоящими локальными серверами СФЕРА/MMTable: задержанный A/B/C, настоящий 409 без reload/потери текста, восстановление после reload, копия без изменения оригинала, сохранение перед снятием lock, offline/retry; standalone; копия при недоступном localStorage. Снимок уведомления просмотрен. Chrome не использовался.
+- Production: mmtable и knowledge-base active; local/public MMTable / и /api/me HTTP 200; Sfera /api/health ok:true. Серверные и публичные app.js/document-save.js/index.html/styles.css совпали с коммитом; установленный SHA подтверждён. Node-проверки повторены на скачанном production document-save.js. Пользовательские production-документы и схема БД не менялись.
+- Версии: app.js, document-save.js, styles.css `20261030-safe-save-v1`. Чистая копия: `/private/tmp/mmtable-safe-save-20261030`; сторонние изменения исходного рабочего дерева сохранены.
+
+
 ## 2026-10-29 — spawn: сторона связи и клик по «+» поверх соединителя
 
 **Commit:** `09297ea` — Fix mindmap spawn link side and Option+ hit-testing on connectors.

@@ -29,9 +29,10 @@
 ## Деплой
 
 Основной способ публикации на прод:
-- коммит в `main`
-- `git push origin main`
-- GitHub Actions workflow `.github/workflows/deploy.yml`
+- отдельная рабочая ветка и Pull Request в `main`
+- дождаться успешного `verify`, объединить PR в `main`
+- GitHub Actions workflow `.github/workflows/deploy.yml` публикует объединённый commit
+- production workflow из старых веток/исторических ref не запускать; проверки чистоты checkout и опубликованного SHA не обходить
 
 Подробности: `DEPLOY.md`
 
