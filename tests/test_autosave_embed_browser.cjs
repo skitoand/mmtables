@@ -40,9 +40,22 @@ const playwright=require(process.env.PLAYWRIGHT_MODULE||'playwright');
    await frame.waitForFunction(()=>!documentSaveQueue.isBusy(documentSaveKey())&&!pendingPersistTimer);
    const edit=async text=>{await frame.evaluate(()=>startInlineShapeEditing(document.querySelector('.shape-rect')));await frame.locator('.shape-rect .shape-text[contenteditable="true"]').fill(text)};
    const saved=()=>frame.evaluate(async()=>await (await fetch('/api/docs/abcdef123456')).json());
+   // A real multi-megabyte document must save even when localStorage is full.
+   await frame.evaluate(()=>{
+    documentSheetsState.push({id:2,name:'Large fixture',layout:{...createBlankLayout(),shapes:[{...readShapeData(document.querySelector('.shape-rect')),id:'large-fixture',text:'X'.repeat(8*1024*1024)}]}});
+    let quotaReached=false;
+    for(let i=0;i<200;i++){try{localStorage.setItem('quota-fixture-'+i,'Q'.repeat(128*1024))}catch{quotaReached=true;break}}
+    if(!quotaReached)throw Error('Fixture did not fill localStorage');
+    try{localStorage.setItem('oversized-fixture',JSON.stringify(buildDocumentLayoutPayload()))}catch{return}
+    throw Error('Large payload unexpectedly fit into localStorage');
+   });
    // Hold the first response after the real server accepts it; type through two autosave intervals.
-   hold=true;await edit('SAVE A');while(!release)await page.waitForTimeout(30);
+   hold=true;await edit('SAVE A');const saveDeadline=Date.now()+20000;while(!release){if(Date.now()>saveDeadline)throw Error('Autosave never reached the server');await page.waitForTimeout(30)}
    const baselinePosts=posts;
+   assert.equal(await frame.evaluate(()=>documentDrafts.flush(documentSaveKey())),true);
+   assert.equal(await frame.evaluate(()=>documentDrafts.state(documentSaveKey())),'indexeddb');
+   assert.equal(await frame.locator('#document-save-notice[data-reason="storage"]').count(),0);
+
    await edit('SAVE B');await page.waitForTimeout(850);assert.equal(posts,baselinePosts,'No second POST before the first acknowledgement');
    await edit('SAVE C — latest');await page.waitForTimeout(850);assert.equal(posts,baselinePosts);
    release();await frame.waitForFunction(()=>!documentSaveQueue.isBusy(documentSaveKey())&&!pendingPersistTimer);
@@ -57,6 +70,7 @@ const playwright=require(process.env.PLAYWRIGHT_MODULE||'playwright');
    assert.match(await frame.evaluate(()=>JSON.stringify(documentDrafts.read(documentSaveKey()).layout)),/LOCAL NEWEST/);
    assert.match(JSON.stringify((await saved()).document.layout),/SERVER VERSION/);
    await page.screenshot({path:`/private/tmp/mmtable-safe-conflict-${engine}.png`});
+   await frame.evaluate(()=>documentDrafts.flush(documentSaveKey()));
    // Reload the embedded app, then explicitly restore the draft. The newer server remains untouched.
    await frame.goto('https://mmtable.crystalsystems.ru/d/abcdef123456?embed=sfera');await ready();
    await frame.locator('[data-document-save-action="restore"]').waitFor();
@@ -87,19 +101,9 @@ const playwright=require(process.env.PLAYWRIGHT_MODULE||'playwright');
    await standalone.locator('.shape-rect .shape-text[contenteditable="true"]').fill('STANDALONE SAVE');
    await standalone.waitForFunction(()=>!pendingPersistTimer&&!documentSaveQueue.isBusy(documentSaveKey())&&!documentDrafts.read(documentSaveKey()));
    assert.match(JSON.stringify(await standalone.evaluate(async()=>await (await fetch('/api/docs/'+currentDocumentId)).json())),/STANDALONE SAVE/);
-   await standalone.evaluate(()=>{window.__originalStorageWrite=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.startsWith('mmtable-recovery-v1:'))throw new DOMException('full','QuotaExceededError');return window.__originalStorageWrite.call(this,k,v)}});
-   offline=true;await standalone.evaluate(()=>startInlineShapeEditing(document.querySelector('.shape-rect')));
-   await standalone.locator('.shape-rect .shape-text[contenteditable="true"]').fill('MEMORY ONLY RECOVERY');
-   await standalone.locator('#document-save-notice').waitFor();
-   await standalone.waitForFunction(()=>!pendingPersistTimer&&!documentSaveQueue.isBusy(documentSaveKey()));
-   assert.equal(await standalone.evaluate(()=>documentDrafts.read(documentSaveKey())),null);
-   await standalone.locator('[data-document-save-action="copy"]').click();
-   await standalone.waitForFunction(()=>currentDocumentId&&currentDocumentId!=='abcdef123456'&&canEditCurrentDocument()).catch(async e=>{console.error(await standalone.evaluate(()=>({id:currentDocumentId,mode:documentOpenMode,lock:editLockOwned,pending:documentEditSyncPending,recovery:documentRecoveryPendingKey,notice:document.querySelector('#document-save-notice')?.innerText})));throw e});
-
-   assert.match(JSON.stringify(await standalone.evaluate(async()=>await (await fetch('/api/docs/'+currentDocumentId)).json())),/MEMORY ONLY RECOVERY/);
-   offline=false;await standalone.evaluate(()=>Storage.prototype.setItem=window.__originalStorageWrite);
+   assert.equal(await standalone.locator('#document-save-notice[data-reason="storage"]').count(),0);
    await standalone.close();
-   console.log(engine+': actual Sfera iframe; delayed A/B/C saves serialized; real 409 preserves text/no reload; newest draft restored after reload; copy leaves server original intact; save-before-unlock switch; offline/retry; standalone editor; recovery copy despite full local storage — passed');
+   console.log(engine+': actual Sfera iframe; delayed A/B/C saves serialized; real 409 preserves text/no reload; newest draft restored after reload; copy leaves server original intact; save-before-unlock switch; offline/retry; standalone editor; 8 MiB document, full localStorage, real IndexedDB draft/reload, no false storage warning — passed');
   }finally{await browser.close()}
  }}finally{fixture.stdin.end();await new Promise(r=>fixture.on('exit',r))}
 })().catch(e=>{console.error(e);process.exitCode=1});

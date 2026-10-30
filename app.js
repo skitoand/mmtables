@@ -539,7 +539,18 @@ let currentDocumentId = null;
 let currentDocumentName = "Рабочий стол";
 let currentDocumentStore = null;
 let currentDocumentUpdatedAt = null;
-const documentDrafts = DocumentSave.createDraftStore(localStorage);
+const documentDrafts = DocumentSave.createPersistentDraftStore({
+  storage: getDocumentStorageAPI('localStorage'), indexedDB: getDocumentStorageAPI('indexedDB'),
+  onError: key => setTimeout(() => {
+    if (documentSaveKey() === key && documentDirtyKeys.has(key) && documentDrafts.state(key) === 'failed' &&
+        (!autoSaveEnabled || (!documentSaveQueue.isBusy(key) && !pendingPersistTimer))) showDocumentSaveNotice('storage');
+  }, 2000),
+  onChange: key => {
+    if (documentSaveKey() !== key) return;
+    const detail = document.getElementById('document-save-notice')?.querySelector('[data-save-durability]');
+    if (detail) detail.textContent = documentDraftDurabilityText(key);
+  }
+});
 let documentSaveNoticeKey = null;
 let documentRecoveryPendingKey = null;
 let documentRecoveryCopyPending = false;
@@ -996,7 +1007,7 @@ function syncSelectionControlsOverlay() {
 function saveViewportState() {
   if (!viewportEl) return;
   const payload = { left: viewportEl.scrollLeft || 0, top: viewportEl.scrollTop || 0 };
-  sessionStorage.setItem(VIEWPORT_KEY, JSON.stringify(payload));
+  try { sessionStorage.setItem(VIEWPORT_KEY, JSON.stringify(payload)); } catch { /* Viewport caching must not interrupt saving. */ }
 }
 function readViewportState() {
   try {
@@ -4571,7 +4582,7 @@ async function loadCurrentDocument(opts = {}) {
     if (opts.startPresence) {
       await startDocumentPresence(opts.mode === "edit" ? "edit" : "view");
     }
-    offerDocumentDraftRecovery(data.layout);
+    await offerDocumentDraftRecovery(data.layout);
     return loaded;
   }
   const doc = loadActiveLocalDocument();
@@ -4584,6 +4595,12 @@ async function loadCurrentDocument(opts = {}) {
   return applyDocumentLayout(doc.layout || createBlankDocumentLayout(), parseAppRoute().sheetId);
 }
 
+function getDocumentStorageAPI(name) { try { return window[name]; } catch { return null; } }
+function documentDraftDurabilityText(key) {
+  if (documentDrafts.isDurable(key)) return 'Локальный черновик сохранён в этом браузере.';
+  if (documentDrafts.state(key) === 'pending') return 'Локальный черновик ещё записывается.';
+  return 'Локальная резервная копия недоступна: не закрывайте документ.';
+}
 function documentSaveAccount() {
   return String(currentUser?.email || currentUser?.id || '').trim().toLowerCase();
 }
@@ -4610,11 +4627,16 @@ function stashCurrentDocumentDraft() {
     base: documentSaveQueue.isBlocked(key) && draft ? draft.base : documentSaveQueue.version(key) || currentDocumentUpdatedAt,
     layout: buildDocumentLayoutPayload()});
 }
-function offerDocumentDraftRecovery(serverLayout) {
+async function offerDocumentDraftRecovery(serverLayout) {
   if (!currentUser || !currentDocumentId || guestPublicView) return;
-  const key = documentSaveKey(), draft = documentDrafts.read(key);
+  const key = documentSaveKey();
   clearDocumentSaveNotice();
+  documentRecoveryPendingKey = key;
+  syncWorkspaceAccessMode();
+  const draft = await documentDrafts.load(key);
+  if (documentSaveKey() !== key) return;
   documentRecoveryPendingKey = null;
+  syncWorkspaceAccessMode(); refreshObjectsToolbarForMode();
   if (!draft) return;
   if (serverLayout && JSON.stringify(draft.layout) === JSON.stringify(serverLayout)) {
     documentDrafts.remove(key); documentDirtyKeys.delete(key); return;
@@ -4690,7 +4712,8 @@ function downloadDocumentDraft() {
 async function useServerDocumentVersion() {
   if (!window.confirm('Загрузить серверную версию? Локальные правки останутся отдельным черновиком в этом браузере.')) return;
   stashCurrentDocumentDraft();
-  if (!documentDrafts.read(documentSaveKey())) { showDocumentSaveNotice('storage'); return; }
+  const key = documentSaveKey();
+  if (!await documentDrafts.flush(key) || documentSaveKey() !== key || !documentDrafts.isDurable(key)) { showDocumentSaveNotice('storage'); return; }
   await documentSaveQueue.idle();
   await reloadCurrentDocumentFromServer({quiet: true});
 }
@@ -4714,10 +4737,11 @@ function showDocumentSaveNotice(reason) {
   host.setAttribute('role', 'status'); host.setAttribute('aria-live', 'polite');
   const text = document.createElement('div');
   text.textContent = messages[reason];
-  if (!['storage', 'recovery'].includes(reason)) text.textContent += documentDrafts.read(key)
-    ? ' Локальный черновик сохранён в этом браузере.'
-    : ' Локальная резервная копия недоступна: не закрывайте документ.';
   host.append(text);
+  if (!['storage', 'recovery'].includes(reason)) {
+    const detail = document.createElement('div'); detail.dataset.saveDurability = '';
+    detail.textContent = documentDraftDurabilityText(key); host.append(detail);
+  }
   const actions = document.createElement('div'); actions.className = 'document-save-actions';
   const add = (name, id, fn) => {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = name;
@@ -4992,7 +5016,7 @@ async function reloadCurrentDocumentFromServer({ quiet = false } = {}) {
   }
   await startDocumentPresence(keepMode);
   refreshObjectsToolbarForMode();
-  offerDocumentDraftRecovery(data.document?.layout);
+  await offerDocumentDraftRecovery(data.document?.layout);
   if (!quiet) {
     showHint("Документ обновлён с сервера.", "warning", 3000);
   }
@@ -5123,7 +5147,8 @@ async function prepareDocumentSwitch(nextDocId) {
     await persistCurrentDocument();
   } catch (err) {
     console.error("Failed to persist before document switch:", err);
-    if (!documentDrafts.read(documentSaveKey())) { showDocumentSaveNotice("storage"); return false; }
+    await documentDrafts.flush(documentSaveKey());
+    if (!documentDrafts.isDurable(documentSaveKey())) { showDocumentSaveNotice("storage"); return false; }
     if (!window.confirm("Изменения ещё не сохранены на сервере. Локальный черновик останется в этом браузере. Перейти к другому документу?")) return false;
   }
   clearTimeout(pendingPersistTimer);
@@ -5179,7 +5204,7 @@ async function openDocumentById(docId, opts = {}) {
     } else {
       flashDocumentModeBadge();
     }
-    offerDocumentDraftRecovery(nextLayout);
+    await offerDocumentDraftRecovery(nextLayout);
     return true;
   }
   const loaded = await activateDocumentRecord(docId, opts);
@@ -5267,7 +5292,7 @@ async function activateDocumentRecord(docId, opts = {}) {
       } else {
         flashDocumentModeBadge();
       }
-      offerDocumentDraftRecovery(data.document.layout);
+      await offerDocumentDraftRecovery(data.document.layout);
       return loaded;
     }
     await loadCurrentDocument({ startPresence: false });
@@ -22077,8 +22102,10 @@ function scheduleHistorySnapshot(delay = 350) {
 async function flushPersistDocument() {
   if (!canEditCurrentDocument() || !autoSaveEnabled) return;
   flushCurrentSheetLayout();
-  const docPayload = buildDocumentLayoutPayload();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(docPayload));
+  if (!currentUser) {
+    const docPayload = buildDocumentLayoutPayload();
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(docPayload)); } catch { /* Legacy guest cache is best-effort. */ }
+  }
   try {
     await persistCurrentDocument();
   } catch (err) {
@@ -22107,8 +22134,10 @@ function flushPendingLayoutSave() {
   pushHistorySnapshot();
   if (autoSaveEnabled) {
     flushCurrentSheetLayout();
-    const docPayload = buildDocumentLayoutPayload();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(docPayload));
+    if (!currentUser) {
+      const docPayload = buildDocumentLayoutPayload();
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(docPayload)); } catch { /* Legacy guest cache is best-effort. */ }
+    }
   }
   saveViewportState();
 }
@@ -23491,7 +23520,8 @@ window.addEventListener("beforeunload", (event) => {
   stashCurrentDocumentDraft();
   flushPendingLayoutSave();
   if (currentUser && currentDocumentId &&
-      (documentDirtyKeys.has(documentSaveKey()) || documentDrafts.read(documentSaveKey()) || documentSaveQueue.isBusy(documentSaveKey()))) {
+      (Array.from(documentDirtyKeys).some(key => key.startsWith(documentSaveAccount() + '\n')) ||
+       documentDrafts.read(documentSaveKey()) || documentSaveQueue.isBusy(documentSaveKey()))) {
     event.preventDefault(); event.returnValue = "";
   }
   if (currentUser && currentDocumentId && presenceSessionId) {
