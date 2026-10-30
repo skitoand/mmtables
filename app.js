@@ -481,6 +481,7 @@ const VIEWPORT_KEY = "table-workspace-viewport-v1";
 const APP_ROUTE_PENDING_KEY = "table-workspace-pending-route-v1";
 const DEFAULT_STYLES_KEY = "table-workspace-default-styles-v2";
 const BUILTIN_DEFAULT_STYLES = Object.freeze({
+  connector: { startArrowShape: "line", endArrowShape: "line" },
   "shape-rect": {
     fillEnabled: true,
     gradientEnabled: false,
@@ -13626,6 +13627,22 @@ function getConnectableFromEnd(end) {
   return null;
 }
 
+// Resolve the physical side once for both the gap and the path tangent.
+// Free edge anchors retain their exact position; only their outward normal is resolved.
+function getConnectorEndpointSide(end, node, otherPoint, routeStyle) {
+  const anchor = end?.anchor || "c";
+  if (!node || ["n", "e", "s", "w"].includes(anchor)) return anchor;
+  if (anchor === "c") return getPreferredCenterExitDirection(node, otherPoint, routeStyle) || anchor;
+  if (anchor !== "edge") return anchor;
+  const { width, height } = getConnectableBounds(node);
+  const rx = clamp(Number(end.rx) || 0, 0, 1);
+  const ry = clamp(Number(end.ry) || 0, 0, 1);
+  const sides = [["w", rx * width], ["e", (1 - rx) * width],
+    ["n", ry * height], ["s", (1 - ry) * height]];
+  sides.sort((a, b) => a[1] - b[1]);
+  return sides[0][0];
+}
+
 function getConnectorRenderPoints(conn) {
   if (!conn) return null;
   const routeStyle = normalizeConnectorRouteStyle(conn.routeStyle);
@@ -13635,8 +13652,6 @@ function getConnectorRenderPoints(conn) {
   let p2 = p2Raw;
   const gapStart = Number(conn.gapStart ?? conn.gap ?? 30);
   const gapEnd = Number(conn.gapEnd ?? conn.gap ?? 30);
-  const fromAnchor = conn.from?.anchor || "c";
-  const toAnchor = conn.to?.anchor || "c";
   const fromNode = connectorEndHasCell(conn.from) ? null : getConnectableFromEnd(conn.from);
   const toNode = connectorEndHasCell(conn.to) ? null : getConnectableFromEnd(conn.to);
   const previewInternal = normalizeConnectorRoutePoints(conn.routePoints).map(cloneConnectorPoint);
@@ -13645,8 +13660,10 @@ function getConnectorRenderPoints(conn) {
     : buildDefaultConnectorRoutePoints(p1Raw, p2Raw, routeStyle);
   const fromReferencePoint = defaultInternal.length ? defaultInternal[0] : p2Raw;
   const toReferencePoint = defaultInternal.length ? defaultInternal[defaultInternal.length - 1] : p1Raw;
+  const fromAnchor = getConnectorEndpointSide(conn.from, fromNode, fromReferencePoint, routeStyle);
+  const toAnchor = getConnectorEndpointSide(conn.to, toNode, toReferencePoint, routeStyle);
   if (fromNode) {
-    p1 = fromAnchor === "c"
+    p1 = (conn.from?.anchor || "c") === "c"
       ? getOffsetPointFromShapeCenter(
         fromNode,
         fromReferencePoint,
@@ -13662,7 +13679,7 @@ function getConnectorRenderPoints(conn) {
       : getOffsetPointFromEdge(p1Raw, fromReferencePoint, gapStart);
   }
   if (toNode) {
-    p2 = toAnchor === "c"
+    p2 = (conn.to?.anchor || "c") === "c"
       ? getOffsetPointFromShapeCenter(
         toNode,
         toReferencePoint,
@@ -13682,6 +13699,8 @@ function getConnectorRenderPoints(conn) {
     p2,
     p1Raw,
     p2Raw,
+    fromAnchor,
+    toAnchor,
     attach1: getConnectorAttachmentPoint(conn.from, p2Raw),
     attach2: getConnectorAttachmentPoint(conn.to, p1Raw)
   };
@@ -13817,13 +13836,37 @@ function buildDefaultConnectorRoutePoints(p1, p2, routeStyle) {
   return [{ x: midX, y: p1.y }, { x: midX, y: p2.y }];
 }
 
+// Preserve edited bends, adding an outside approach only when the endpoint
+// segment contradicts the side to which it is attached.
+function alignOrthogonalEndpoint(points, anchor) {
+  if (points.length < 2 || !["n", "e", "s", "w"].includes(anchor)) return points;
+  const [end, next] = points;
+  const normal = connectorAnchorTravelDir(anchor, end, next, "out");
+  const dx = next.x - end.x;
+  const dy = next.y - end.y;
+  if (Math.abs(dx * normal.y - dy * normal.x) < 0.5 && dx * normal.x + dy * normal.y > 0) return points;
+  const pull = Math.max(12, Math.min(40, Math.hypot(dx, dy) * 0.25));
+  const stub = { x: end.x + normal.x * pull, y: end.y + normal.y * pull };
+  let approach;
+  if (normal.x) {
+    const laneY = Math.abs(dy) < 0.5 ? end.y + pull : next.y;
+    approach = [stub, { x: stub.x, y: laneY }, { x: next.x, y: laneY }];
+  } else {
+    const laneX = Math.abs(dx) < 0.5 ? end.x + pull : next.x;
+    approach = [stub, { x: laneX, y: stub.y }, { x: laneX, y: next.y }];
+  }
+  return [end, ...approach, ...points.slice(1)].filter((point, index, all) => (
+    !index || !pointsEqual(point, all[index - 1])
+  ));
+}
+
 function getConnectorPathState(conn) {
   const renderPoints = getConnectorRenderPoints(conn);
   if (!renderPoints) return null;
   const routeStyle = normalizeConnectorRouteStyle(conn.routeStyle);
   const { p1, p2, p1Raw, p2Raw } = renderPoints;
   if (isCurveRouteStyle(routeStyle)) {
-    const { c1, c2 } = buildCurveControlPoints(p1, p2, conn.from?.anchor || "c", conn.to?.anchor || "c");
+    const { c1, c2 } = buildCurveControlPoints(p1, p2, renderPoints.fromAnchor, renderPoints.toAnchor);
     const samples = sampleCubicBezier(p1, c1, c2, p2, 28);
     return {
       routeStyle,
@@ -13864,7 +13907,9 @@ function getConnectorPathState(conn) {
     if (Math.abs(last.x - prev.x) < 0.5) last.y = p2.y;
     else last.x = p2.x;
   }
-  const points = [p1, ...normalizeConnectorRoutePoints(internal), p2];
+  let points = [p1, ...normalizeConnectorRoutePoints(internal), p2];
+  points = alignOrthogonalEndpoint(points, renderPoints.fromAnchor);
+  points = alignOrthogonalEndpoint(points.slice().reverse(), renderPoints.toAnchor).reverse();
   return { routeStyle, orthogonal: true, curved: false, points, p1, p2, p1Raw, p2Raw };
 }
 
@@ -14743,11 +14788,28 @@ function updateMindMapLinkStyle(parentNode, childNode, side, routeStyle) {
   delete conn.to.cell;
   conn.routeStyle = normalizeConnectorRouteStyle(routeStyle || "curve");
   conn.routePoints = [];
-  if ((conn.startArrowShape || "classic") === "classic") conn.startArrowShape = "line";
-  if (isCurveRouteStyle(conn.routeStyle) || isOrthogonalRouteStyle(conn.routeStyle)) {
-    conn.gapStart = Math.min(Number(conn.gapStart ?? 30) || 30, 24);
-    conn.gapEnd = Math.min(Number(conn.gapEnd ?? 30) || 30, 24);
-  }
+}
+
+function getPreviousMindMapConnectorStyle(sourceNode) {
+  const links = getMindMapChildLinks(sourceNode);
+  const sourceId = getShapeEndpointId(sourceNode);
+  // First child continues its parent's branch; later siblings continue the last sibling.
+  const previous = links[links.length - 1] || connectors.find((conn) => (
+    isMindMapConnector(conn) && connectorEndpointId(conn.to) === sourceId
+  ));
+  if (!previous) return null;
+  return {
+    color: previous.color || "#1f2937",
+    width: Math.max(1, Number(previous.width) || 2),
+    lineStyle: normalizeBorderLineStyle(previous.lineStyle || "solid"),
+    opacity: normalizeOpacityValue(previous.opacity ?? 1),
+    shadow: Math.max(0, Number(previous.shadow) || 0),
+    startArrowShape: previous.startArrowShape || "classic",
+    endArrowShape: previous.endArrowShape || "classic",
+    routeStyle: normalizeConnectorRouteStyle(previous.routeStyle),
+    gapStart: Math.max(0, Number(previous.gapStart ?? previous.gap ?? 24) || 0),
+    gapEnd: Math.max(0, Number(previous.gapEnd ?? previous.gap ?? 24) || 0)
+  };
 }
 
 function layoutMindMapNode(node, left, centerY, dir, routeStyle, freezeNode) {
@@ -15082,7 +15144,8 @@ function spawnLinkedShapeFromAnchor(sourceNode, anchor, event = null) {
   const fromId = getShapeEndpointId(sourceNode);
   const toId = getShapeEndpointId(child);
   const linkSide = resolveMindMapSpawnLinkSide(sourceNode, anchor, !nextPos.relayout);
-  const routeStyle = getMindMapLayoutSpec(sourceNode.dataset.mindMapLayout).routeStyle || "curve";
+  const previousStyle = getPreviousMindMapConnectorStyle(sourceNode);
+  const routeStyle = previousStyle?.routeStyle || getMindMapLayoutSpec(sourceNode.dataset.mindMapLayout).routeStyle || "curve";
   connectors.push({
     id: nextConnectorId(),
     zIndex: 1,
@@ -15094,10 +15157,11 @@ function spawnLinkedShapeFromAnchor(sourceNode, anchor, event = null) {
     opacity: 1,
     shadow: 0,
     startArrowShape: "line",
-    endArrowShape: "classic",
+    endArrowShape: "line",
     gapStart: 24,
     gapEnd: 24,
     ...(cloneStyleData(defaultStyles.connector) || {}),
+    ...(previousStyle || {}),
     mindMap: true,
     routeStyle,
     routePoints: []
@@ -15113,9 +15177,8 @@ function spawnLinkedShapeFromAnchor(sourceNode, anchor, event = null) {
       layoutSpec.routeStyle,
       true
     );
-  } else {
-    updateMindMapLinkStyle(sourceNode, child, linkSide, layoutSpec.routeStyle);
   }
+  updateMindMapLinkStyle(sourceNode, child, linkSide, routeStyle);
   selectShape(child);
   renderConnectors();
   saveLayout();
@@ -15261,7 +15324,7 @@ function finishConnectorDraft(event) {
           opacity: 1,
           shadow: 0,
           startArrowShape: "line",
-          endArrowShape: "classic",
+          endArrowShape: "line",
           routeStyle: "curve",
           routePoints: [],
           gapStart: 30,
@@ -23938,7 +24001,7 @@ safeOn(fpResetBtn, "click", () => {
       c.opacity = 1;
       c.shadow = 0;
       c.startArrowShape = "line";
-      c.endArrowShape = "classic";
+      c.endArrowShape = "line";
       c.routeStyle = "curve";
       c.routePoints = [];
       c.gapStart = 30;
