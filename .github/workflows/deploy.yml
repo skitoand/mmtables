@@ -37,6 +37,7 @@ jobs:
           node --check app.js
           node --check document-save.js
           node tests/test_document_save.cjs
+          node tests/test_mindmap_connectors.cjs
           bash -n scripts/deploy_prod.sh
           git diff --check
   deploy:
