@@ -2,10 +2,10 @@
 
 ## 2026-10-30 — защита текста фигур от конфликтов автосохранения
 
-**Production commit:** `e99839900fc0df6664f7c494567d59fd9b3f1e14`, main.  
-**PR:** https://github.com/skitoand/mmtables/pull/1  
-**Деплой:** https://github.com/skitoand/mmtables/actions/runs/41019223011 — success (verify/deploy).  
-**Бэкап:** `/opt/apps/backups/mmtable-PROD-BACKUP-20261030-071825-before-deploy.tar.gz`.  
+**Production commit:** `e99839900fc0df6664f7c494567d59fd9b3f1e14`, main.
+**PR:** https://github.com/skitoand/mmtables/pull/1
+**Деплой:** https://github.com/skitoand/mmtables/actions/runs/41019223011 — success (verify/deploy).
+**Бэкап:** `/opt/apps/backups/mmtable-PROD-BACKUP-20261030-071825-before-deploy.tar.gz`.
 **Статус:** OK.
 
 - Сохранения сериализованы; ожидающие промежуточные снимки заменяются последним вводом. Версия и ID привязаны к документу, поздний ответ не меняет другой открытый документ.
