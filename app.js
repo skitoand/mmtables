@@ -139,6 +139,7 @@ const editLockUpgradeBtn = null;
 const formatToggle = $("formatToggle");
 const formatToggleLabel = formatToggle ? formatToggle.closest("label") : null;
 const formatPanel = $("formatPanel");
+const fpImageCropBtn = $("fpImageCropBtn");
 const toolbarEl = document.querySelector(".toolbar");
 
 const fpFill = $("fpFill");
@@ -268,6 +269,8 @@ var currentUser = null;
 let hintTimer = null;
 let currentDocumentRole = null;
 let selectedShape = null;
+let imageCropShapeId = "";
+let imageCropDirty = false;
 let selectedGroupId = null;
 const multiSelectedShapeIds = new Set();
 const multiSelectedWindowIds = new Set();
@@ -839,7 +842,7 @@ function purgeOrphanedInteractionControls() {
     const owner = getControlOwnerNode(el.dataset.liftedFromShape || "");
     if (!owner) el.remove();
   });
-  layer.querySelectorAll(":scope > .shape-handles, :scope > .shape-param-handle, :scope > .bp-stage-controls").forEach((el) => {
+  layer.querySelectorAll(":scope > .shape-handles, :scope > .shape-param-handle, :scope > .bp-stage-controls, :scope > .image-crop-frame").forEach((el) => {
     if (el.dataset.liftedFromShape) return;
     el.remove();
   });
@@ -866,6 +869,13 @@ function syncLiftedControlsPosition(node) {
       el.style.top = `${top}px`;
       el.style.width = `${w}px`;
       el.style.height = `${h}px`;
+    } else if (el.classList.contains("image-crop-frame")) {
+      const px = getImageFramePixels(node);
+      el.style.inset = "auto";
+      el.style.left = `${left + px.x}px`;
+      el.style.top = `${top + px.y}px`;
+      el.style.width = `${px.w}px`;
+      el.style.height = `${px.h}px`;
     } else if (el.classList.contains("shape-note-badge")) {
       const size = ATTACHED_NOTE_BADGE_SCREEN_SIZE / getDesktopZoom();
       el.style.inset = "auto";
@@ -977,7 +987,7 @@ function liftShapeControlsToOverlay(node) {
   if (!shapeId || isWorkspaceReadOnly()) return;
   restoreLiftedShapeControls(shapeId);
   const layer = ensureInteractionControlsLayer();
-  [":scope > .shape-handles", ":scope > .shape-param-handle", ":scope > .bp-stage-controls"].forEach((sel) => {
+  [":scope > .shape-handles", ":scope > .shape-param-handle", ":scope > .bp-stage-controls", ":scope > .image-crop-frame"].forEach((sel) => {
     const el = node.querySelector(sel);
     if (!el) return;
     el.dataset.liftedFromShape = shapeId;
@@ -990,6 +1000,9 @@ function liftShapeControlsToOverlay(node) {
 }
 
 function syncSelectionControlsOverlay() {
+  if (imageCropShapeId && selectedShape?.dataset?.shapeId !== imageCropShapeId) {
+    exitImageCropMode();
+  }
   restoreLiftedShapeControls();
   purgeOrphanedInteractionControls();
   if (isWorkspaceReadOnly()) {
@@ -8884,6 +8897,9 @@ function setControlVisibilityByMode(mode) {
   const showDesktop = mode === "desktop";
   const showSharedStyle = showShapeOnly || showConnector || showDesktop;
   const showTableOnly = showShapeOnly && selectedShape && selectedShape.dataset && selectedShape.dataset.shapeType === "shape-table";
+  const showImageOnly = showShapeOnly && !!selectedShape && !multiSelectedShapeIds.size && !selectedGroupId && selectedShape.dataset.shapeType === "shape-image";
+  document.querySelectorAll(".fp-image-only").forEach((el) => el.classList.toggle("hidden", !showImageOnly));
+  syncImageCropButton();
   connectorOnlyControls.forEach((el) => el.classList.toggle("hidden", !showConnector));
   shapeOnlyControls.forEach((el) => el.classList.toggle("hidden", !showShapeOnly));
   sharedStyleControls.forEach((el) => el.classList.toggle("hidden", !showSharedStyle));
@@ -10941,7 +10957,7 @@ function canStartMarqueeSelectionFromTarget(target, touchMode = false) {
   if (target.closest(".shape-table-grid td")) return false;
   if (target.closest(".sheet-window")) return false;
   if (target.closest(".conn-line, .conn-hit-line")) return false;
-  if (target.closest(".resize-handle, .shape-resize-handle, .shape-line-handle, .shape-param-handle, .conn-point, .conn-arrow, .conn-plus")) return false;
+  if (target.closest(".resize-handle, .shape-resize-handle, .shape-line-handle, .shape-param-handle, .image-crop-frame, .conn-point, .conn-arrow, .conn-plus")) return false;
   if (target.closest("input, textarea, select, button")) return false;
   if (target.isContentEditable || target.closest('[contenteditable="true"]')) return false;
   if (target.closest(".shape")) return !!touchMode;
@@ -11672,7 +11688,7 @@ function attachDrag(node, handle, opts = {}) {
     if (event.target.closest(".shape-text[contenteditable='true']") || event.target.isContentEditable) return;
     if (event.target.closest(".table-add-col") || event.target.closest(".table-add-row")) return;
     if (event.target.closest(".table-cell-toolbar")) return;
-    if (event.target.closest(".h") || event.target.closest(".shape-line-handle") || event.target.closest(".shape-param-handle") || event.target.closest(".resize-handle")) return;
+    if (event.target.closest(".h") || event.target.closest(".shape-line-handle") || event.target.closest(".shape-param-handle") || event.target.closest(".resize-handle") || event.target.closest(".image-crop-frame")) return;
     if (event.target.closest(".conn-arrow, .conn-plus, .conn-point")) return;
     if (event.target.closest(".bp-process-section-toggle")) return;
     if (event.target.closest(".bp-task-title, .bp-task-toggle, .bp-task-field")) return;
@@ -11857,6 +11873,7 @@ function attachResize(node, handle, minW, minH, opts = {}) {
       state = createSheetWindowResizeSnapshot(node, "se", event);
     } else {
       state = { x: event.clientX, y: event.clientY, w: node.offsetWidth, h: node.offsetHeight };
+      if (node.dataset.shapeType === "shape-image") state.imageCanvas = captureImageCropCanvas(node);
     }
     if (raiseOnResize) bringToFront(node);
     handle.setPointerCapture(event.pointerId);
@@ -11876,6 +11893,7 @@ function attachResize(node, handle, minW, minH, opts = {}) {
     } else {
       node.style.width = `${Math.max(minW, state.w + (event.clientX - state.x) / zoom)}px`;
       node.style.height = `${Math.max(minH, state.h + (event.clientY - state.y) / zoom)}px`;
+      applyImageBoxResize(node, state.imageCanvas);
       syncShapeVisualStyle(node);
       onChevronShapeResized(node);
       if (isBpProcessTask(node)) {
@@ -11898,6 +11916,7 @@ function attachResize(node, handle, minW, minH, opts = {}) {
       node.dataset.tablePixelHeight = String(Math.round(node.offsetHeight || parseFloat(node.style.height || "0") || 0));
     }
     finalizeBpTaskManualResize(node, rs);
+    if (rs.imageCanvas) imageCropDirty = false;
     saveLayout();
   };
   handle.addEventListener("pointerup", stop);
@@ -12515,6 +12534,7 @@ function addShapeHandles(node, isLine = false, opts = {}) {
         rs = createSheetWindowResizeSnapshot(node, h.dataset.dir, e);
       } else {
         rs = { x: e.clientX, y: e.clientY, l: node.offsetLeft, t: node.offsetTop, w: node.offsetWidth, h: node.offsetHeight, dir: h.dataset.dir };
+        if (node.dataset.shapeType === "shape-image") rs.imageCanvas = captureImageCropCanvas(node);
       }
       h.setPointerCapture(e.pointerId);
     });
@@ -12537,6 +12557,7 @@ function addShapeHandles(node, isLine = false, opts = {}) {
         setNodePosition(node, l, t);
         node.style.width = `${w}px`;
         node.style.height = `${hh}px`;
+        applyImageBoxResize(node, rs.imageCanvas);
         syncShapeVisualStyle(node);
         onChevronShapeResized(node);
         if (isBpProcessTask(node)) {
@@ -12561,6 +12582,7 @@ function addShapeHandles(node, isLine = false, opts = {}) {
       }
       finalizeBpTaskManualResize(node, resizeState);
       finalizeBpAutomationManualResize(node, resizeState);
+      if (resizeState.imageCanvas) imageCropDirty = false;
       if (isFrameShape(node)) {
         updateFrameMembership(node);
         updateShapeFrameMembershipAfterMove(node);
@@ -18803,37 +18825,358 @@ function createShapeNote(opts = {}, doSave = true) {
   return node;
 }
 
+function normalizeImageFrame(frame) {
+  const x = Number(frame?.x);
+  const y = Number(frame?.y);
+  const w = Number(frame?.w);
+  const h = Number(frame?.h);
+  if (![x, y, w, h].every((value) => Number.isFinite(value)) || w <= 0 || h <= 0) return null;
+  return { x, y, w, h };
+}
+
+function readStoredImageFrame(node) {
+  if (!node?.dataset?.imageFrame) return null;
+  try {
+    return normalizeImageFrame(JSON.parse(node.dataset.imageFrame));
+  } catch {
+    return null;
+  }
+}
+
+function writeImageFrame(node, frame) {
+  const next = normalizeImageFrame(frame);
+  if (!node || !next) return;
+  node.dataset.imageFrame = JSON.stringify(next);
+}
+
+function serializeImageFrame(node) {
+  const frame = readStoredImageFrame(node);
+  if (!frame) return null;
+  const round = (value) => Math.round(value * 10000) / 10000;
+  return { x: round(frame.x), y: round(frame.y), w: round(frame.w), h: round(frame.h) };
+}
+
+function getShapeImageElement(node) {
+  return node?.querySelector(".shape-image-viewport .shape-image-el") || node?.querySelector(".shape-image-el") || null;
+}
+
+function getContainedImageFrame(node) {
+  const img = getShapeImageElement(node);
+  const boxW = node?.offsetWidth || parseFloat(node?.style?.width || "") || 0;
+  const boxH = node?.offsetHeight || parseFloat(node?.style?.height || "") || 0;
+  const naturalW = img?.naturalWidth || 0;
+  const naturalH = img?.naturalHeight || 0;
+  if (!boxW || !boxH || !naturalW || !naturalH) return { x: 0, y: 0, w: 1, h: 1 };
+  const scale = Math.min(boxW / naturalW, boxH / naturalH);
+  const w = (naturalW * scale) / boxW;
+  const h = (naturalH * scale) / boxH;
+  return { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
+}
+
+function getImageFrame(node) {
+  return readStoredImageFrame(node) || getContainedImageFrame(node);
+}
+
+function getImageFramePixels(node) {
+  const frame = getImageFrame(node);
+  const boxW = Math.max(1, node?.offsetWidth || parseFloat(node?.style?.width || "") || 1);
+  const boxH = Math.max(1, node?.offsetHeight || parseFloat(node?.style?.height || "") || 1);
+  return {
+    x: frame.x * boxW,
+    y: frame.y * boxH,
+    w: frame.w * boxW,
+    h: frame.h * boxH
+  };
+}
+
+function getImageCanvasRect(node) {
+  const px = getImageFramePixels(node);
+  return {
+    x: node.offsetLeft + px.x,
+    y: node.offsetTop + px.y,
+    w: px.w,
+    h: px.h
+  };
+}
+
+function canvasRectToImageFrame(node, canvas) {
+  const boxW = Math.max(1, node.offsetWidth || parseFloat(node.style.width || "") || 1);
+  const boxH = Math.max(1, node.offsetHeight || parseFloat(node.style.height || "") || 1);
+  return normalizeImageFrame({
+    x: (canvas.x - node.offsetLeft) / boxW,
+    y: (canvas.y - node.offsetTop) / boxH,
+    w: canvas.w / boxW,
+    h: canvas.h / boxH
+  });
+}
+
+function pixelsToImageFrame(node, px) {
+  const boxW = Math.max(1, node.offsetWidth || parseFloat(node.style.width || "") || 1);
+  const boxH = Math.max(1, node.offsetHeight || parseFloat(node.style.height || "") || 1);
+  return normalizeImageFrame({ x: px.x / boxW, y: px.y / boxH, w: px.w / boxW, h: px.h / boxH });
+}
+
+function resizeImageCropBox(start, dir, dx, dy) {
+  const minSize = 8;
+  if (dir === "move") return { x: start.x + dx, y: start.y + dy, w: start.w, h: start.h };
+  const lockAspect = dir.length === 2 && start.w > 0 && start.h > 0;
+  if (lockAspect) {
+    const aspect = start.w / start.h;
+    let w = start.w;
+    let h = start.h;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      w = dir.includes("w") ? start.w - dx : start.w + dx;
+      if (w < minSize) w = minSize;
+      h = w / aspect;
+      if (h < minSize) {
+        h = minSize;
+        w = h * aspect;
+      }
+    } else {
+      h = dir.includes("n") ? start.h - dy : start.h + dy;
+      if (h < minSize) h = minSize;
+      w = h * aspect;
+      if (w < minSize) {
+        w = minSize;
+        h = w / aspect;
+      }
+    }
+    return {
+      x: dir.includes("w") ? start.x + start.w - w : start.x,
+      y: dir.includes("n") ? start.y + start.h - h : start.y,
+      w,
+      h
+    };
+  }
+  let x = start.x;
+  let y = start.y;
+  let w = start.w;
+  let h = start.h;
+  if (dir.includes("e")) w = start.w + dx;
+  if (dir.includes("w")) {
+    w = start.w - dx;
+    x = start.x + dx;
+  }
+  if (dir.includes("s")) h = start.h + dy;
+  if (dir.includes("n")) {
+    h = start.h - dy;
+    y = start.y + dy;
+  }
+  if (w < minSize) {
+    if (dir.includes("w")) x -= minSize - w;
+    w = minSize;
+  }
+  if (h < minSize) {
+    if (dir.includes("n")) y -= minSize - h;
+    h = minSize;
+  }
+  return { x, y, w, h };
+}
+
+function isImageCropTarget(node) {
+  return !!(node && imageCropShapeId && node.dataset.shapeId === imageCropShapeId);
+}
+
+function captureImageCropCanvas(node) {
+  if (!isImageCropTarget(node)) return null;
+  return getImageCanvasRect(node);
+}
+
+function getImageCropFrameElement(node) {
+  if (!node) return null;
+  const owned = node.querySelector(":scope > .image-crop-frame");
+  if (owned) return owned;
+  const id = node.dataset.shapeId || "";
+  if (!id || !interactionControlsLayer) return null;
+  return interactionControlsLayer.querySelector(`.image-crop-frame[data-lifted-from-shape="${CSS.escape(id)}"]`);
+}
+
+function applyImageFrameLayout(node) {
+  if (!node || node.dataset.shapeType !== "shape-image") return;
+  const px = getImageFramePixels(node);
+  node.querySelectorAll(":scope > .shape-image-ghost .shape-image-stage, :scope > .shape-image-viewport .shape-image-stage").forEach((stage) => {
+    stage.style.left = `${px.x}px`;
+    stage.style.top = `${px.y}px`;
+    stage.style.width = `${px.w}px`;
+    stage.style.height = `${px.h}px`;
+  });
+  const crop = getImageCropFrameElement(node);
+  if (!crop) return;
+  if (crop.parentElement === node) {
+    crop.style.left = `${px.x}px`;
+    crop.style.top = `${px.y}px`;
+    crop.style.width = `${px.w}px`;
+    crop.style.height = `${px.h}px`;
+  } else if (interactionControlsLayer?.contains(crop)) {
+    syncLiftedControlsPosition(node);
+  }
+}
+
+function applyImageBoxResize(node, frozenCanvas) {
+  if (!node || node.dataset.shapeType !== "shape-image") return;
+  if (frozenCanvas) {
+    const frame = canvasRectToImageFrame(node, frozenCanvas);
+    if (frame) {
+      writeImageFrame(node, frame);
+      imageCropDirty = true;
+    }
+  }
+  applyImageFrameLayout(node);
+}
+
+function syncImageCropButton() {
+  if (!fpImageCropBtn) return;
+  const active = !!(selectedShape && isImageCropTarget(selectedShape));
+  fpImageCropBtn.classList.toggle("active", active);
+  fpImageCropBtn.setAttribute("aria-pressed", active ? "true" : "false");
+}
+
+function exitImageCropMode() {
+  if (!imageCropShapeId) return;
+  const node = getShapeById(imageCropShapeId);
+  imageCropShapeId = "";
+  if (node) node.classList.remove("is-image-cropping");
+  const frame = node ? getImageCropFrameElement(node) : null;
+  if (frame) frame.classList.remove("is-active");
+  const dirty = imageCropDirty;
+  imageCropDirty = false;
+  syncImageCropButton();
+  if (dirty) saveLayout();
+}
+
+function enterImageCropMode(node) {
+  if (!node || node.dataset.shapeType !== "shape-image" || !canEditCurrentDocument()) return;
+  if (imageCropShapeId && imageCropShapeId !== node.dataset.shapeId) exitImageCropMode();
+  imageCropShapeId = node.dataset.shapeId || "";
+  imageCropDirty = false;
+  node.classList.add("is-image-cropping");
+  const frame = getImageCropFrameElement(node);
+  if (frame) frame.classList.add("is-active");
+  applyImageFrameLayout(node);
+  syncSelectionControlsOverlay();
+  syncImageCropButton();
+}
+
+function buildImageCropFrame() {
+  const frame = document.createElement("div");
+  frame.className = "image-crop-frame";
+  frame.setAttribute("aria-hidden", "true");
+  ["nw", "n", "ne", "e", "se", "s", "sw", "w"].forEach((dir) => {
+    const handle = document.createElement("div");
+    handle.className = `image-crop-handle ${dir}`;
+    handle.dataset.dir = dir;
+    frame.appendChild(handle);
+  });
+  return frame;
+}
+
+function bindImageCropFrame(frame, node) {
+  let drag = null;
+  frame.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !isImageCropTarget(node) || !canEditCurrentDocument()) return;
+    event.stopPropagation();
+    event.preventDefault();
+    const handle = event.target.closest(".image-crop-handle");
+    drag = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      dir: handle?.dataset?.dir || "move",
+      box: getImageFramePixels(node)
+    };
+    frame.setPointerCapture(event.pointerId);
+  });
+  frame.addEventListener("pointermove", (event) => {
+    if (!drag || drag.pointerId !== event.pointerId || (event.buttons & 1) !== 1) return;
+    const dx = (event.clientX - drag.x) / getDesktopZoom();
+    const dy = (event.clientY - drag.y) / getDesktopZoom();
+    const next = resizeImageCropBox(drag.box, drag.dir, dx, dy);
+    const frameValue = pixelsToImageFrame(node, next);
+    if (!frameValue) return;
+    writeImageFrame(node, frameValue);
+    imageCropDirty = true;
+    applyImageFrameLayout(node);
+  });
+  const stop = (event) => {
+    if (!drag || (event.pointerId != null && drag.pointerId !== event.pointerId)) return;
+    drag = null;
+    if (event.pointerId != null && frame.hasPointerCapture?.(event.pointerId)) frame.releasePointerCapture(event.pointerId);
+    if (!imageCropDirty) return;
+    imageCropDirty = false;
+    saveLayout();
+  };
+  frame.addEventListener("pointerup", stop);
+  frame.addEventListener("pointercancel", stop);
+}
+
+function createImageElement(src) {
+  const img = document.createElement("img");
+  img.className = "shape-image-el";
+  img.draggable = false;
+  img.alt = "";
+  img.addEventListener("dragstart", (event) => event.preventDefault());
+  img.src = src;
+  return img;
+}
+
 function createShapeImage(opts = {}, doSave = true) {
   const src = String(opts.imageSrc || opts.src || "");
   if (!src) return null;
   const node = createShapeBase("shape-image", opts);
   node.dataset.imageSrc = src;
+  const storedFrame = normalizeImageFrame(opts.imageFrame);
+  if (storedFrame) writeImageFrame(node, storedFrame);
   node.style.border = "none";
   node.style.background = "transparent";
-  // Connector arrows are positioned just outside the object bounds.  The
-  // image itself already fits inside the node via object-fit, so clipping the
-  // node would also clip the connector controls while Ctrl is held.
+  // The shape stays overflow-visible so connector controls are not clipped.
+  // Only the viewport clips the picture to the crop window.
   node.style.overflow = "visible";
   node.style.padding = "0";
-  const img = document.createElement("img");
-  img.className = "shape-image-el";
-  img.draggable = false;
-  img.alt = "";
-  img.src = src;
-  img.addEventListener("dragstart", (e) => e.preventDefault());
+
+  const ghost = document.createElement("div");
+  ghost.className = "shape-image-ghost";
+  ghost.setAttribute("aria-hidden", "true");
+  const ghostStage = document.createElement("div");
+  ghostStage.className = "shape-image-stage";
+  ghostStage.appendChild(createImageElement(src));
+  ghost.appendChild(ghostStage);
+
+  const viewport = document.createElement("div");
+  viewport.className = "shape-image-viewport";
+  const stage = document.createElement("div");
+  stage.className = "shape-image-stage";
+  const img = createImageElement(src);
+  img.addEventListener("load", () => applyImageFrameLayout(node));
+  stage.appendChild(img);
+  viewport.appendChild(stage);
+
+  const cropFrame = buildImageCropFrame();
+  bindImageCropFrame(cropFrame, node);
   const rh = document.createElement("div");
   rh.className = "resize-handle";
-  node.appendChild(img);
+  node.appendChild(ghost);
+  node.appendChild(viewport);
+  node.appendChild(cropFrame);
   node.appendChild(rh);
   addShapeHandles(node, false);
   attachResize(node, rh, 40, 40, { raiseOnResize: false });
   attachConnectorPoints(node);
   appendToDesktop(node);
+  applyImageFrameLayout(node);
   updateDesktopExtent();
   layoutConnectorPoints(node);
   renderConnectors();
   if (doSave) saveLayout();
   return node;
+}
+
+if (fpImageCropBtn) {
+  fpImageCropBtn.addEventListener("click", () => {
+    const node = selectedShape;
+    if (!node || node.dataset.shapeType !== "shape-image") return;
+    if (isImageCropTarget(node)) exitImageCropMode();
+    else enterImageCropMode(node);
+  });
 }
 
 function createShapeLine(opts = {}, doSave = true) {
@@ -22101,6 +22444,7 @@ function readShapeData(node) {
     mindMapLayout: node.dataset.mindMapLayout || undefined,
     textTool: node.dataset.textTool === "1" || undefined,
     imageSrc: node.dataset.shapeType === "shape-image" ? (node.dataset.imageSrc || "") : undefined,
+    imageFrame: node.dataset.shapeType === "shape-image" ? (serializeImageFrame(node) || undefined) : undefined,
     tableData
   };
   if (node.dataset.shapeType === "shape-chart" || node.dataset.shapeType === "shape-bitrix-card" || node.dataset.shapeType === "shape-bitrix-date-filter") {
@@ -24966,6 +25310,10 @@ viewportEl.addEventListener("wheel", (e) => {
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
+  if (imageCropShapeId) {
+    exitImageCropMode();
+    event.preventDefault();
+  }
   clearAllSheetWindowInteract();
 }, true);
 
