@@ -3677,7 +3677,40 @@ body.sfera-embedded #fileCopyBtn,
 body.sfera-embedded #profileBtn,
 body.sfera-embedded .app-menu-footer { display:none; }
 body.sfera-embedded #currentDocumentTitle { display:none; }
-body.sfera-embedded .toolbar { border-radius:0; }
+body.sfera-embedded .toolbar { border-radius:0; overflow:visible; }
+body.sfera-embedded .app { overflow:visible; }
+body.sfera-embedded #fileActionsBtn { display:none; }
+body.sfera-embedded #fileActionsDropdown.hidden {
+  display:flex !important;
+  flex-direction:column;
+  position:static;
+  top:auto;
+  left:auto;
+  min-width:0;
+  margin:0;
+  padding:0;
+  border:0;
+  box-shadow:none;
+  background:transparent;
+}
+body.sfera-embedded .app-menu-dropdown { max-height:calc(100vh - 70px); overflow:auto; }
+body.sfera-embedded .embed-comments-btn {
+  display:inline-flex;
+  align-items:center;
+  width:auto;
+  height:auto;
+  min-height:43px;
+  padding:0 14px;
+  border:0;
+  border-radius:18px;
+  background:var(--toolbar-pill);
+  box-shadow:var(--shadow-soft);
+  color:#111827;
+  font-size:13px;
+  font-weight:600;
+}
+body.sfera-embedded .modal-card { max-height:calc(100vh - 24px); overflow:auto; }
+body.sfera-embedded .format-panel { max-height:calc(100vh - 24px); }
 
 /* Recovery controls live outside the canvas and survive shape editing. */
 .document-save-notice {position:fixed;z-index:100000;bottom:max(16px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);width:min(760px,calc(100vw - 32px));box-sizing:border-box;padding:16px;background:#fff9e8;color:#6d3a08;border:1px solid #e6c78f;border-radius:14px;box-shadow:0 12px 40px #0003;font:14px/1.5 system-ui,sans-serif;max-height:45vh;overflow:auto;}
