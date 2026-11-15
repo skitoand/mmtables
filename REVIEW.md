@@ -1,5 +1,14 @@
 # Review — журнал выкладок MIndMapTable
 
+## 2026-11-15 — обрезка и размер картинки поменяны местами
+
+- Сервис: MMTable; production commit `27ce1f9b8a8996062ee43811fa794dee3c958bcc`, main; PR https://github.com/skitoand/mmtables/pull/9.
+- Actions: https://github.com/skitoand/mmtables/actions/runs/43700033932 — success, verify/deploy.
+- Backup: `/opt/apps/backups/mmtable-PROD-BACKUP-20261115-093626-before-deploy.tar.gz`.
+- Чёрные уголки и боковые метки теперь обрезают видимое окно, картинка остаётся на месте. Синие ручки масштабируют картинку и сохраняют пропорции на углах. Приглушённую картинку можно перетащить внутри окна. Кнопка «Обрезка» перенесена с вкладки «Стиль» на вкладку «Положение».
+- Проверки: `node --check app.js`, `node tests/test_image_crop.cjs`, Python-тесты в GitHub Actions. Публичные `index.html` и `app.js` отдают `20261115-image-crop-swap-v1`, в `app.js` есть `resizeBoxEdges`, кнопка в `index.html` на месте, `/api/me` HTTP 200. Жесты в браузере на проде не повторялись.
+- Пользовательские production-документы и схема БД не менялись.
+
 ## 2026-11-15 — обрезка картинок
 
 - Сервис: MMTable; production commit `8bd3c064bfe98f9e283d6480fe0853eafd1cec95`, main; PR https://github.com/skitoand/mmtables/pull/8.
