@@ -7,7 +7,7 @@
     <title>MMTable</title>
     <link rel="icon" type="image/png" sizes="128x128" href="assets/favicon.png?v=20260701-crop" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=20260701-crop" />
-    <link rel="stylesheet" href="styles.css?v=20261115-image-crop-swap-v1" />
+    <link rel="stylesheet" href="styles.css?v=20261115-embed-nav-v1" />
   </head>
   <body>
     <script>if(new URLSearchParams(location.search).get("embed")==="sfera")document.body.classList.add("sfera-embedded");</script>
@@ -124,6 +124,7 @@
                 <path d="M18 11h-8a5 5 0 1 0 0 10h2" />
               </svg>
             </button>
+            <button id="embedCommentsBtn" type="button" class="toolbar-icon embed-comments-btn" hidden title="Комментарии" aria-label="Комментарии">Комментарии</button>
           </div>
           <div class="toolbar-zoom">
             <button id="zoomOutBtn" class="toolbar-zoom-btn" type="button" aria-label="Уменьшить масштаб">-</button>
@@ -971,7 +972,7 @@
     <script src="vendor/perfect-freehand.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="draw-tools.js?v=20260913-format-style-v1"></script>
     <script src="document-save.js?v=20261030-mindmap-connectors-v1"></script>
-    <script src="app.js?v=20261115-image-crop-swap-v1"></script>
+    <script src="app.js?v=20261115-embed-nav-v1"></script>
     <script src="bitrix-chart.js?v=20260902-readable-date-axis-v2"></script>
   </body>
 </html>

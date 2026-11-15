@@ -23807,6 +23807,11 @@ safeOn(fileCommentsBtn, "click", async (e) => {
   closeAllMenus();
   await openCommentsModal();
 });
+safeOn($("embedCommentsBtn"), "click", async (e) => {
+  e.stopPropagation();
+  closeAllMenus();
+  await openCommentsModal();
+});
 safeOn(fileDeleteBtn, "click", async (e) => {
   e.stopPropagation();
   closeAllMenus();
