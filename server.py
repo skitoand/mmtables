@@ -1430,7 +1430,7 @@ def _security_headers(response):
     )
     if embedded:
         response.headers.pop("X-Frame-Options", None)
-        response.headers["Content-Security-Policy"] = "frame-ancestors 'self' https://sfera.crystalsystems.ru"
+        response.headers["Content-Security-Policy"] = "frame-ancestors 'self' https://sfera.crystalsystems.ru https://bz.crystalsystems.ru https://crm.crystalsystems.ru https://report.crystalsystems.ru https://vpn.finico.pro"
         response.headers["Cache-Control"] = "no-store"
     else:
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")

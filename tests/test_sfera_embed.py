@@ -11,7 +11,7 @@ class SferaEmbedHeadersTests(unittest.TestCase):
             self.assertEqual(response.headers.get('X-Frame-Options'),'SAMEORIGIN',route)
         response=client.get('/d/abcdef123456?embed=sfera')
         self.assertNotIn('X-Frame-Options',response.headers)
-        self.assertEqual(response.headers['Content-Security-Policy'],"frame-ancestors 'self' https://sfera.crystalsystems.ru")
+        self.assertEqual(response.headers['Content-Security-Policy'],"frame-ancestors 'self' https://sfera.crystalsystems.ru https://bz.crystalsystems.ru https://crm.crystalsystems.ru https://report.crystalsystems.ru https://vpn.finico.pro")
         self.assertNotIn('*',response.headers['Content-Security-Policy'])
         self.assertEqual(response.headers['Cache-Control'],'no-store')
 
