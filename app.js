@@ -7642,13 +7642,13 @@ function resetViewportToOrigin() {
   saveViewportState();
 }
 
-function setTheme(mode) {
+function setTheme(mode, options = {}) {
   const dark = mode === "dark";
   document.body.classList.toggle("dark", dark);
   if (themeLightBtn) themeLightBtn.classList.toggle("active", !dark);
   if (themeDarkBtn) themeDarkBtn.classList.toggle("active", dark);
   if (themeDarkToggle) themeDarkToggle.checked = dark;
-  localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
+  if (options.persist !== false) localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
   syncViewportDesktopBackground();
   syncBpProcessesToTheme({ save: false });
   if (window.BitrixChart?.syncBitrixWidgetsToTheme) {
@@ -25583,7 +25583,17 @@ window.addEventListener("popstate", async () => {
   initFormatPanelWindow();
   initFileBrowserResize();
   initSheetSwitcher();
-  setTheme(localStorage.getItem(THEME_KEY) || "light");
+  const embeddedTheme = new URLSearchParams(location.search);
+  const forcedTheme = document.body.classList.contains("sfera-embedded") && (embeddedTheme.get("theme") === "dark" || embeddedTheme.get("theme") === "light")
+    ? embeddedTheme.get("theme")
+    : "";
+  setTheme(forcedTheme || localStorage.getItem(THEME_KEY) || "light", { persist: !forcedTheme });
+  window.addEventListener("message", (event) => {
+    if (event.origin !== "https://sfera.crystalsystems.ru" && event.origin !== "https://bz.crystalsystems.ru") return;
+    if (!document.body.classList.contains("sfera-embedded")) return;
+    if (!event.data || event.data.type !== "mmtable-theme") return;
+    setTheme(event.data.theme === "dark" ? "dark" : "light", { persist: false });
+  });
   setAutosaveEnabled(localStorage.getItem(AUTOSAVE_KEY) !== "0");
   updateAutosaveIndicator();
   initDrawToolsModule();
