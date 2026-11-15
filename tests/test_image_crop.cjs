@@ -3,9 +3,9 @@ const fs = require("fs");
 const path = require("path");
 
 const source = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
-const start = source.indexOf("function resizeImageCropBox");
+const start = source.indexOf("function resizeBoxEdges");
 const end = source.indexOf("function isImageCropTarget");
-assert.ok(start > 0 && end > start, "resizeImageCropBox must stay extractable");
+assert.ok(start > 0 && end > start, "resizeBoxEdges must stay extractable");
 eval(source.slice(start, end));
 
 const startBox = { x: 10, y: 20, w: 100, h: 50 };

@@ -7,7 +7,7 @@
     <title>MMTable</title>
     <link rel="icon" type="image/png" sizes="128x128" href="assets/favicon.png?v=20260701-crop" />
     <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=20260701-crop" />
-    <link rel="stylesheet" href="styles.css?v=20261115-image-crop-v1" />
+    <link rel="stylesheet" href="styles.css?v=20261115-image-crop-swap-v1" />
   </head>
   <body>
     <script>if(new URLSearchParams(location.search).get("embed")==="sfera")document.body.classList.add("sfera-embedded");</script>
@@ -170,14 +170,6 @@
           </div>
 
           <section id="panelStyle" class="fp-panel">
-            <div class="fp-image-only hidden" id="fpImageCropRow">
-              <button id="fpImageCropBtn" type="button" class="fp-image-crop-btn" aria-pressed="false" title="Обрезка">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M17 15h2V7c0-1.1-.9-2-2-2H9v2h8v8zM7 17V1H5v4H1v2h4v10c0 1.1.9 2 2 2h10v4h2v-4h4v-2H7z"/>
-                </svg>
-                <span>Обрезка</span>
-              </button>
-            </div>
             <div class="fp-strip fp-shape-only">
               <button type="button" class="fp-nav" aria-label="Назад">‹</button>
               <div class="fp-swatches">
@@ -518,6 +510,15 @@
 
             <button id="fpGroup" type="button" class="fp-wide-button">Группировать</button>
             <button id="fpLock" type="button" class="fp-wide-button">Блокировать/Разблокировать</button>
+
+            <div class="fp-image-only hidden" id="fpImageCropRow">
+              <button id="fpImageCropBtn" type="button" class="fp-image-crop-btn" aria-pressed="false" title="Обрезка">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M17 15h2V7c0-1.1-.9-2-2-2H9v2h8v8zM7 17V1H5v4H1v2h4v10c0 1.1.9 2 2 2h10v4h2v-4h4v-2H7z"/>
+                </svg>
+                <span>Обрезка</span>
+              </button>
+            </div>
 
             <div id="fpMindMapWrap" class="fp-mindmap-wrap hidden">
               <div class="fp-subtitle-line">Mind Map</div>
@@ -970,7 +971,7 @@
     <script src="vendor/perfect-freehand.js?v=20260713-excalidraw-laser-v1"></script>
     <script src="draw-tools.js?v=20260913-format-style-v1"></script>
     <script src="document-save.js?v=20261030-mindmap-connectors-v1"></script>
-    <script src="app.js?v=20261115-image-crop-v1"></script>
+    <script src="app.js?v=20261115-image-crop-swap-v1"></script>
     <script src="bitrix-chart.js?v=20260902-readable-date-axis-v2"></script>
   </body>
 </html>

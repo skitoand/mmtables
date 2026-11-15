@@ -857,12 +857,20 @@ function syncLiftedControlsPosition(node) {
   const h = node.offsetHeight;
   interactionControlsLayer.querySelectorAll(`[data-lifted-from-shape="${shapeId}"]`).forEach((el) => {
     if (el.classList.contains("shape-handles")) {
-      const pad = getShapeSelectionPadWorld();
       el.style.inset = "auto";
-      el.style.left = `${left - pad}px`;
-      el.style.top = `${top - pad}px`;
-      el.style.width = `${w + pad * 2}px`;
-      el.style.height = `${h + pad * 2}px`;
+      if (isImageCropTarget(node)) {
+        const px = getImageFramePixels(node);
+        el.style.left = `${left + px.x}px`;
+        el.style.top = `${top + px.y}px`;
+        el.style.width = `${px.w}px`;
+        el.style.height = `${px.h}px`;
+      } else {
+        const pad = getShapeSelectionPadWorld();
+        el.style.left = `${left - pad}px`;
+        el.style.top = `${top - pad}px`;
+        el.style.width = `${w + pad * 2}px`;
+        el.style.height = `${h + pad * 2}px`;
+      }
     } else if (el.classList.contains("bp-stage-controls")) {
       el.style.inset = "auto";
       el.style.left = `${left}px`;
@@ -870,12 +878,11 @@ function syncLiftedControlsPosition(node) {
       el.style.width = `${w}px`;
       el.style.height = `${h}px`;
     } else if (el.classList.contains("image-crop-frame")) {
-      const px = getImageFramePixels(node);
       el.style.inset = "auto";
-      el.style.left = `${left + px.x}px`;
-      el.style.top = `${top + px.y}px`;
-      el.style.width = `${px.w}px`;
-      el.style.height = `${px.h}px`;
+      el.style.left = `${left}px`;
+      el.style.top = `${top}px`;
+      el.style.width = `${w}px`;
+      el.style.height = `${h}px`;
     } else if (el.classList.contains("shape-note-badge")) {
       const size = ATTACHED_NOTE_BADGE_SCREEN_SIZE / getDesktopZoom();
       el.style.inset = "auto";
@@ -11688,7 +11695,8 @@ function attachDrag(node, handle, opts = {}) {
     if (event.target.closest(".shape-text[contenteditable='true']") || event.target.isContentEditable) return;
     if (event.target.closest(".table-add-col") || event.target.closest(".table-add-row")) return;
     if (event.target.closest(".table-cell-toolbar")) return;
-    if (event.target.closest(".h") || event.target.closest(".shape-line-handle") || event.target.closest(".shape-param-handle") || event.target.closest(".resize-handle") || event.target.closest(".image-crop-frame")) return;
+    if (event.target.closest(".h") || event.target.closest(".shape-line-handle") || event.target.closest(".shape-param-handle") || event.target.closest(".resize-handle") || event.target.closest(".image-crop-frame") || event.target.closest(".image-crop-handle")) return;
+    if (isImageCropTarget(node) && event.target.closest(".shape-image-ghost, .shape-image-stage")) return;
     if (event.target.closest(".conn-arrow, .conn-plus, .conn-point")) return;
     if (event.target.closest(".bp-process-section-toggle")) return;
     if (event.target.closest(".bp-task-title, .bp-task-toggle, .bp-task-field")) return;
@@ -12526,6 +12534,11 @@ function addShapeHandles(node, isLine = false, opts = {}) {
       e.stopPropagation();
       if (!canEditCurrentDocument()) return;
       if (isBpProcessAutomation(node)) return;
+      if (isImageCropTarget(node)) {
+        rs = { x: e.clientX, y: e.clientY, dir: h.dataset.dir, imageBox: getImageFramePixels(node), content: true };
+        h.setPointerCapture(e.pointerId);
+        return;
+      }
       const bulkDrag = createBulkSelectionDrag(node, e);
       if (bulkDrag && runBulkSelectionDragSession(node, bulkDrag, e, h)) return;
       if (node.dataset.shapeType === "shape-table" && node.__tableApi?.createResizeSnapshot) {
@@ -12534,7 +12547,6 @@ function addShapeHandles(node, isLine = false, opts = {}) {
         rs = createSheetWindowResizeSnapshot(node, h.dataset.dir, e);
       } else {
         rs = { x: e.clientX, y: e.clientY, l: node.offsetLeft, t: node.offsetTop, w: node.offsetWidth, h: node.offsetHeight, dir: h.dataset.dir };
-        if (node.dataset.shapeType === "shape-image") rs.imageCanvas = captureImageCropCanvas(node);
       }
       h.setPointerCapture(e.pointerId);
     });
@@ -12543,6 +12555,13 @@ function addShapeHandles(node, isLine = false, opts = {}) {
       if (isBpProcessAutomation(node)) return;
       const dx = (e.clientX - rs.x) / zoom;
       const dy = (e.clientY - rs.y) / zoom;
+      if (rs.content) {
+        const next = resizeImageCropBox(rs.imageBox, rs.dir, dx, dy);
+        commitImageFramePixels(node, next);
+        applyImageFrameLayout(node);
+        syncAllLiftedControlsPositions();
+        return;
+      }
       if (node.dataset.shapeType === "shape-table" && node.__tableApi?.applyHandleResize) {
         node.__tableApi.applyHandleResize(rs, dx, dy);
       } else if (isSheetWindowNode(node)) {
@@ -12557,7 +12576,7 @@ function addShapeHandles(node, isLine = false, opts = {}) {
         setNodePosition(node, l, t);
         node.style.width = `${w}px`;
         node.style.height = `${hh}px`;
-        applyImageBoxResize(node, rs.imageCanvas);
+        applyImageBoxResize(node, null);
         syncShapeVisualStyle(node);
         onChevronShapeResized(node);
         if (isBpProcessTask(node)) {
@@ -12582,7 +12601,7 @@ function addShapeHandles(node, isLine = false, opts = {}) {
       }
       finalizeBpTaskManualResize(node, resizeState);
       finalizeBpAutomationManualResize(node, resizeState);
-      if (resizeState.imageCanvas) imageCropDirty = false;
+      if (resizeState.content) imageCropDirty = false;
       if (isFrameShape(node)) {
         updateFrameMembership(node);
         updateShapeFrameMembershipAfterMove(node);
@@ -18916,6 +18935,33 @@ function pixelsToImageFrame(node, px) {
   return normalizeImageFrame({ x: px.x / boxW, y: px.y / boxH, w: px.w / boxW, h: px.h / boxH });
 }
 
+function resizeBoxEdges(start, dir, dx, dy, minW = 8, minH = 8) {
+  if (dir === "move") return { x: start.x + dx, y: start.y + dy, w: start.w, h: start.h };
+  let x = start.x;
+  let y = start.y;
+  let w = start.w;
+  let h = start.h;
+  if (dir.includes("e")) w = start.w + dx;
+  if (dir.includes("w")) {
+    w = start.w - dx;
+    x = start.x + dx;
+  }
+  if (dir.includes("s")) h = start.h + dy;
+  if (dir.includes("n")) {
+    h = start.h - dy;
+    y = start.y + dy;
+  }
+  if (w < minW) {
+    if (dir.includes("w")) x -= minW - w;
+    w = minW;
+  }
+  if (h < minH) {
+    if (dir.includes("n")) y -= minH - h;
+    h = minH;
+  }
+  return { x, y, w, h };
+}
+
 function resizeImageCropBox(start, dir, dx, dy) {
   const minSize = 8;
   if (dir === "move") return { x: start.x + dx, y: start.y + dy, w: start.w, h: start.h };
@@ -18948,29 +18994,24 @@ function resizeImageCropBox(start, dir, dx, dy) {
       h
     };
   }
-  let x = start.x;
-  let y = start.y;
-  let w = start.w;
-  let h = start.h;
-  if (dir.includes("e")) w = start.w + dx;
-  if (dir.includes("w")) {
-    w = start.w - dx;
-    x = start.x + dx;
-  }
-  if (dir.includes("s")) h = start.h + dy;
-  if (dir.includes("n")) {
-    h = start.h - dy;
-    y = start.y + dy;
-  }
-  if (w < minSize) {
-    if (dir.includes("w")) x -= minSize - w;
-    w = minSize;
-  }
-  if (h < minSize) {
-    if (dir.includes("n")) y -= minSize - h;
-    h = minSize;
-  }
-  return { x, y, w, h };
+  return resizeBoxEdges(start, dir, dx, dy, minSize, minSize);
+}
+
+function commitImageFramePixels(node, px) {
+  const frameValue = pixelsToImageFrame(node, px);
+  if (!frameValue) return false;
+  writeImageFrame(node, frameValue);
+  imageCropDirty = true;
+  return true;
+}
+
+function getShapeHandlesElement(node) {
+  if (!node) return null;
+  const owned = node.querySelector(":scope > .shape-handles");
+  if (owned) return owned;
+  const id = node.dataset.shapeId || "";
+  if (!id || !interactionControlsLayer) return null;
+  return interactionControlsLayer.querySelector(`.shape-handles[data-lifted-from-shape="${CSS.escape(id)}"]`);
 }
 
 function isImageCropTarget(node) {
@@ -19001,13 +19042,13 @@ function applyImageFrameLayout(node) {
     stage.style.height = `${px.h}px`;
   });
   const crop = getImageCropFrameElement(node);
-  if (!crop) return;
-  if (crop.parentElement === node) {
-    crop.style.left = `${px.x}px`;
-    crop.style.top = `${px.y}px`;
-    crop.style.width = `${px.w}px`;
-    crop.style.height = `${px.h}px`;
-  } else if (interactionControlsLayer?.contains(crop)) {
+  if (crop && crop.parentElement === node) {
+    crop.style.left = "0px";
+    crop.style.top = "0px";
+    crop.style.width = "100%";
+    crop.style.height = "100%";
+  }
+  if (isImageCropTarget(node) || (crop && interactionControlsLayer?.contains(crop))) {
     syncLiftedControlsPosition(node);
   }
 }
@@ -19038,9 +19079,12 @@ function exitImageCropMode() {
   if (node) node.classList.remove("is-image-cropping");
   const frame = node ? getImageCropFrameElement(node) : null;
   if (frame) frame.classList.remove("is-active");
+  const handles = node ? getShapeHandlesElement(node) : null;
+  if (handles) handles.classList.remove("is-image-content-frame");
   const dirty = imageCropDirty;
   imageCropDirty = false;
   syncImageCropButton();
+  if (node) syncLiftedControlsPosition(node);
   if (dirty) saveLayout();
 }
 
@@ -19052,6 +19096,8 @@ function enterImageCropMode(node) {
   node.classList.add("is-image-cropping");
   const frame = getImageCropFrameElement(node);
   if (frame) frame.classList.add("is-active");
+  const handles = getShapeHandlesElement(node);
+  if (handles) handles.classList.add("is-image-content-frame");
   applyImageFrameLayout(node);
   syncSelectionControlsOverlay();
   syncImageCropButton();
@@ -19074,39 +19120,86 @@ function bindImageCropFrame(frame, node) {
   let drag = null;
   frame.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || !isImageCropTarget(node) || !canEditCurrentDocument()) return;
+    const handle = event.target.closest(".image-crop-handle");
+    if (!handle) return;
     event.stopPropagation();
     event.preventDefault();
-    const handle = event.target.closest(".image-crop-handle");
     drag = {
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
-      dir: handle?.dataset?.dir || "move",
-      box: getImageFramePixels(node)
+      dir: handle.dataset.dir,
+      handle,
+      box: { x: node.offsetLeft, y: node.offsetTop, w: node.offsetWidth, h: node.offsetHeight },
+      canvas: getImageCanvasRect(node)
     };
-    frame.setPointerCapture(event.pointerId);
+    handle.setPointerCapture(event.pointerId);
   });
   frame.addEventListener("pointermove", (event) => {
     if (!drag || drag.pointerId !== event.pointerId || (event.buttons & 1) !== 1) return;
     const dx = (event.clientX - drag.x) / getDesktopZoom();
     const dy = (event.clientY - drag.y) / getDesktopZoom();
-    const next = resizeImageCropBox(drag.box, drag.dir, dx, dy);
-    const frameValue = pixelsToImageFrame(node, next);
-    if (!frameValue) return;
-    writeImageFrame(node, frameValue);
-    imageCropDirty = true;
+    const next = resizeBoxEdges(drag.box, drag.dir, dx, dy, 40, 40);
+    setNodePosition(node, next.x, next.y);
+    node.style.width = `${next.w}px`;
+    node.style.height = `${next.h}px`;
+    const frameValue = canvasRectToImageFrame(node, drag.canvas);
+    if (frameValue) {
+      writeImageFrame(node, frameValue);
+      imageCropDirty = true;
+    }
     applyImageFrameLayout(node);
+    syncShapeVisualStyle(node);
+    layoutConnectorPoints(node);
+    renderConnectors();
+    syncFormatPanel();
+    updateDesktopExtent();
   });
   const stop = (event) => {
     if (!drag || (event.pointerId != null && drag.pointerId !== event.pointerId)) return;
+    const captureHandle = drag.handle;
     drag = null;
-    if (event.pointerId != null && frame.hasPointerCapture?.(event.pointerId)) frame.releasePointerCapture(event.pointerId);
+    if (event.pointerId != null && captureHandle?.hasPointerCapture?.(event.pointerId)) captureHandle.releasePointerCapture(event.pointerId);
     if (!imageCropDirty) return;
     imageCropDirty = false;
     saveLayout();
   };
   frame.addEventListener("pointerup", stop);
   frame.addEventListener("pointercancel", stop);
+}
+
+function bindImageContentPan(target, node) {
+  let drag = null;
+  target.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !isImageCropTarget(node) || !canEditCurrentDocument()) return;
+    if (event.target.closest(".image-crop-handle, .h, .resize-handle")) return;
+    event.stopPropagation();
+    event.preventDefault();
+    drag = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      box: getImageFramePixels(node)
+    };
+    target.setPointerCapture(event.pointerId);
+  });
+  target.addEventListener("pointermove", (event) => {
+    if (!drag || drag.pointerId !== event.pointerId || (event.buttons & 1) !== 1) return;
+    const dx = (event.clientX - drag.x) / getDesktopZoom();
+    const dy = (event.clientY - drag.y) / getDesktopZoom();
+    commitImageFramePixels(node, { x: drag.box.x + dx, y: drag.box.y + dy, w: drag.box.w, h: drag.box.h });
+    applyImageFrameLayout(node);
+  });
+  const stop = (event) => {
+    if (!drag || (event.pointerId != null && drag.pointerId !== event.pointerId)) return;
+    drag = null;
+    if (event.pointerId != null && target.hasPointerCapture?.(event.pointerId)) target.releasePointerCapture(event.pointerId);
+    if (!imageCropDirty) return;
+    imageCropDirty = false;
+    saveLayout();
+  };
+  target.addEventListener("pointerup", stop);
+  target.addEventListener("pointercancel", stop);
 }
 
 function createImageElement(src) {
@@ -19140,6 +19233,7 @@ function createShapeImage(opts = {}, doSave = true) {
   ghostStage.className = "shape-image-stage";
   ghostStage.appendChild(createImageElement(src));
   ghost.appendChild(ghostStage);
+  bindImageContentPan(ghost, node);
 
   const viewport = document.createElement("div");
   viewport.className = "shape-image-viewport";
